@@ -109,3 +109,23 @@ export function dockPlan(shown: { sig: string; open: boolean } | null, next: { s
   if (!shown || shown.sig !== next.sig) return 'mount';
   return shown.open === next.open ? 'none' : 'open';
 }
+
+/** How long after closing the phone menu its list is taken out of the layout if no transitionend came (the close transition lasts 120 ms). */
+export const CLOSE_FALLBACK_MS = 250;
+
+export interface ListPlan {
+  /** Take the `hidden` attribute off the list now (and read its height, so the browser lays it out before data-open flips). */
+  show: boolean;
+  /** Put `hidden` on the list: right away, or once the close transition has ended (`later`, with a timeout fallback). */
+  hide: 'now' | 'later' | null;
+}
+
+/**
+ * What to do with the item list's `hidden` attribute (display: none, which drops every layer and overflowing label paint a phone
+ * browser may leave behind). A desktop never hides it; an open menu shows it first, then animates; a closed phone menu hides it after
+ * the close transition, at once with reduced motion.
+ */
+export function listPlan(open: boolean, desktop: boolean, reducedMotion: boolean): ListPlan {
+  if (desktop || open) return { show: true, hide: null };
+  return { show: false, hide: reducedMotion ? 'now' : 'later' };
+}
