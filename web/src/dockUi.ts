@@ -1,4 +1,4 @@
-import { currentDockItem, DESKTOP_QUERY, DOCK_ITEMS, dockMotion, dockPlan, dockStep, dockVisible, focusLeaves, MENU_ICON, REDUCED_MOTION_QUERY, type DockEvent, type DockFocus, type DockId, type DockState } from './dock';
+import { CLOSE_FALLBACK_MS, currentDockItem, DESKTOP_QUERY, DOCK_ITEMS, dockMotion, dockPlan, dockStep, dockVisible, focusLeaves, listPlan, MENU_ICON, REDUCED_MOTION_QUERY, type DockEvent, type DockFocus, type DockId, type DockState } from './dock';
 import { t } from './i18n';
 import { parseRoute } from './state';
 import type { ThemeChoice } from './theme';
@@ -47,10 +47,67 @@ export function dockView(current: DockId | null, open: boolean, settings: ThemeC
   );
 }
 
+/** The part of an element setOpen touches (a fake in the tests). */
+export interface DockNode {
+  setAttribute(name: string, value: string): void;
+  hidden?: boolean;
+  readonly offsetHeight?: number;
+  addEventListener?(type: string, listener: () => void): void;
+  removeEventListener?(type: string, listener: () => void): void;
+}
+export interface DockRoot {
+  querySelector(selector: string): DockNode | null;
+}
+export interface DockEnv {
+  desktop: boolean;
+  reduced: boolean;
+}
+
+let cancelHide: (() => void) | null = null;
+
+/**
+ * Brings the list's `hidden` attribute in line with the menu: shown before it opens (and laid out, so the stagger transition runs),
+ * hidden after the close transition ended (or a timeout later) on a phone, never hidden on a desktop. `animate` false settles at once.
+ */
+function settleList(list: DockNode | null, open: boolean, env: DockEnv, animate: boolean): void {
+  if (!list) return;
+  cancelHide?.();
+  cancelHide = null;
+  const plan = listPlan(open, env.desktop, env.reduced);
+  if (plan.show) {
+    list.hidden = false;
+    void list.offsetHeight; // a reflow: the items are laid out in their closed state before data-open flips
+  } else if (plan.hide === 'now' || !animate) {
+    list.hidden = true;
+  } else if (plan.hide === 'later') {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const done = (): void => {
+      cancelHide?.();
+      cancelHide = null;
+      list.hidden = true;
+    };
+    list.addEventListener?.('transitionend', done);
+    timer = setTimeout(done, CLOSE_FALLBACK_MS);
+    cancelHide = () => {
+      list.removeEventListener?.('transitionend', done);
+      clearTimeout(timer);
+      timer = undefined;
+    };
+  }
+}
+
+/** Shows or hides the list for a dock just drawn or a layout just switched: no transition is running, so no waiting. */
+export function settleDock(root: DockRoot, open: boolean, env: DockEnv): void {
+  settleList(root.querySelector('.dock-items'), open, env, false);
+}
+
 /** Flips the menu's open state on the dock already shown, the same attributes dockView draws, so the items animate from where they are. */
-export function setOpen(root: { querySelector(selector: string): { setAttribute(name: string, value: string): void } | null }, open: boolean): void {
-  root.querySelector('.dock')?.setAttribute('data-open', String(open));
+export function setOpen(root: DockRoot, open: boolean, env: DockEnv): void {
+  const dock = root.querySelector('.dock');
+  if (open) settleList(root.querySelector('.dock-items'), true, env, true); // unhide and reflow first
+  dock?.setAttribute('data-open', String(open));
   root.querySelector('.dock-toggle')?.setAttribute('aria-expanded', String(open));
+  if (!open) settleList(root.querySelector('.dock-items'), false, env, true);
 }
 
 export interface DockContext {
@@ -86,10 +143,12 @@ export function startDock(ctx: DockContext): { draw: () => void; close: () => vo
     const next = { sig: JSON.stringify(dockView(current, false, theme)), open: state.menu };
     const plan = dockPlan(shown, next);
     shown = next;
-    if (plan === 'open') setOpen(host, state.menu);
+    const env = { desktop: desktop.matches, reduced: reduced.matches };
+    if (plan === 'open') setOpen(host, state.menu, env);
     if (plan !== 'mount') return;
     const key = ctx.focusedKey(host);
     host.replaceChildren(mount(dockView(current, state.menu, theme)));
+    settleDock(host, state.menu, env);
     ctx.restoreFocus(key, host);
     refreshMagnify?.();
   }
@@ -142,6 +201,7 @@ export function startDock(ctx: DockContext): { draw: () => void; close: () => vo
   // Switching between the phone and the desktop layout closes what was open: the menu of one is not the menu of the other.
   desktop.addEventListener?.('change', () => {
     apply('mode');
+    settleDock(host, state.menu, { desktop: desktop.matches, reduced: reduced.matches });
     loadMagnify();
   });
   reduced.addEventListener?.('change', loadMagnify);

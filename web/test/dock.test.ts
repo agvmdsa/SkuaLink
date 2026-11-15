@@ -1,10 +1,10 @@
 import { readFileSync } from 'node:fs';
-import { describe, expect, it } from 'vitest';
-import { currentDockItem, DESKTOP_QUERY, DOCK_ITEMS, dockMotion, dockPlan, dockStep, dockVisible, focusLeaves, menuStep, type DockEvent, type DockId, type DockState } from '../src/dock';
+import { describe, expect, it, vi } from 'vitest';
+import { currentDockItem, DESKTOP_QUERY, DOCK_ITEMS, dockMotion, dockPlan, dockStep, listPlan, CLOSE_FALLBACK_MS, dockVisible, focusLeaves, menuStep, type DockEvent, type DockId, type DockState } from '../src/dock';
 import { approach, DOCK_BASE, DOCK_MAX, DOCK_RANGE, magnify, magnifyFrame, restCentres } from '../src/dockMagnify';
 import { en } from '../src/i18n/en';
 import { parseRoute } from '../src/state';
-import { addRules, dockView, setOpen } from '../src/dockUi';
+import { addRules, dockView, setOpen, settleDock } from '../src/dockUi';
 import type { VNode } from '../src/views';
 
 const all = (n: VNode): VNode[] => [n, ...n.children.flatMap(all)];
@@ -178,8 +178,8 @@ describe('dock styles', () => {
     expect(app).toMatch(/(^|\n)body\s*\{[^}]*flex-direction:\s*column[^}]*min-height:\s*100dvh/);
     expect(app).toMatch(/(^|\n)main\s*\{[^}]*flex:\s*1 0 auto/);
   });
-  it('never fades text (no opacity) and never uses position: fixed', () => {
-    expect(css).not.toMatch(/opacity/);
+  it('never fades text (opacity only 0 or 1, on the menu items) and never uses position: fixed', () => {
+    for (const m of css.matchAll(/opacity:\s*([^;}]*)/g)) expect(m[1]).toMatch(/^[01]$/);
     expect(css).not.toMatch(/position:\s*fixed/);
   });
   it('takes every colour from the tokens', () => expect(css).not.toMatch(/#[0-9a-fA-F]{3,6}\b|rgb\(/));
@@ -196,6 +196,22 @@ describe('dock styles', () => {
     expect(reduced).toMatch(/\.dock/);
   });
   it('sets no display on the dock host, so its hidden attribute hides it', () => expect(rule('\\.dock-host')).not.toMatch(/display:/));
+});
+
+describe('closed menu items and the desktop bar', () => {
+  const css = readFileSync(new URL('../src/styles/dock.css', import.meta.url), 'utf8');
+  const desktop = css.match(/@media \(hover: hover\) and \(pointer: fine\) and \(min-width: 48rem\)\s*\{([\s\S]*?)\n\}/)![1]!;
+  it('closed phone items are invisible, transparent and inert', () => {
+    const closed = css.match(/(?:^|\n)\.dock-items li\s*\{([^}]*)\}/)![1]!;
+    expect(closed).toMatch(/visibility:\s*hidden/);
+    expect(closed).toMatch(/opacity:\s*0/);
+    expect(closed).toMatch(/pointer-events:\s*none/);
+  });
+  it('the phone list is really removed by hidden, whatever display the list sets', () => expect(css).toMatch(/(?:^|\n)\.dock-items\[hidden\]\s*\{[^}]*display:\s*none/));
+  it('the desktop media query neutralises hidden on the list and shows its items', () => {
+    expect(desktop).toMatch(/\.dock-items\[hidden\]\s*\{[^}]*display:\s*grid/);
+    expect(desktop).toMatch(/\.dock-items li\s*\{[^}]*opacity:\s*1/);
+  });
 });
 
 describe('contrast of the dock', () => {
@@ -340,12 +356,94 @@ describe('redrawing the dock', () => {
     const attrs: Record<string, Record<string, string>> = { '.dock': {}, '.dock-toggle': {} };
     const host = { querySelector: (sel: string) => (attrs[sel] ? { setAttribute: (k: string, v: string) => { attrs[sel]![k] = v; } } : null) };
     for (const open of [true, false]) {
-      setOpen(host, open);
+      setOpen(host, open, { desktop: false, reduced: false });
       const v = dockView('characters', open);
       const toggle = all(v).find((n) => n.className === 'dock-toggle')!;
       expect(attrs['.dock']!['data-open']).toBe(v.attrs!['data-open']);
       expect(attrs['.dock-toggle']!['aria-expanded']).toBe(toggle.attrs!['aria-expanded']);
     }
+  });
+});
+
+describe('the item list taken out of the layout', () => {
+  it('is never hidden on a desktop, shown before an open menu animates, and hidden after a phone menu closed (at once with reduced motion)', () => {
+    expect(listPlan(false, true, false)).toEqual({ show: true, hide: null });
+    expect(listPlan(true, true, true)).toEqual({ show: true, hide: null });
+    expect(listPlan(true, false, false)).toEqual({ show: true, hide: null });
+    expect(listPlan(false, false, false)).toEqual({ show: false, hide: 'later' });
+    expect(listPlan(false, false, true)).toEqual({ show: false, hide: 'now' });
+    expect(CLOSE_FALLBACK_MS).toBeGreaterThan(120);
+  });
+
+  function fake() {
+    const log: string[] = [];
+    const listeners = new Set<() => void>();
+    const list = {
+      _hidden: false,
+      get hidden() { return this._hidden; },
+      set hidden(v: boolean) { this._hidden = v; log.push(`hidden=${v}`); },
+      get offsetHeight() { log.push('reflow'); return 10; },
+      setAttribute() {},
+      addEventListener: (_t: string, l: () => void) => listeners.add(l),
+      removeEventListener: (_t: string, l: () => void) => listeners.delete(l),
+    };
+    const dock = { setAttribute: (k: string, v: string) => log.push(`${k}=${v}`) };
+    const toggle = { setAttribute: (k: string, v: string) => log.push(`${k}=${v}`) };
+    const host = { querySelector: (sel: string) => ({ '.dock': dock, '.dock-toggle': toggle, '.dock-items': list })[sel] ?? null };
+    return { host, list, log, listeners };
+  }
+  const phone = { desktop: false, reduced: false };
+
+  it('opens by showing the list, reflowing, and only then setting data-open', () => {
+    const f = fake();
+    f.list._hidden = true;
+    setOpen(f.host, true, phone);
+    expect(f.log.slice(0, 3)).toEqual(['hidden=false', 'reflow', 'data-open=true']);
+    expect(f.list.hidden).toBe(false);
+  });
+  it('closes by hiding the list on transitionend, with a timeout as the fallback', () => {
+    vi.useFakeTimers();
+    try {
+      const a = fake();
+      setOpen(a.host, false, phone);
+      expect(a.list.hidden).toBe(false);
+      [...a.listeners].forEach((l) => l());
+      expect(a.list.hidden).toBe(true);
+      const b = fake();
+      setOpen(b.host, false, phone);
+      vi.advanceTimersByTime(CLOSE_FALLBACK_MS - 1);
+      expect(b.list.hidden).toBe(false);
+      vi.advanceTimersByTime(1);
+      expect(b.list.hidden).toBe(true);
+      expect(b.listeners.size).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it('hides at once with reduced motion, and a reopen cancels a pending hide', () => {
+    vi.useFakeTimers();
+    try {
+      const a = fake();
+      setOpen(a.host, false, { desktop: false, reduced: true });
+      expect(a.list.hidden).toBe(true);
+      const b = fake();
+      setOpen(b.host, false, phone);
+      setOpen(b.host, true, phone);
+      vi.advanceTimersByTime(1000);
+      expect(b.list.hidden).toBe(false);
+      expect(b.listeners.size).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it('settles a freshly drawn or switched dock without waiting: shown on a desktop and when open, hidden on a closed phone', () => {
+    const f = fake();
+    settleDock(f.host, false, phone);
+    expect(f.list.hidden).toBe(true);
+    settleDock(f.host, false, { desktop: true, reduced: false });
+    expect(f.list.hidden).toBe(false);
+    settleDock(f.host, true, phone);
+    expect(f.list.hidden).toBe(false);
   });
 });
 
