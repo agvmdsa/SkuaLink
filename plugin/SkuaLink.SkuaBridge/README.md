@@ -11,7 +11,8 @@ Windows can prove it).
 
 Exactly this, nothing else:
 
-1. **Report** (as before): `hello`, `status` and `log` lines, see "What it sends".
+1. **Report** (as before): `hello`, `status` and `log` lines, plus (AQW-0110) the character's numbers in the status and
+   an `inventory` snapshot line, see "What it sends".
 2. **List scripts** (`listScripts`): the `.cs` files under Skua's scripts folder (`ClientFileSources.SkuaScriptsDIR`,
    `%AppData%\Skua\Scripts`), except Skua's compile cache `Cached-Scripts`, hidden/system files and links, sorted by
    folder then name, at most `SkuaProtocol.MaxScripts` (the answer says `truncated` when cut). Each script travels as
@@ -83,7 +84,8 @@ throwaway project and read in the tag source.
    `Completed.Contains(q => q.ID == id)` with `Completed = Tree.FindAll(x => x.Status == "c")`, so this is the same
    check without a second tree read (Skua's remark on it: "can not always be right"). `CanComplete` is not called. The
    `QuestAccepted` and `QuestTurnedIn` subscriptions and the `IScriptQuest.Tree` name lookup were removed: the active
-   list in the status replaces those two log lines.
+   list in the status replaces those two log lines. AQW-0110 subscribes to `QuestTurnedIn` again, only to ask for an
+   inventory pass (no log line).
 8. **Faction reputation (AQW-0081):** `IScriptInterface.Reputation` -> `IScriptFaction.FactionList` (`List<Faction>`).
    In 1.4.5.0 it is generated from `[ObjectBinding("world.myAvatar.factions", Default = "new()", HasSetter = false)]`:
    one `Flash.GetGameObject<List<Faction>>("world.myAvatar.factions")` call (`getGameObject`, one Flash call), a fresh
@@ -106,6 +108,30 @@ throwaway project and read in the tag source.
   logged out; read on every status, so about every 3 s). A change in either list, a ready flag or a reputation number
   sends a new status; nothing changed sends nothing. Also `control` (`idle`, `running`, `stopping`, `settling`,
   `awaitingOptions`) with `settleSecondsLeft` while settling and `optionsStuck` (see "Commands and control state").
+  Also `profile` (AQW-0110), only while logged in, see below.
+- `status.profile` (AQW-0110): the character's numbers, read on every status (eight plain getters of `IScriptPlayer`, one
+  Flash call each; sent only when something in the status changed, as before):
+  - `level` = `Player.Level` (`world.myAvatar.dataLeaf.intLevel`), `xp` = `XP` (`objData.intExp`), `xpToLevel` =
+    `RequiredXP` (`objData.intExpToLevel`), `gold` = `Gold` (`objData.intGold`), `coins` = `Coins` (`objData.intCoins`),
+    `guild` = `Guild` (`objData.guild.Name`, blank not sent), `classRank` = `CurrentClassRank` (`objData.iRank`),
+    `isMember` = `IsMember` (`objData.iUpgDays >= 0`). Negative numbers are sent as 0.
+  - `className`, `classId`, `classPoints`: the equipped item of category (`sType`) `Class` in the plugin's last inventory
+    pass (name, `ItemID`, quantity `iQty`). Skua has no class points property; `Player.CurrentClass` is never called
+    because every read of it reads the whole inventory again. That `iQty` of a class item is its class points is
+    unverified (U1). Not sent before the first inventory pass; a class changed by hand shows with the next pass.
+  - `bagSlots`, `bankSlots`, `houseSlots`: `Inventory.Slots` (`objData.iBagSlots`), `Bank.Slots` (`objData.iBankSlots`),
+    `House.Slots` (`objData.iHouseSlots`), read once per inventory pass (one small Flash call each), 0 not sent.
+  - A failed read keeps the last profile. A logout or another character clears it (and the class, slots and the last
+    inventory sent), so nothing of one character is reported for another.
+- `inventory` (AQW-0110): `{character, read, items: [{name, quantity, where}], truncated?}`. `where` is `inv`, `house` or
+  `bank`; `read` lists the containers actually read: bag and house always (they arrive with the login), the bank only when
+  its read returned at least one item (`world.bankinfo.items` fills only once the bank was opened in Skua this session;
+  the plugin never opens it), so SkuaLink replaces only those and keeps the bank it knew. Names trimmed, blank names
+  skipped, negative quantities 0, at most 5000 items per container (`truncated` when cut); a line over 1 MB is cut by the
+  protocol (the bank first, it comes last). An empty bag sends nothing (not logged in or not loaded). Sent only when the
+  snapshot changed, and once more after every (re)connect. In the pipe queue it is latest-only, like the status (one
+  marker, the newest line written), and never replayed after a reconnect: a line not yet written when the connection
+  drops is discarded and the plugin reads again on connect. When it is read: see "Cost of the inventory reads".
 - `result` once per command (see below).
 - `log`: bought (quantity = now minus snapshot when positive, else none), sold (name from the snapshot taken before the
   sale), dropped (`Drop: X` for an item offered in the drop list, Skua's `dropItem`, the usual farming case; `Received: X`
@@ -115,7 +141,7 @@ throwaway project and read in the tag source.
   script error (the exception's message with every absolute path reduced to its file name, so no local folder and its
   Windows user name leaves the plugin). Quest accepted / turned in are no longer sent (the active quests travel in the status instead); the two
   kinds stay in the protocol so logs kept by an older version still load.
-- Never: gold, inventory contents, monster kills (`MonsterKilled` is not subscribed).
+- Never: monster kills (`MonsterKilled` is not subscribed), the temporary inventory, item details beyond name and quantity.
 
 ## Commands and control state (AQW-0088)
 
@@ -267,12 +293,14 @@ unit-tested; the Skua-bound part is `ScriptOptions.cs`):
   logged in, map, user name, active quests, factions) runs on one background task, never on Skua's threads.
 - Queues are bounded (256, oldest dropped): the pipe client's line queue and the worker's queue. A status is never
   queued itself: one marker means "write the latest status here", and at most one marker is pending, so status changes
-  during a long disconnect cannot push log lines out or queue repeated writes.
+  during a long disconnect cannot push log lines out or queue repeated writes. The inventory line works the same way
+  with its own marker, but is dropped when the connection ends instead of being written to the next one.
 - Every string sent loses its lone surrogates (an unpaired UTF-16 half that Skua or the game may hand over), because
   the JSON writer refuses them and the whole message would be lost.
 - While SkuaLink is not connected the plugin does no Flash reads at all: no status poll, no inventory snapshot, no
   quest or faction read (log lines still queue, unnamed where a read would be needed). When the pipe connects, `hello` and
-  the last known status are written, then one status read and one snapshot are requested.
+  the last known status are written, then one status read and one snapshot are requested, and an inventory pass is
+  asked for (it runs on the next 3 s poll and is sent even when unchanged).
 - Pipe client: one connect attempt each time (timeout 0: on Windows a longer connect timeout spins a pool thread for the
   whole timeout while the pipe does not exist), then waits 1 s doubling to 30 s, retrying for the plugin's whole life; on
   each connect it writes `hello`, the latest status, then the queue; a write error drops the connection and reconnects;
@@ -294,6 +322,23 @@ empty and the next login reads at once. **Reading `Active` is unverified on a re
 `Active` is meaningful outside a running script, nor whether "ready" matches the game has been checked inside Skua. The
 decision rules live in `src/AqwCompanion.Skua/SkuaQuestRefresh.cs` and are unit-tested without Skua.
 
+## Cost of the inventory reads (unverified on a real Skua)
+
+`Inventory.Items`, `House.Items` and `Bank.Items` are each one `Flash.GetGameObject<List<InventoryItem>>` call
+(`getGameObject`, `IFlashUtil.cs:90-118`). The AS3 side answers `JSON.stringify` of the whole object
+(`Skua.AS3/skua/src/skua/Main.as:272-275`), every field of every item, descriptions included, wrapped in an XML
+ExternalInterface reply parsed with `XElement.Parse` (`Skua.WPF/Flash/FlashUtil.cs:135-157`). So one call per container,
+but the reply grows with the item count (order of 1 KB per item), and the call goes through the Flash ActiveX control,
+marshalled to Skua's UI thread. The real time of a big bank read, and whether Skua's window stutters, is unverified (U2).
+
+The schedule (`src/AqwCompanion.Skua/SkuaInventorySchedule.cs`, unit-tested with a fake clock) therefore limits the
+passes. A pass (bag, house, bank and the three slot totals) runs on the plugin's worker, on the 3 s poll, only while
+SkuaLink is connected and a character is logged in. It runs at once when nothing was read since the last login, character
+change or connect; otherwise when an item event asked for it (bought, sold, dropped into the inventory, quest turned in,
+item added to the bank; these fire only while a script runs) and at least the gap has passed since the last pass started;
+and without any event every 5 min (manual play raises no events). The gap is `max(5 s, 10 x the time the last pass
+took)`, capped at 5 min, measured with `Stopwatch`. A request that comes during a pass stays for the next one.
+
 ## Audit: every Skua member the plugin touches
 
 Generated from the compiled DLL's member references (System.Reflection.Metadata) and checked against the source.
@@ -311,22 +356,29 @@ Generated from the compiled DLL's member references (System.Reflection.Metadata)
 | `IScriptEvent.Logout` | event subscription | log "Logged out", status refresh |
 | `IScriptEvent.ReloginTriggered` | event subscription | log "Relogin", status refresh |
 | `IScriptEvent.ScriptStopping` | event subscription (returns `true`, see correction 5) | log "Script error" |
+| `IScriptEvent.QuestTurnedIn` | event subscription (AQW-0110) | asks for an inventory pass |
+| `IScriptEvent.ItemAddedToBank` | event subscription (AQW-0110) | asks for an inventory pass |
 | `INotifyPropertyChanged.PropertyChanged` on Skua's `ScriptManager` | event subscription | `ScriptRunning` / `LoadedScript` changes |
 | `IScriptInterface.Manager` | read | |
 | `IScriptStatus.ScriptRunning` | read | running state |
 | `IScriptStatus.LoadedScript` | read | script name |
 | `IScriptInterface.Player` | read | |
 | `IScriptPlayer.LoggedIn` | read | status, gate for other reads |
-| `IScriptPlayer.Username` | read | status character |
+| `IScriptPlayer.Username` | read | status character, inventory character |
+| `IScriptPlayer.Level`, `.XP`, `.RequiredXP`, `.Gold`, `.Coins`, `.IsMember`, `.Guild`, `.CurrentClassRank` | read (one Flash read each, no cache; on every status while logged in) | status profile (AQW-0110) |
 | `IScriptInterface.Servers` | read | |
 | `IScriptServers.LastName` | read (getter only; the setter is never used) | status server |
 | `IScriptInterface.Map` | read | |
 | `IScriptMap.Name` | read | status map |
 | `IScriptInterface.Inventory` | read | |
-| `IItemContainer<InventoryItem>.Items` | read | name snapshot, bought quantity |
+| `IItemContainer<InventoryItem>.Items` on `Inventory` | read | name snapshot, bought quantity, inventory pass |
+| `IScriptInterface.House`, `IScriptInterface.Bank` | read | inventory pass (AQW-0110) |
+| `House.Items`, `Bank.Items` (`IItemContainer<InventoryItem>.Items`) | read (generated getter, one Flash call each, no cache written: `ObjectBindingGenerator.cs:76-96`) | inventory pass (AQW-0110) |
+| `Inventory.Slots`, `Bank.Slots`, `House.Slots` (`ILimitedInventory.Slots`) | read (generated getter, one Flash call each, no cache written) | status profile slots, once per inventory pass (AQW-0110) |
 | `InventoryItem.CharItemID` | read | snapshot key |
+| `InventoryItem.Equipped`, `ItemBase.ID`, `ItemBase.CategoryString` | read | equipped class of the inventory pass (AQW-0110) |
 | `ItemBase.Name` | read | item names |
-| `ItemBase.Quantity` | read | bought quantity |
+| `ItemBase.Quantity` | read | bought quantity, inventory quantities, class points |
 | `IScriptInterface.Quests` | read | |
 | `IScriptQuest.Active` | read (writes Skua's tree cache, see below; at most every 15 s) | status quests |
 | `Quest.ID`, `Quest.Name`, `Quest.Status` | read | status quests, ready flag (`Status == "c"`) |
@@ -350,12 +402,15 @@ Framework WPF members (not Skua's): `Application.Current`, `Application.Windows`
 shows).
 
 Removed in AQW-0076: the `IScriptEvent.QuestAccepted` and `IScriptEvent.QuestTurnedIn` subscriptions and the
-`IScriptQuest.Tree` read (it only named those two log lines). No other Skua member is referenced (the one messenger
+`IScriptQuest.Tree` read (it only named those two log lines); AQW-0110 subscribes to `QuestTurnedIn` again, only to ask
+for an inventory pass. Never called: `Bank.Load` (it sends a game packet, `%xt%zm%loadBank%`), `Bank.Loaded` (not relied
+on, U3), `Player.CurrentClass` (re-reads the whole inventory). No other Skua member is referenced (the one messenger
 `Send` of `LoadScriptMessage` above is found by name, not referenced). In particular nothing calls the game's `Send`, `Flash`, `Shops`, `Options`, `RestartScriptAsync`, `Compile`, `CanComplete`, `Inventory.Sell` or
 any setter; `SetLoadedScript`, `StartScript` and `StopScript` are called only by the `start` and `stop` commands above
 (a discovery start stops its script itself). `Config.Set`, `Save`, `Load` and `Configure` are not called: the options file
 is written directly, in Skua's format. Some getters above are implemented by Skua as Flash reads (`isLoggedIn`,
-`world.strMapName`, `world.myAvatar.items`, `world.myAvatar.factions`, `world.questTree`, `loginInfo.strUsername`); they read game objects and
+`world.strMapName`, `world.myAvatar.items`, `world.myAvatar.houseitems`, `world.bankinfo.items`, `world.myAvatar.factions`,
+`world.questTree`, `loginInfo.strUsername`, the `world.myAvatar.objData` / `dataLeaf` numbers); they read game objects and
 change nothing.
 
 Apart from the commands (load, start and stop a script, on SkuaLink's request), the plugin never calls anything that
@@ -398,6 +453,18 @@ Only the owner's Windows can prove these; the full step-by-step list is kept out
   - The faction list read every 3 s: its cost with about 50 factions (the 0.4.0 item "reputation cost every 3 s"), that it
     matches the game's Reputation panel, and that `Rep` / `RequiredRep` are the in-rank progress and the rank step (0 at
     rank 10).
+- **Profile and inventory (AQW-0110):**
+  - U1. Class points: "Class points" matches the game for the equipped class (the plugin uses the class item's quantity,
+    `iQty`). A class changed by hand shows its new name and rank within 5 min (at once if a script is running and buys or
+    drops something).
+  - U2. Read cost: with a big bank (hundreds or thousands of items) opened in Skua, Skua's window does not visibly
+    stutter on each read (at most one every 5 s, and one every 5 min without events). Note how long a read seems to take.
+  - U3. Bank: before the bank is opened in Skua this session, the Overview shows the bank items saved last time (or
+    none); after it is opened, the bank items count in the Hard Farms within 5 min; closing the bank window does not erase
+    them. Nothing depends on Skua's `Bank.Loaded`.
+  - U4. House: the house items appear right after login, without visiting the house.
+  - U14. Events: with a script running, buying, selling, picking up a drop, turning in a quest and a drop that goes
+    straight to the bank update the Hard Farms within seconds.
 - **Control (AQW-0088):**
   - The two-way pipe connects to the new SkuaLink; that Windows refuses the `InOut` client of an older SkuaLink's
     inbound-only pipe with `UnauthorizedAccessException` (so the plugin falls back to send-only) is from the Win32 rules,

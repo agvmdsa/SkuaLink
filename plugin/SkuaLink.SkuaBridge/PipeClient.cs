@@ -32,10 +32,15 @@ internal sealed class PipeClient : IDisposable
 
     private static readonly byte[] NewLine = "\n"u8.ToArray();
 
+    /// <summary>The queue entry that means "send the latest inventory line here"; compared by reference only.</summary>
+    private static readonly string InventoryMarker = new('\u0001', 1);
+
     // A null entry means "send the latest status here". Status itself is never queued, so a reconnect cannot replay an old one,
     // and at most one marker is pending (_statusQueued), so frequent status changes during a long disconnect cannot push log
     // lines out of the bounded queue or queue repeated writes of the same status.
     // A dropped marker clears the flag so the next change queues one again; a reconnect writes the latest status anyway.
+    // Status and inventory are never queued themselves, only a marker each; the latest line is written. The inventory line
+    // follows the same rule (_inventoryQueued, InventoryMarker) but is never re-sent after a reconnect: the plugin reads it again.
     private readonly Channel<string?> _queue;
 
     private readonly CancellationTokenSource _cancel = new();
@@ -45,6 +50,8 @@ internal sealed class PipeClient : IDisposable
     private readonly Action<SkuaCommand>? _onCommand;
     private string? _statusLine;
     private int _statusQueued;
+    private string? _inventoryLine;
+    private int _inventoryQueued;
     private bool _connected;
     private Task? _loop;
     private bool _disposed;
@@ -58,6 +65,10 @@ internal sealed class PipeClient : IDisposable
                 if (dropped is null)
                 {
                     Volatile.Write(ref _statusQueued, 0);
+                }
+                else if (ReferenceEquals(dropped, InventoryMarker))
+                {
+                    Volatile.Write(ref _inventoryQueued, 0);
                 }
             });
         _helloLine = SkuaLine.ToLine(new HelloMessage(hello));
@@ -103,6 +114,14 @@ internal sealed class PipeClient : IDisposable
                 if (Interlocked.Exchange(ref _statusQueued, 1) == 0 && !_queue.Writer.TryWrite(null))
                 {
                     Volatile.Write(ref _statusQueued, 0);
+                }
+            }
+            else if (message is InventoryMessage)
+            {
+                Volatile.Write(ref _inventoryLine, line);
+                if (Interlocked.Exchange(ref _inventoryQueued, 1) == 0 && !_queue.Writer.TryWrite(InventoryMarker))
+                {
+                    Volatile.Write(ref _inventoryQueued, 0);
                 }
             }
             else
@@ -212,6 +231,8 @@ internal sealed class PipeClient : IDisposable
             finally
             {
                 Volatile.Write(ref _connected, false);
+                // A snapshot read for a dropped connection is never written to the next one; the plugin reads again on connect.
+                Volatile.Write(ref _inventoryLine, null);
                 await EndAsync(pipe, connection, reading).ConfigureAwait(false);
             }
 
@@ -345,6 +366,21 @@ internal sealed class PipeClient : IDisposable
 
             while (reader.TryRead(out var entry))
             {
+                if (ReferenceEquals(entry, InventoryMarker))
+                {
+                    // Cleared before the line is read, like the status. Never remembered as unsent: a reconnect reads it again.
+                    Volatile.Write(ref _inventoryQueued, 0);
+                    var inventory = Volatile.Read(ref _inventoryLine);
+                    if (inventory is null)
+                    {
+                        continue;
+                    }
+
+                    remember(null);
+                    await WriteAsync(pipe, inventory, ct).ConfigureAwait(false);
+                    continue;
+                }
+
                 if (entry is null)
                 {
                     // Cleared before the status is read: a change from here on queues a new marker, so none is missed.

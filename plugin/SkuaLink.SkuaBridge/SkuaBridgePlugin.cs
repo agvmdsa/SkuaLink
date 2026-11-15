@@ -15,7 +15,10 @@ namespace SkuaLink.SkuaBridge;
 /// action), so it is read at most every 15 s. From SkuaLink it accepts exactly five commands: list the scripts in Skua's
 /// scripts folder, read and write a script's options file, start a script by id (closing its options dialog), and stop the
 /// running script (<see cref="SkuaCommandHandler"/>, through <see cref="ScriptControl"/> and <see cref="ScriptOptions"/>);
-/// those are the only things it does that change Skua's state, and it never sends anything to the game. It never lets an exception reach Skua. See README.md for the audited list of Skua members.
+/// those are the only things it does that change Skua's state, and it never sends anything to the game. Besides the status it
+/// reports the character's numbers (eight plain getters per status) and an inventory snapshot (bag, house and the bank once
+/// opened in Skua; at most one pass per 5 s, more when a pass is slow, and one every 5 min). It never lets an exception reach
+/// Skua. See README.md for the audited list of Skua members.
 /// </summary>
 public sealed class SkuaBridgePlugin : ISkuaPlugin
 {
@@ -67,9 +70,18 @@ public sealed class SkuaBridgePlugin : ISkuaPlugin
     private IReadOnlyList<SkuaFaction>? _factions;
     private bool _mapRead;
     private string? _lastMap;
+    private readonly SkuaInventorySchedule _inventorySchedule = new(Now); // Thread-safe: item events request from Skua's threads.
+    private SkuaProfile? _profile;
+    private SkuaClassFacts? _class;
+    private SkuaSlotFacts? _slots;
+    private SkuaInventory? _lastInventorySent;
+    private string? _lastCharacter;
 
     // Set from any thread (pipe connect, relogin); read and cleared by the worker.
     private volatile bool _questsForced;
+
+    // Set from the pipe thread on every (re)connect; read and cleared by the worker: the next snapshot is sent even if unchanged.
+    private volatile bool _inventoryResend;
 
     // Handlers kept in fields so Unload removes exactly what Load added.
     private readonly ItemBoughtHandler _onBought;
@@ -81,6 +93,8 @@ public sealed class SkuaBridgePlugin : ISkuaPlugin
     private readonly ReloginTriggeredEventHandler _onRelogin;
     private readonly ScriptStoppingHandler _onScriptStopping;
     private readonly PropertyChangedEventHandler _onManagerChanged;
+    private readonly QuestTurnInEventHandler _onTurnedIn;
+    private readonly ItemAddedToBankHandler _onAddedToBank;
 
     public SkuaBridgePlugin()
     {
@@ -102,6 +116,8 @@ public sealed class SkuaBridgePlugin : ISkuaPlugin
         });
         _onScriptStopping = ScriptStopping;
         _onManagerChanged = (_, e) => Safe(() => ManagerChanged(e.PropertyName));
+        _onTurnedIn = _ => Safe(_inventorySchedule.Request);
+        _onAddedToBank = (_, _) => Safe(_inventorySchedule.Request);
     }
 
     public string Name => "SkuaLink Bridge";
@@ -146,6 +162,8 @@ public sealed class SkuaBridgePlugin : ISkuaPlugin
                 {
                     // hello and the last known status are already written; read the current state now.
                     _questsForced = true;
+                    _inventoryResend = true;
+                    _inventorySchedule.Request();
                     RequestStatus();
                     RequestSnapshot();
                 },
@@ -287,6 +305,8 @@ public sealed class SkuaBridgePlugin : ISkuaPlugin
         events.Logout += _onLogout;
         events.ReloginTriggered += _onRelogin;
         events.ScriptStopping += _onScriptStopping;
+        events.QuestTurnedIn += _onTurnedIn;
+        events.ItemAddedToBank += _onAddedToBank;
     }
 
     private void RemoveEvents(IScriptEvent events)
@@ -299,6 +319,8 @@ public sealed class SkuaBridgePlugin : ISkuaPlugin
         Safe(() => events.Logout -= _onLogout);
         Safe(() => events.ReloginTriggered -= _onRelogin);
         Safe(() => events.ScriptStopping -= _onScriptStopping);
+        Safe(() => events.QuestTurnedIn -= _onTurnedIn);
+        Safe(() => events.ItemAddedToBank -= _onAddedToBank);
     }
 
     // ---- Event handlers (Skua's threads: cheap, never block, never throw) -----------------------------------------
@@ -317,6 +339,8 @@ public sealed class SkuaBridgePlugin : ISkuaPlugin
             {
                 ReplaceSnapshot(items);
             }
+
+            _inventorySchedule.Request();
         }, delay: BoughtSettle);
     }
 
@@ -325,6 +349,7 @@ public sealed class SkuaBridgePlugin : ISkuaPlugin
         // The item may already be gone from the inventory: the name comes from the snapshot taken before the sale.
         Log(SkuaLogFormatter.Sold(Now(), _names.NameOf(charItemId), charItemId, quantitySold, cost, isAc));
         RequestSnapshot();
+        _inventorySchedule.Request();
     }
 
     private void Dropped(ItemBase? item, bool addedToInv)
@@ -333,6 +358,7 @@ public sealed class SkuaBridgePlugin : ISkuaPlugin
         if (addedToInv)
         {
             RequestSnapshot();
+            _inventorySchedule.Request();
         }
     }
 
@@ -490,6 +516,7 @@ public sealed class SkuaBridgePlugin : ISkuaPlugin
                     // ScriptRunning is a plain property, not a Flash read.
                     Safe(() => _commands?.Tick());
                     Safe(PublishStatus);
+                    Safe(ReadInventoryIfDue);
                 }
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -512,6 +539,19 @@ public sealed class SkuaBridgePlugin : ISkuaPlugin
 
         _lastStatusStart = Stopwatch.GetTimestamp();
         var loggedIn = bot.Player.LoggedIn;
+        var character = loggedIn ? bot.Player.Username?.Trim() : null;
+        if (!loggedIn || !string.Equals(character, _lastCharacter, StringComparison.OrdinalIgnoreCase))
+        {
+            // A logout or another character: nothing of the previous one may be reported for this one.
+            _profile = null;
+            _class = null;
+            _slots = null;
+            _lastInventorySent = null;
+            _inventorySchedule.Reset();
+        }
+
+        _lastCharacter = character;
+        var profile = loggedIn ? ReadProfile(bot) : null;
         var map = loggedIn ? bot.Map.Name : null;
 
         // Skua raises MapChanged only while a script runs, so the settle after a stop sees map changes here (every 3 s).
@@ -542,7 +582,8 @@ public sealed class SkuaBridgePlugin : ISkuaPlugin
             ReadFactions(bot, loggedIn),
             _control?.State,
             _control?.SettleSecondsLeft,
-            _control?.OptionsStuck ?? false);
+            _control?.OptionsStuck ?? false,
+            profile);
 
         // Sent only when something changed, quests, ready flags and reputation included (SkuaStatus compares both lists by content).
         if (status != _lastStatus)
@@ -559,6 +600,84 @@ public sealed class SkuaBridgePlugin : ISkuaPlugin
 
         _wasLoggedIn = loggedIn;
     }
+
+    /// <summary>Eight plain getters (one Flash read each, see the README audit); a failed read keeps the last profile.</summary>
+    private SkuaProfile? ReadProfile(IScriptInterface bot)
+    {
+        SkuaProfileReading? reading;
+        try
+        {
+            var p = bot.Player;
+            reading = new SkuaProfileReading(p.Level, p.XP, p.RequiredXP, p.Gold, p.Coins, p.IsMember, p.Guild, p.CurrentClassRank);
+        }
+        catch (Exception)
+        {
+            reading = null;
+        }
+
+        _profile = SkuaProfileRead.Next(_profile, reading, _class, _slots);
+        return _profile;
+    }
+
+    /// <summary>
+    /// One inventory pass on the worker, only while SkuaLink is connected and a character is logged in: bag, house and bank (three
+    /// plain getters, each one Flash call returning the JSON of every item; none writes a Skua cache) and the three slot totals.
+    /// Never <c>Bank.Load()</c> (it sends a game packet) and never <c>Player.CurrentClass</c> (it reads the whole inventory again).
+    /// The snapshot goes out only when it changed or after a (re)connect; the status follows at once with the class and slots.
+    /// </summary>
+    private void ReadInventoryIfDue()
+    {
+        if (_bot is not { } bot || Volatile.Read(ref _unloaded) || !Connected || !bot.Player.LoggedIn || !_inventorySchedule.Due())
+        {
+            return;
+        }
+
+        if (_inventoryResend)
+        {
+            _inventoryResend = false;
+            _lastInventorySent = null;
+        }
+
+        _inventorySchedule.Started();
+        _lastSnapshotStart = Stopwatch.GetTimestamp();
+        var watch = Stopwatch.StartNew();
+        List<InventoryItem>? bag = null, house = null, bank = null;
+        SkuaSlotFacts? slots = null;
+        try
+        {
+            bag = bot.Inventory.Items is { } b ? [.. b] : null;
+            house = bot.House.Items is { } h ? [.. h] : null;
+            bank = bot.Bank.Items is { } k ? [.. k] : null;
+            slots = new SkuaSlotFacts(bot.Inventory.Slots, bot.Bank.Slots, bot.House.Slots);
+        }
+        catch (Exception)
+        {
+            // A failed read keeps the last snapshot; the next pass tries again.
+        }
+        finally
+        {
+            _inventorySchedule.Finished(watch.Elapsed);
+        }
+
+        if (bag is { Count: > 0 })
+        {
+            ReplaceSnapshot(bag);
+            _class = SkuaInventoryRead.EquippedClass(bag.Where(i => i is not null).Select(i => (i.ID, (string?)i.Name, i.Quantity, i.Equipped, (string?)i.CategoryString)));
+            _slots = slots ?? _slots;
+        }
+
+        var snapshot = SkuaInventoryRead.Build(bot.Player.Username, Pairs(bag), Pairs(bank), Pairs(house));
+        if (snapshot is not null && snapshot != _lastInventorySent)
+        {
+            _lastInventorySent = snapshot;
+            _client?.Send(new InventoryMessage(snapshot));
+        }
+
+        RequestStatus();
+    }
+
+    private static List<(string? Name, int Quantity)>? Pairs(List<InventoryItem>? items) =>
+        items?.Where(i => i is not null).Select(i => ((string?)i.Name, i.Quantity)).ToList();
 
     /// <summary>The inventory, or null when it cannot be read (not logged in, game not loaded, or Skua answered with nothing).</summary>
     private List<InventoryItem>? ReadInventory()

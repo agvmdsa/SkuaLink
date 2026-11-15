@@ -1,0 +1,55 @@
+using AqwCompanion.Skua;
+
+namespace AqwCompanion.Tests.Skua;
+
+public class SkuaInventoryReadTests
+{
+    private static List<(string? Name, int Quantity)> Items(params string[] names) => [.. names.Select(n => ((string?)n, 1))];
+
+    [Fact]
+    public void Bag_and_house_are_always_read_together_and_the_bank_only_when_it_has_items()
+    {
+        var a = SkuaInventoryRead.Build("Hero", Items("Sword"), [], Items("Statue"))!;
+        Assert.Equal(["inv", "house"], a.Read);
+        var b = SkuaInventoryRead.Build("Hero", Items("Sword"), Items("Old Axe"), [])!;
+        Assert.Equal(["inv", "house", "bank"], b.Read);
+        Assert.Equal([new SkuaItem("Sword", 1, "inv"), new SkuaItem("Old Axe", 1, "bank")], b.Items);
+    }
+
+    [Fact]
+    public void An_empty_or_missing_bag_means_nothing_to_report()
+    {
+        Assert.Null(SkuaInventoryRead.Build("Hero", [], Items("Axe"), Items("Statue")));
+        Assert.Null(SkuaInventoryRead.Build("Hero", null, null, null));
+    }
+
+    [Fact]
+    public void Blank_names_are_skipped_names_trimmed_and_negative_quantities_zero()
+    {
+        var inv = SkuaInventoryRead.Build(" Hero ", [("  Sword ", -3), ("", 5), (null, 1)], null, null)!;
+        Assert.Equal("Hero", inv.Character);
+        Assert.Equal([new SkuaItem("Sword", 0, "inv")], inv.Items);
+    }
+
+    [Fact]
+    public void Each_container_is_capped_at_5000_and_the_cut_is_flagged()
+    {
+        var bag = Enumerable.Range(0, 5001).Select(i => ((string?)$"I{i}", 1)).ToList();
+        var inv = SkuaInventoryRead.Build("Hero", bag, null, null)!;
+        Assert.Equal(5000, inv.Items.Count);
+        Assert.True(inv.Truncated);
+    }
+
+    [Fact]
+    public void The_equipped_class_is_the_equipped_item_of_category_class()
+    {
+        var facts = SkuaInventoryRead.EquippedClass(
+        [
+            (1, "Sword", 1, true, "Sword"),
+            (2, "Ninja", 2400, false, "Class"),
+            (31, " Void Highlord ", 302500, true, "class"),
+        ]);
+        Assert.Equal(new SkuaClassFacts(31, "Void Highlord", 302500), facts);
+        Assert.Null(SkuaInventoryRead.EquippedClass([(2, "Ninja", 2400, false, "Class")]));
+    }
+}
