@@ -1,4 +1,5 @@
 using System.Globalization;
+using AqwCompanion.App.Characters;
 using AqwCompanion.App.Infrastructure.Formatting;
 using AqwCompanion.Core.Capture;
 using AqwCompanion.Core.Reputation;

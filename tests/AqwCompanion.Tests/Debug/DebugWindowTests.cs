@@ -13,12 +13,13 @@ public class DebugWindowTests
     public void The_debug_window_holds_the_capture_card_and_the_diagnostics_export()
     {
         var built = MainViewModelBuilder.Create();
-        var window = new DebugWindow { DataContext = new DebugViewModel(built.Main.GameData, built.Main.Diagnostics, built.Main.HardFarms) };
+        var gameData = new CaptureRig().CreateViewModel();
+        var window = new DebugWindow { DataContext = new DebugViewModel(gameData, built.Main.Diagnostics, built.Main.HardFarms) };
 
         window.Show();
 
         var capture = window.FindControl<CaptureDebugView>("DebugCapture")!;
-        Assert.Same(built.Main.GameData, capture.DataContext);
+        Assert.Same(gameData, capture.DataContext);
         Assert.NotNull(capture.FindControl<Button>("GameDataStartButton"));
         var diagnostics = window.FindControl<DiagnosticsView>("DebugDiagnostics")!;
         Assert.Same(built.Main.Diagnostics, diagnostics.DataContext);
@@ -28,7 +29,8 @@ public class DebugWindowTests
     public void The_hard_farms_report_is_in_a_collapsed_section_bound_to_the_hard_farms_view_model()
     {
         var built = MainViewModelBuilder.Create();
-        var window = new DebugWindow { DataContext = new DebugViewModel(built.Main.GameData, built.Main.Diagnostics, built.Main.HardFarms) };
+        var gameData = new CaptureRig().CreateViewModel();
+        var window = new DebugWindow { DataContext = new DebugViewModel(gameData, built.Main.Diagnostics, built.Main.HardFarms) };
 
         window.Show();
 

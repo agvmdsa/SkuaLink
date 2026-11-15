@@ -38,7 +38,7 @@ public class CompositionRootTests
         var main = services.GetRequiredService<MainViewModel>();
         Assert.Equal(AppInfo.ProductName, main.Title);
         Assert.NotNull(main.Diagnostics);
-        Assert.NotNull(main.GameData);
+        Assert.NotNull(main.Characters);
     }
 
     [Fact]

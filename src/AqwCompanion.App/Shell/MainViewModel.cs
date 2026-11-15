@@ -1,6 +1,6 @@
+using AqwCompanion.App.Characters;
 using AqwCompanion.App.Debug;
 using AqwCompanion.App.Diagnostics;
-using AqwCompanion.App.GameData;
 using AqwCompanion.App.HardFarms;
 using AqwCompanion.App.Settings;
 using CommunityToolkit.Mvvm.Input;
@@ -10,7 +10,7 @@ namespace AqwCompanion.App.Shell;
 public sealed partial class MainViewModel(
     DiagnosticsViewModel diagnostics,
     HardFarmsViewModel hardFarms,
-    GameDataViewModel gameData,
+    CharactersViewModel characters,
     SettingsViewModel settings,
     ISettingsDialog settingsDialog,
     DebugModeController debug)
@@ -18,7 +18,7 @@ public sealed partial class MainViewModel(
     public string Title { get; } = AppInfo.ProductName;
     public DiagnosticsViewModel Diagnostics { get; } = diagnostics;
     public HardFarmsViewModel HardFarms { get; } = hardFarms;
-    public GameDataViewModel GameData { get; } = gameData;
+    public CharactersViewModel Characters { get; } = characters;
     public SettingsViewModel Settings { get; } = settings;
     public DebugModeController Debug { get; } = debug;
 

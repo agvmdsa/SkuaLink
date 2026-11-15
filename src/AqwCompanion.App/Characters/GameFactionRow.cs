@@ -1,4 +1,4 @@
-namespace AqwCompanion.App.GameData;
+namespace AqwCompanion.App.Characters;
 
 /// <summary>
 /// One faction standing, with the numbers already formatted ("N0", invariant culture). <paramref name="Fraction"/> is the share of the

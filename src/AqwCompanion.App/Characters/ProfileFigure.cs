@@ -1,4 +1,4 @@
-namespace AqwCompanion.App.GameData;
+namespace AqwCompanion.App.Characters;
 
 /// <summary>One number of the character strip on the dashboard, already formatted ("N0", invariant culture).</summary>
 public sealed record ProfileFigure(string Label, string Value);

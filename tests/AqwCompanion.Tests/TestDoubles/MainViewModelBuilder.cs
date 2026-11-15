@@ -1,25 +1,27 @@
 using AqwCompanion.App;
+using AqwCompanion.App.Characters;
 using AqwCompanion.App.Debug;
 using AqwCompanion.App.Diagnostics;
-using AqwCompanion.App.GameData;
 using AqwCompanion.App.HardFarms;
 using AqwCompanion.App.Settings;
 using AqwCompanion.App.Shell;
 using AqwCompanion.Core.Diagnostics;
 using AqwCompanion.Core.Forgetting;
+using AqwCompanion.Phone.Characters;
 
 namespace AqwCompanion.Tests.TestDoubles;
 
-/// <summary>A <see cref="MainViewModel"/> over a capture rig and fakes, with nothing stored or opened.</summary>
+/// <summary>A <see cref="MainViewModel"/> over a character book, a fake Skua hub and fakes, with nothing stored or opened.</summary>
 public static class MainViewModelBuilder
 {
     public sealed record Built(
-        MainViewModel Main, CaptureRig Rig, FakeActiveInventory Inventory, FakeSettingsDialog Dialog, FakeDebugWindowHost DebugHost,
-        FakeAppSettingsStore Settings, FakeHardFarmSync Sync, HardFarmStore Store);
+        MainViewModel Main, CharacterBook Book, FakeSkua Skua, FakeActiveInventory Inventory, FakeSettingsDialog Dialog,
+        FakeDebugWindowHost DebugHost, FakeAppSettingsStore Settings, FakeHardFarmSync Sync, HardFarmStore Store);
 
-    public static Built Create(CaptureRig? rig = null, Action<Action>? onUiThread = null)
+    public static Built Create(Action<Action>? onUiThread = null, CharacterBook? book = null, FakeSkua? skua = null)
     {
-        rig ??= new CaptureRig();
+        book ??= new CharacterBook(new MemoryCharacterBookStore(), () => DateTimeOffset.UtcNow);
+        skua ??= new FakeSkua();
         var inventory = new FakeActiveInventory();
         var dialog = new FakeSettingsDialog();
         var debugHost = new FakeDebugWindowHost();
@@ -31,10 +33,10 @@ public static class MainViewModelBuilder
         var main = new MainViewModel(
             new DiagnosticsViewModel(paths, new DiagnosticsExporter(new SnapshotRedactor())),
             new HardFarmsViewModel(store, sync, inventory, new FakeUrlLauncher()),
-            rig.CreateViewModel(onUiThread),
+            new CharactersViewModel(book, skua, new CharacterSelection(book, skua), onUiThread),
             settings,
             dialog,
             new DebugModeController(settings, debugHost));
-        return new Built(main, rig, inventory, dialog, debugHost, settingsStore, sync, store);
+        return new Built(main, book, skua, inventory, dialog, debugHost, settingsStore, sync, store);
     }
 }

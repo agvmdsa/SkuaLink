@@ -95,6 +95,8 @@ public static class CompositionRoot
             sp.GetRequiredService<CharacterBook>(), sp.GetRequiredService<CharacterSelection>(), OnUiThread));
         services.AddSingleton<HardFarmsCheck>();
         services.AddSingleton(sp => new GameDataViewModel(sp.GetRequiredService<CaptureSession>(), OnUiThread));
+        services.AddSingleton(sp => new CharactersViewModel(
+            sp.GetRequiredService<CharacterBook>(), sp.GetRequiredService<ISkuaFeed>(), sp.GetRequiredService<CharacterSelection>(), OnUiThread));
         services.AddSingleton<IAppSettingsStore>(sp => new JsonAppSettingsStore(sp.GetRequiredService<AppPaths>().SettingsPath));
         services.AddSingleton<IProcessRunner, ProcessRunner>();
         services.AddSingleton<IAutoStart>(sp => new ScheduledTaskAutoStart(

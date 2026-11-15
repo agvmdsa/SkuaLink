@@ -1,4 +1,5 @@
 using AqwCompanion.App;
+using AqwCompanion.App.Characters;
 using AqwCompanion.App.GameData;
 using AqwCompanion.App.Infrastructure.Formatting;
 using AqwCompanion.Capture;
