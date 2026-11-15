@@ -21,6 +21,16 @@ public static class SkuaProtocol
     /// <summary>The highest count a merged drop line carries.</summary>
     public const int MaxCount = 99999;
 
+    /// <summary>At most this many items per container travel in one inventory line.</summary>
+    public const int MaxInventoryItems = 5000;
+
+    /// <summary>The line cap of an inventory snapshot (plugin to app only); never above <see cref="MaxResultLineBytes"/>, the app reader's cap.</summary>
+    public const int MaxInventoryLineBytes = 1024 * 1024;
+
+    public const string ContainerInventory = "inv";
+    public const string ContainerBank = "bank";
+    public const string ContainerHouse = "house";
+
     /// <summary>
     /// At most this many scripts travel in one result; a list cut by this cap or by <see cref="MaxResultLineBytes"/> is
     /// marked <see cref="ResultMessage.Truncated"/>.
@@ -46,6 +56,9 @@ public static class SkuaProtocol
 
     /// <summary>The values of <see cref="SkuaOptionDef.Type"/>; anything else travels as <c>other</c>.</summary>
     public static readonly IReadOnlyList<string> OptionTypes = ["bool", "int", "double", "string", "enum", "other"];
+
+    /// <summary>The values of <see cref="SkuaItem.Where"/> and of an inventory's read list; anything else is dropped.</summary>
+    public static readonly IReadOnlyList<string> InventoryContainers = [ContainerInventory, ContainerBank, ContainerHouse];
 
     public const string PipeName = "SkuaLink.SkuaBridge.v1";
 

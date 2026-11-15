@@ -1,0 +1,1 @@
+{"v":1,"type":"inventory","character":"Hero","read":["inv","house","bank"],"items":[{"name":"Dragon Scale","qty":250,"where":"inv"},{"name":"Old Sword","qty":1,"where":"bank"}],"truncated":true}
