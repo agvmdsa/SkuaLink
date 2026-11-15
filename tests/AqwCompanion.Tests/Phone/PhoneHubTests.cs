@@ -1,4 +1,5 @@
 using AqwCompanion.Core.Feed;
+using AqwCompanion.Phone.Characters;
 using AqwCompanion.Phone.Hub;
 using AqwCompanion.Phone.Notices;
 using AqwCompanion.Phone.Skua;
@@ -389,5 +390,45 @@ public class PhoneHubTests
         feed.Raise();
 
         Assert.Equal(["state"], Drain(sub).Select(m => m.Event));
+    }
+
+    [Fact]
+    public void With_a_character_book_the_state_lists_the_characters_and_a_book_change_publishes_it()
+    {
+        var book = new CharacterBook(new MemoryCharacterBookStore(), () => T0);
+        var skua = new FakeSkua();
+        var hub = new PhoneHub(new FakeFeedSource(Base()), new NoticeEngine(), new NoticeLog(50), () => T0, skua: skua, characters: book);
+        using var sub = hub.Subscribe();
+        book.OnStatus(new SkuaStatus(true, "Hero", null, null, null, false, null));
+        Assert.Equal("Hero", Assert.Single(hub.Current.Characters!).Name);
+        Assert.Contains(Drain(sub), m => m.Event == "state" && m.Json.Contains("\"characters\":[{\"name\":\"Hero\""));
+    }
+
+    [Fact]
+    public void Without_a_character_book_the_state_has_no_characters()
+    {
+        Assert.Null(NewHub().Hub.Current.Characters);
+    }
+
+    [Fact]
+    public void A_hard_farms_change_publishes_the_state()
+    {
+        var book = new CharacterBook(new MemoryCharacterBookStore(), () => T0);
+        var check = new RaisingCheck();
+        var hub = new PhoneHub(new FakeFeedSource(Base()), new NoticeEngine(), new NoticeLog(50), () => T0, characters: book, hardFarms: check);
+        using var sub = hub.Subscribe();
+
+        check.Raise();
+
+        Assert.Equal(["state"], Drain(sub).Select(m => m.Event));
+    }
+
+    private sealed class RaisingCheck : IHardFarmsCheck
+    {
+        public event EventHandler? Changed;
+
+        public FeedHardFarms? Check(AqwCompanion.Core.Inventory.CharacterInventory inventory) => null;
+
+        public void Raise() => Changed?.Invoke(this, EventArgs.Empty);
     }
 }

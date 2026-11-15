@@ -94,6 +94,7 @@ public static class CompositionRoot
         services.AddSingleton<IActiveInventory>(sp => new ActiveInventory(
             sp.GetRequiredService<CharacterBook>(), sp.GetRequiredService<CharacterSelection>(), OnUiThread));
         services.AddSingleton<HardFarmsCheck>();
+        services.AddSingleton<IHardFarmsCheck>(sp => sp.GetRequiredService<HardFarmsCheck>());
         services.AddSingleton(sp => new GameDataViewModel(sp.GetRequiredService<CaptureSession>(), OnUiThread));
         services.AddSingleton(sp => new CharactersViewModel(
             sp.GetRequiredService<CharacterBook>(), sp.GetRequiredService<ISkuaFeed>(), sp.GetRequiredService<CharacterSelection>(), OnUiThread));
@@ -121,7 +122,9 @@ public static class CompositionRoot
         services.AddSingleton(sp => new PhoneHub(
             sp.GetRequiredService<IFeedSource>(), new NoticeEngine(), new NoticeLog(50), () => DateTimeOffset.UtcNow,
             ex => Log.Warning("Phone hub failed: {ExceptionType}", ex.GetType().Name),
-            skua: sp.GetRequiredService<ISkuaFeed>()));
+            skua: sp.GetRequiredService<ISkuaFeed>(),
+            characters: sp.GetRequiredService<CharacterBook>(),
+            hardFarms: sp.GetRequiredService<IHardFarmsCheck>()));
         services.AddSingleton(sp => new SkuaScriptPrefs(
             new SkuaScriptFile(sp.GetRequiredService<AppPaths>().SkuaScriptPrefsPath), () => DateTimeOffset.UtcNow));
         services.AddSingleton(sp => new SkuaOptionCache(
