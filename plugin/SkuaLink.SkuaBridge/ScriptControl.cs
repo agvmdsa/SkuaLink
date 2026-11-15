@@ -10,11 +10,15 @@ namespace SkuaLink.SkuaBridge;
 /// catalog over Skua's scripts folder (<c>ClientFileSources.SkuaScriptsDIR</c>, <c>%AppData%\Skua\Scripts</c>). Every
 /// decision (which id, whether a start is allowed, the answers) is in <see cref="SkuaCommandHandler"/>, which is unit-tested
 /// without Skua. The members used are Skua's plain methods (no Skua.Core, no UI): <c>ScriptRunning</c>,
-/// <c>SetLoadedScript</c>, <c>StartScript</c>, <c>Config</c> and <c>StopScript</c>.
+/// <c>SetLoadedScript</c>, <c>StartScript</c>, <c>Config</c> and <c>StopScript</c>. Before each load, Skua's own script
+/// loader view is told the script too (<see cref="SkuaMessengerBridge"/>, by reflection, best effort), so the Skua window
+/// shows the script a phone start runs.
 /// </summary>
 internal sealed class ScriptControl : ISkuaScriptHost
 {
     private readonly IScriptStatus _manager;
+
+    private readonly SkuaMessengerBridge _loaderView = SkuaMessengerBridge.ForLoadedAssemblies();
 
     public ScriptControl(IScriptStatus manager) => _manager = manager;
 
@@ -22,7 +26,15 @@ internal sealed class ScriptControl : ISkuaScriptHost
 
     public bool ScriptExists(string fullPath) => File.Exists(fullPath);
 
-    public void SetLoadedScript(string fullPath) => _manager.SetLoadedScript(fullPath);
+    /// <summary>
+    /// Skua's loader view learns the script first (its handler also sets the loaded path, the same call as the next line);
+    /// that send never throws and never decides anything: the plugin's own load and start go on as before.
+    /// </summary>
+    public void SetLoadedScript(string fullPath)
+    {
+        _loaderView.TryAnnounceLoadedScript(fullPath);
+        _manager.SetLoadedScript(fullPath);
+    }
 
     /// <summary>Skua compiles on a pool task and runs the script on its own "Script Thread"; this returns once the thread started.</summary>
     public Task<Exception?> StartScript() => _manager.StartScript();

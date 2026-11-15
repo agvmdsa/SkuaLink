@@ -150,6 +150,36 @@ throwaway project and read in the tag source.
   3 s status poll (each change restarts the 10 s). `ScriptRunning` changes and the poll both feed the state; the poll
   (`SkuaCommandHandler.Tick`) also runs while SkuaLink is away (it reads only `ScriptRunning`, no Flash).
 
+## Skua's script loader view (AQW-0108)
+
+Skua's "Load Script" view (`ScriptLoaderViewModel` in Skua.Core) keeps its own file name (`LoadedScript`) and status text
+(`ScriptStatus`), changed only by Skua's messenger messages, never by `IScriptManager`. The plugin loads and starts
+through `IScriptManager`, so before AQW-0108 the Skua window kept showing the script loaded before a phone start (for
+example a Hollowborn bot started by hand, then stopped and replaced from the phone).
+
+- **What is synced.** Right before its own `SetLoadedScript(path)` (every phone start, also a discovery start and the real
+  start after it), the plugin sends Skua's own `LoadScriptMessage(path)` on the `ScriptStatus` channel, as Skua's script
+  repository does (`StrongReferenceMessenger.Default.Send<LoadScriptMessage, int>(new(path), (int)MessageChannels.ScriptStatus)`).
+  The view's handler sets the loaded path (the same call the plugin makes next), the file name and the text
+  "[Script loaded]". Stop needs nothing new: Skua's `ScriptManager` itself sends `ScriptStoppingMessage` and
+  `ScriptStoppedMessage` on every stop, also one the plugin asks for, and the view shows "Stopping..." and "[Stopped]".
+  A discovery start therefore ends with the new name and "[Stopped]".
+- **The status text while running.** Skua sets "[Running]" only inside its own start path (the view's start button or
+  `StartScriptMessage`), and no message sets it alone. `StartScriptMessage` is not sent: its handler asks with dialogs,
+  starts the script itself without waiting (`async void`), and would bypass the plugin's error answer, discovery and
+  options handling. So after a phone start the Skua window shows the new script's name with "[Script loaded]" while it runs.
+- **How.** The plugin references neither Skua.Core nor CommunityToolkit: `SkuaMessengerBridge` (in
+  `src/AqwCompanion.Skua`, unit-tested on the Mac with stand-in types) finds `Skua.Core.Messaging.LoadScriptMessage`,
+  `Skua.Core.Messaging.MessageChannels.ScriptStatus` and `CommunityToolkit.Mvvm.Messaging.StrongReferenceMessenger.Default`
+  with its instance `Send<TMessage, TToken>(TMessage, TToken)` by name among the loaded assemblies, and keeps the result.
+  Anything missing, and any exception (also from a handler), means "not sent": the start goes on exactly as before. An
+  empty path is never sent (the view would open its file dialog). The send runs on the command worker, not through
+  `IDispatcherService`: Skua itself changes the same view from non-UI threads (`ScriptStartedMessage` from the thread
+  that calls `StartScript`, the stop messages from the script thread), and WPF passes such property changes to the UI.
+- **Other receivers.** In Skua 1.4.5.0 the only other `LoadScriptMessage` receiver is the account manager
+  (`AccountManagerViewModel`, which shows a "Script loaded" box), registered only in the separate Skua Manager app, not
+  in the Skua client the plugin runs in.
+
 ## Script options (AQW-0089)
 
 From the Skua 1.4.5.0 source: a script declares its options in fields (`Options`, `MultiOptions`, `OptionsStorage`,
@@ -304,6 +334,7 @@ Generated from the compiled DLL's member references (System.Reflection.Metadata)
 | `IScriptFaction.FactionList` | read (one Flash read of `world.myAvatar.factions`, no cache; on every status) | status factions |
 | `Faction.ID`, `Faction.Name`, `Faction.Rank`, `Faction.TotalRep`, `Faction.Rep`, `Faction.RequiredRep` | read | status factions |
 | `ClientFileSources.SkuaScriptsDIR` (Skua.Core.Models) | read | the scripts folder listed by `listScripts` |
+| `StrongReferenceMessenger.Default.Send<LoadScriptMessage, int>(new(path), (int)MessageChannels.ScriptStatus)` (Skua.Core / CommunityToolkit, by reflection, best effort) | **changes Skua's loader view** (file name, "[Script loaded]", the loaded path) | `start`, right before `SetLoadedScript` (AQW-0108) |
 | `IScriptStatus.SetLoadedScript(string)` | **changes Skua state** | `start`, only when no script runs |
 | `IScriptStatus.StartScript()` | **changes Skua state** | `start` |
 | `IScriptStatus.Config` -> `IScriptOptionContainer.Options`, `.MultipleOptions`, `.OptionsFile` | read | option definitions and the options file, after the plugin's own start; `Config` also identifies the dialog |
@@ -319,8 +350,8 @@ Framework WPF members (not Skua's): `Application.Current`, `Application.Windows`
 shows).
 
 Removed in AQW-0076: the `IScriptEvent.QuestAccepted` and `IScriptEvent.QuestTurnedIn` subscriptions and the
-`IScriptQuest.Tree` read (it only named those two log lines). No other Skua member is referenced. In particular
-nothing calls `Send`, `Flash`, `Shops`, `Options`, `RestartScriptAsync`, `Compile`, `CanComplete`, `Inventory.Sell` or
+`IScriptQuest.Tree` read (it only named those two log lines). No other Skua member is referenced (the one messenger
+`Send` of `LoadScriptMessage` above is found by name, not referenced). In particular nothing calls the game's `Send`, `Flash`, `Shops`, `Options`, `RestartScriptAsync`, `Compile`, `CanComplete`, `Inventory.Sell` or
 any setter; `SetLoadedScript`, `StartScript` and `StopScript` are called only by the `start` and `stop` commands above
 (a discovery start stops its script itself). `Config.Set`, `Save`, `Load` and `Configure` are not called: the options file
 is written directly, in Skua's format. Some getters above are implemented by Skua as Flash reads (`isLoggedIn`,
@@ -372,8 +403,12 @@ Only the owner's Windows can prove these; the full step-by-step list is kept out
     inbound-only pipe with `UnauthorizedAccessException` (so the plugin falls back to send-only) is from the Win32 rules,
     not seen. That fallback must also be checked when the plugin sees a pipe that never reads (`outBufferSize`).
   - Listing: the folder, the names and folders shown, `Cached-Scripts` left out, the time a large scripts folder takes.
-  - Start: the script really starts from the plugin (no Skua UI involved), Skua's loader label (not updated by
-    `SetLoadedScript`), and the text of a compile or version error as it reaches the phone.
+  - Start: the script really starts from the plugin (no Skua UI involved), and the text of a compile or version error
+    as it reaches the phone.
+  - Skua's loader view (AQW-0108): start a script from the PC, stop it and start another from the phone: the Skua window
+    must show the new script's name (the reflection lookup of `LoadScriptMessage`, `MessageChannels` and
+    `StrongReferenceMessenger` has only run against stand-in types). Its status text reads "[Script loaded]" while the
+    script runs (expected, see "Skua's script loader view"), "[Stopped]" after a stop.
   - Stop duration: how long Skua takes from `stop` until `ScriptRunning` turns false, and a script that ignores the stop
     (Skua gives up after about 40 s and the state stays `stopping` until it really ends; a new `stop` tries again).
   - Settling: that 10 s without a map change (seen on the 3 s poll while no script runs) covers Skua's cleanup after a
