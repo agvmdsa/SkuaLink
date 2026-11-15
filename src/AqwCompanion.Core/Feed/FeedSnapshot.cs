@@ -4,9 +4,9 @@ using System.Text.Json.Serialization;
 namespace AqwCompanion.Core.Feed;
 
 /// <summary>
-/// What the local feed tells other programs on this PC (contract 1): the logged-in characters and, for the selected one, its factions
-/// and Hard Farms progress. Only what the dashboard already shows: no ids, e-mail, IP or other players. Fields are only ever added
-/// within a contract number; a breaking change raises it.
+/// What the local feed tells other programs on this PC (contract 1): the characters the Skua plugin reported numbers for (with
+/// their last known figures) and, for the selected one, its factions and Hard Farms progress. Only what the dashboard already
+/// shows: no ids, e-mail, IP or other players. Fields are only ever added within a contract number; a breaking change raises it.
 /// </summary>
 public sealed record FeedSnapshot(
     int Contract,
@@ -18,14 +18,18 @@ public sealed record FeedSnapshot(
 {
     public const int ContractNumber = 1;
 
-    /// <summary>Nothing captured yet and the capture idle.</summary>
-    public static FeedSnapshot Empty { get; } = new(ContractNumber, new FeedCapture("Not capturing.", false), null, [], [], null);
+    /// <summary>No character known yet and no Skua connected.</summary>
+    public static FeedSnapshot Empty { get; } = new(ContractNumber, new FeedCapture("Skua not connected.", false), null, [], [], null);
 }
 
-/// <summary>The capture in words and whether it is listening.</summary>
+/// <summary>The Skua connection in words and whether at least one Skua is connected (the field keeps its contract 1 name).</summary>
 public sealed record FeedCapture(string State, bool Listening);
 
-/// <summary>One logged-in character, identified by its name. <c>Live</c> is true once its connection received live updates.</summary>
+/// <summary>
+/// One character the Skua plugin reported numbers for, identified by its name. <c>Live</c> is true while it is logged in in a
+/// connected Skua; <c>LastLiveUpdateUtc</c> is when its numbers last changed while live and <c>LiveUpdates</c> counts those
+/// changes since SkuaLink started; <c>SavedAtUtc</c> is when the numbers were last read. <c>LastKill</c> is always null since 0.6.0.
+/// </summary>
 public sealed record FeedCharacter(
     string Name,
     int Level,
@@ -36,9 +40,10 @@ public sealed record FeedCharacter(
     FeedFigures Figures,
     FeedKill? LastKill);
 
+/// <summary>The character's figures from the Skua plugin; <c>DaysPlayed</c> is always 0 since 0.6.0 (Skua does not provide it).</summary>
 public sealed record FeedFigures(long Gold, long Exp, long ExpToLevel, int Ac, int ClassPoints, int DaysPlayed);
 
-/// <summary>The gold and experience of the last kill seen (the session keeps one, so only one character carries it).</summary>
+/// <summary>The gold and experience of a last kill; kept for contract 1 readers, never sent since 0.6.0 (Skua does not provide it).</summary>
 public sealed record FeedKill(long Gold, long Exp);
 
 public sealed record FeedFaction(string Name, int Rank, int Rep, long ToNext, double Fraction, bool Max);

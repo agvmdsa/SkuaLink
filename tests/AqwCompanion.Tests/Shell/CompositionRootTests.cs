@@ -55,7 +55,7 @@ public class CompositionRootTests
     }
 
     [Fact]
-    public void Container_resolves_the_active_inventory_over_the_game_data()
+    public void Container_resolves_the_active_inventory_over_the_character_book()
     {
         var paths = new AppPaths(Path.Combine(Path.GetTempPath(), "aqw-tests", Guid.NewGuid().ToString("N")));
 
@@ -64,6 +64,17 @@ public class CompositionRootTests
         var inventory = services.GetRequiredService<IActiveInventory>();
         Assert.IsType<ActiveInventory>(inventory);
         Assert.Null(inventory.Current);
+    }
+
+    [Fact]
+    public void Container_resolves_the_character_selection_and_one_hard_farms_check()
+    {
+        var paths = new AppPaths(Path.Combine(Path.GetTempPath(), "aqw-tests", Guid.NewGuid().ToString("N")));
+
+        using var services = CompositionRoot.Build(paths);
+
+        Assert.Null(services.GetRequiredService<CharacterSelection>().Selected);
+        Assert.Same(services.GetRequiredService<HardFarmsCheck>(), services.GetRequiredService<HardFarmsCheck>());
     }
 
     [Fact]
@@ -89,7 +100,7 @@ public class CompositionRootTests
 
         Assert.IsType<HttpListenerFeedHost>(services.GetRequiredService<ILocalFeedHost>());
         Assert.False(services.GetRequiredService<ILocalFeedHost>().IsRunning);
-        Assert.IsType<SessionFeedSource>(services.GetRequiredService<AqwCompanion.Core.Feed.IFeedSource>());
+        Assert.IsType<CharacterFeedSource>(services.GetRequiredService<AqwCompanion.Core.Feed.IFeedSource>());
         Assert.Equal(paths.FeedTokenPath, services.GetRequiredService<FeedSecretStore>().Path);
         Assert.Equal(paths.FeedTokenPath, services.GetRequiredService<SettingsViewModel>().FeedSecretPath);
         Assert.Equal("Off", services.GetRequiredService<LocalFeedController>().ListeningText is null ? "" : services.GetRequiredService<SettingsViewModel>().FeedStatusText);

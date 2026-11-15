@@ -43,7 +43,7 @@ public class FeedSnapshotTests
         Assert.Empty(empty.Factions);
         Assert.Null(empty.HardFarms);
         Assert.False(empty.Capture.Listening);
-        Assert.Equal("""{"contract":1,"capture":{"state":"Not capturing.","listening":false},"selected":null,"characters":[],"factions":[],"hardFarms":null}""", FeedJson.Serialize(empty));
+        Assert.Equal("""{"contract":1,"capture":{"state":"Skua not connected.","listening":false},"selected":null,"characters":[],"factions":[],"hardFarms":null}""", FeedJson.Serialize(empty));
     }
 
     [Fact]

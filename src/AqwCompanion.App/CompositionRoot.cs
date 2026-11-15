@@ -90,7 +90,10 @@ public static class CompositionRoot
             sp.GetRequiredService<IMainWindowHost>(),
             sp.GetRequiredService<IApplicationExit>(),
             debug: sp.GetRequiredService<DebugModeController>()));
-        services.AddSingleton<IActiveInventory, ActiveInventory>();
+        services.AddSingleton(sp => new CharacterSelection(sp.GetRequiredService<CharacterBook>(), sp.GetRequiredService<ISkuaFeed>()));
+        services.AddSingleton<IActiveInventory>(sp => new ActiveInventory(
+            sp.GetRequiredService<CharacterBook>(), sp.GetRequiredService<CharacterSelection>(), OnUiThread));
+        services.AddSingleton<HardFarmsCheck>();
         services.AddSingleton(sp => new GameDataViewModel(sp.GetRequiredService<CaptureSession>(), OnUiThread));
         services.AddSingleton<IAppSettingsStore>(sp => new JsonAppSettingsStore(sp.GetRequiredService<AppPaths>().SettingsPath));
         services.AddSingleton<IProcessRunner, ProcessRunner>();
@@ -100,8 +103,9 @@ public static class CompositionRoot
         services.AddSingleton(sp => new SettingsViewModel(
             sp.GetRequiredService<IAppSettingsStore>(), sp.GetRequiredService<ForgetCoordinator>(), sp.GetRequiredService<IAutoStart>(),
             sp.GetRequiredService<FeedSecretStore>(), sp.GetRequiredService<PhoneRegistry>(), CopyToClipboardAsync, () => FindClipboard() is not null));
-        services.AddSingleton<IFeedSource>(sp => new SessionFeedSource(
-            sp.GetRequiredService<CaptureSession>(), sp.GetRequiredService<GameDataViewModel>(), sp.GetRequiredService<HardFarmsViewModel>()));
+        services.AddSingleton<IFeedSource>(sp => new CharacterFeedSource(
+            sp.GetRequiredService<CharacterBook>(), sp.GetRequiredService<ISkuaFeed>(), sp.GetRequiredService<CharacterSelection>(),
+            sp.GetRequiredService<HardFarmsViewModel>()));
         services.AddSingleton<ILocalFeedHost>(sp => new HttpListenerFeedHost(
             new FeedHandler(
                 sp.GetRequiredService<FeedSecretStore>().GetOrCreateBytes,

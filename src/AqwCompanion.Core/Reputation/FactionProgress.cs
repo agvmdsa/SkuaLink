@@ -1,6 +1,4 @@
-using AqwCompanion.Core.Reputation;
-
-namespace AqwCompanion.App.GameData;
+namespace AqwCompanion.Core.Reputation;
 
 /// <summary>How far a faction standing is from its next rank, shared by the dashboard and the local feed.</summary>
 public static class FactionProgress

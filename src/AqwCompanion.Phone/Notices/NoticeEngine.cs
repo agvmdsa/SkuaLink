@@ -32,7 +32,6 @@ public sealed class NoticeEngine(NoticeOptions? options = null)
         var found = new List<Notice>();
         if (_previous is { } before)
         {
-            Capture(before, snapshot, now, found);
             Logins(before, snapshot, now, found);
             Ranks(before, snapshot, now, found);
             HardFarmDrops(before, snapshot, now, found);
@@ -109,19 +108,6 @@ public sealed class NoticeEngine(NoticeOptions? options = null)
         }
 
         _optionsWaits.IntersectWith(waiting);
-    }
-
-    private static void Capture(FeedSnapshot before, FeedSnapshot now, DateTimeOffset at, List<Notice> found)
-    {
-        if (before.Capture.Listening == now.Capture.Listening)
-        {
-            return;
-        }
-
-        var who = now.Selected ?? "";
-        found.Add(now.Capture.Listening
-            ? new Notice($"capture-back:{at.UtcTicks}", NoticeKind.CaptureBack, who, "Capture running", "SkuaLink is listening to the game again.", at)
-            : new Notice($"capture-lost:{at.UtcTicks}", NoticeKind.CaptureLost, who, "Capture stopped", "SkuaLink is no longer listening to the game.", at));
     }
 
     private static void Logins(FeedSnapshot before, FeedSnapshot now, DateTimeOffset at, List<Notice> found)
