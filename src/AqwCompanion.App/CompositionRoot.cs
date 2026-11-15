@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Net;
+using AqwCompanion.App.Characters;
 using AqwCompanion.App.Debug;
 using AqwCompanion.App.Diagnostics;
 using AqwCompanion.App.Feed;
@@ -19,6 +20,7 @@ using AqwCompanion.Core.Diagnostics;
 using AqwCompanion.Core.Feed;
 using AqwCompanion.Core.Forgetting;
 using AqwCompanion.Core.Persistence;
+using AqwCompanion.Phone.Characters;
 using AqwCompanion.Phone.Devices;
 using AqwCompanion.Phone.Hub;
 using AqwCompanion.Phone.Notices;
@@ -122,7 +124,10 @@ public static class CompositionRoot
             sp.GetRequiredService<ISkuaFeed>(), sp.GetRequiredService<ISkuaCommandChannel>(), sp.GetRequiredService<SkuaScriptPrefs>(),
             sp.GetRequiredService<SkuaOptionCache>(), CultureInfo.CurrentCulture));
         services.AddSingleton<ISkuaLogStores>(sp => new SkuaLogStores(sp.GetRequiredService<AppPaths>().Root));
-        services.AddSingleton(sp => new SkuaHub(sp.GetRequiredService<ISkuaLogStores>(), () => DateTimeOffset.UtcNow));
+        services.AddSingleton<ICharacterBookStore>(sp => new StoredCharacterBookStore(sp.GetRequiredService<StoredData>()));
+        services.AddSingleton(sp => new CharacterBook(sp.GetRequiredService<ICharacterBookStore>(), () => DateTimeOffset.UtcNow));
+        services.AddSingleton(sp => new SkuaHub(
+            sp.GetRequiredService<ISkuaLogStores>(), () => DateTimeOffset.UtcNow, characters: sp.GetRequiredService<CharacterBook>()));
         services.AddSingleton<ISkuaFeed>(sp => sp.GetRequiredService<SkuaHub>());
         services.AddSingleton<ISkuaCommandChannel>(sp => sp.GetRequiredService<SkuaHub>());
         services.AddSingleton(sp => new SkuaBridgeHost(
@@ -170,6 +175,7 @@ public static class CompositionRoot
         new LegacyReputationFolder(sp.GetRequiredService<AppPaths>()),
         sp.GetRequiredService<CaptureSession>(),
         sp.GetRequiredService<SkuaHub>(),
+        sp.GetRequiredService<CharacterBook>(),
         sp.GetRequiredService<SkuaScriptPrefs>(),
         sp.GetRequiredService<SkuaOptionCache>(),
         // PhoneController MUST stay the LAST participant: its Forget resets the phone hub, which reads the feed, and then brings

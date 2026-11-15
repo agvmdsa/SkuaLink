@@ -67,7 +67,7 @@ public sealed class StoredKeysTests
     public void The_key_names_are_the_ones_older_databases_already_hold()
     {
         Assert.Equal(
-            ["hardfarms.list", "hardfarms.indexes", "gamedata.characters"],
+            ["hardfarms.list", "hardfarms.indexes", "gamedata.characters", "skua.characters"],
             StoredKeys.All.Select(k => k.Name));
     }
 }

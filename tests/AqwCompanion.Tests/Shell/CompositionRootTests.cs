@@ -1,4 +1,5 @@
 using AqwCompanion.App;
+using AqwCompanion.App.Characters;
 using AqwCompanion.App.GameData;
 using AqwCompanion.App.HardFarms;
 using AqwCompanion.App.Feed;
@@ -15,6 +16,7 @@ using AqwCompanion.Core.Forgetting;
 using AqwCompanion.Core.Inventory;
 using AqwCompanion.Core.Persistence;
 using AqwCompanion.Core.Wiki;
+using AqwCompanion.Phone.Characters;
 using AqwCompanion.Phone.Devices;
 using AqwCompanion.Phone.Hub;
 using AqwCompanion.Phone.Skua;
@@ -140,6 +142,20 @@ public class CompositionRootTests
         Assert.True(participants.Count > 1);
         Assert.Same(services.GetRequiredService<PhoneController>(), participants[^1]);
         Assert.Single(participants, p => p is PhoneController);
+        var book = participants.FindIndex(p => ReferenceEquals(p, services.GetRequiredService<CharacterBook>()));
+        Assert.InRange(book, 0, participants.Count - 2);
+    }
+
+    [Fact]
+    public void Container_resolves_the_character_book_over_the_stored_data()
+    {
+        var paths = new AppPaths(Path.Combine(Path.GetTempPath(), "aqw-tests", Guid.NewGuid().ToString("N")));
+
+        using var services = CompositionRoot.Build(paths);
+
+        Assert.IsType<StoredCharacterBookStore>(services.GetRequiredService<ICharacterBookStore>());
+        Assert.Empty(services.GetRequiredService<CharacterBook>().All);
+        Assert.False(Directory.Exists(paths.Root));
     }
 
     [Fact]

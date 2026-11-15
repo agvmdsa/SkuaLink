@@ -1,4 +1,5 @@
 using AqwCompanion.Core.Forgetting;
+using AqwCompanion.Phone.Characters;
 using AqwCompanion.Skua;
 
 namespace AqwCompanion.Phone.Skua;
@@ -19,6 +20,8 @@ namespace AqwCompanion.Phone.Skua;
 /// Logs: an instance's log belongs to its character (<see cref="ISkuaLogStores.ForCharacter"/>); lines before the first
 /// character join that character's log; another character in the same Skua switches to that character's log. The legacy
 /// single log loads into the first instance that logs in, then is deleted.
+/// Characters: logged-in statuses and inventory snapshots go to the <see cref="CharacterBook"/> (never to the log), and a
+/// closed pipe stamps when its character was last seen; the book is called outside the hub's lock.
 /// </remarks>
 public sealed class SkuaHub : ISkuaFeed, ISkuaCommandChannel, IForgettable
 {
@@ -38,6 +41,7 @@ public sealed class SkuaHub : ISkuaFeed, ISkuaCommandChannel, IForgettable
     private readonly ISkuaLogStores _stores;
     private readonly Func<DateTimeOffset> _now;
     private readonly Func<TimeSpan, CancellationToken, Task> _delay;
+    private readonly CharacterBook? _characters;
     private readonly List<SkuaInstance> _instances = [];
     private readonly HashSet<Attachment> _attached = [];
     private readonly Dictionary<string, Pending> _pending = new(StringComparer.Ordinal);
@@ -48,11 +52,14 @@ public sealed class SkuaHub : ISkuaFeed, ISkuaCommandChannel, IForgettable
     private int _rejected;
 
     /// <param name="delay">The command timer; tests pass a fake so nothing sleeps. Defaults to <see cref="Task.Delay(TimeSpan, CancellationToken)"/>.</param>
-    public SkuaHub(ISkuaLogStores stores, Func<DateTimeOffset> now, Func<TimeSpan, CancellationToken, Task>? delay = null)
+    /// <param name="characters">The book of the last known profile, reputation and inventory per character; null keeps none.</param>
+    public SkuaHub(
+        ISkuaLogStores stores, Func<DateTimeOffset> now, Func<TimeSpan, CancellationToken, Task>? delay = null, CharacterBook? characters = null)
     {
         _stores = stores;
         _now = now;
         _delay = delay ?? Task.Delay;
+        _characters = characters;
     }
 
     public event EventHandler? Changed;
@@ -125,6 +132,8 @@ public sealed class SkuaHub : ISkuaFeed, ISkuaCommandChannel, IForgettable
 
         Pending? answered = null;
         var changed = false;
+        SkuaStatus? loggedIn = null;
+        (string? Character, SkuaInventory Inventory)? snapshot = null;
         lock (_lock)
         {
             if (!_attached.Contains(pipe))
@@ -141,6 +150,12 @@ public sealed class SkuaHub : ISkuaFeed, ISkuaCommandChannel, IForgettable
                     answered = pending;
                 }
             }
+            else if (!_quiesced && message is InventoryMessage inventory)
+            {
+                // The inventory belongs to the character it names, or else to the one this Skua plays; it is not a log line.
+                var instance = pipe.Instance ?? Bind(pipe, null);
+                snapshot = (inventory.Inventory.Character ?? instance.Character, inventory.Inventory);
+            }
             else if (!_quiesced && message is not SkuaCommand)
             {
                 var instance = pipe.Instance ?? Bind(pipe, (message as HelloMessage)?.Hello.InstanceId);
@@ -150,8 +165,23 @@ public sealed class SkuaHub : ISkuaFeed, ISkuaCommandChannel, IForgettable
                     OnCharacter(instance, character);
                 }
 
+                if (message is StatusMessage { Status: { LoggedIn: true } status })
+                {
+                    loggedIn = status;
+                }
+
                 changed = true;
             }
+        }
+
+        if (loggedIn is not null)
+        {
+            _characters?.OnStatus(loggedIn);
+        }
+
+        if (snapshot is { } owned)
+        {
+            _characters?.OnInventory(owned.Character, owned.Inventory);
         }
 
         answered?.Answer.TrySetResult((ResultMessage)message);
@@ -295,6 +325,7 @@ public sealed class SkuaHub : ISkuaFeed, ISkuaCommandChannel, IForgettable
     {
         List<Pending> failed = [];
         var changed = false;
+        string? character = null;
         lock (_lock)
         {
             if (!_attached.Remove(pipe))
@@ -304,6 +335,7 @@ public sealed class SkuaHub : ISkuaFeed, ISkuaCommandChannel, IForgettable
 
             if (pipe.Instance is { } instance && instance.Attachment == pipe)
             {
+                character = _quiesced ? null : instance.Character;
                 instance.Attachment = null;
                 instance.Bridge.ClientDisconnected();
                 failed = TakePending(instance);
@@ -313,6 +345,7 @@ public sealed class SkuaHub : ISkuaFeed, ISkuaCommandChannel, IForgettable
             pipe.Instance = null;
         }
 
+        _characters?.Touch(character);
         Fail(failed);
         if (changed)
         {

@@ -1,3 +1,4 @@
+using AqwCompanion.App.Characters;
 using AqwCompanion.App.GameData;
 using AqwCompanion.App.HardFarms;
 using AqwCompanion.Core.Persistence;
@@ -13,10 +14,12 @@ public static class StoredKeys
 
     public static readonly StoredKey<GameDataStore.GameDataDto> GameData = new("gamedata.characters", 1, "Game data");
 
+    public static readonly StoredKey<StoredCharacterBookStore.BookDto> SkuaCharacters = new("skua.characters", 1, "Characters");
+
     /// <summary>Every key declared above.</summary>
     public static readonly IReadOnlyList<IStoredKey> All =
     [
-        HardFarmList, HardFarmIndexes, GameData,
+        HardFarmList, HardFarmIndexes, GameData, SkuaCharacters,
     ];
 
     /// <summary>Names of records no feature uses any more; removed after the first successful save.</summary>
