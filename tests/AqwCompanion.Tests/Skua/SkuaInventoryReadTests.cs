@@ -52,4 +52,34 @@ public class SkuaInventoryReadTests
         Assert.Equal(new SkuaClassFacts(31, "Void Highlord", 302500), facts);
         Assert.Null(SkuaInventoryRead.EquippedClass([(2, "Ninja", 2400, false, "Class")]));
     }
+
+    [Fact]
+    public void A_bank_equal_to_the_stale_one_is_not_read_and_a_different_one_is()
+    {
+        var stale = Items("Old Axe");
+        var same = SkuaInventoryRead.Build("Hero", Items("Sword"), [(" Old Axe ", 1)], [], stale)!;
+        Assert.Equal(["inv", "house"], same.Read);
+        Assert.DoesNotContain(same.Items, i => i.Where == "bank");
+        var other = SkuaInventoryRead.Build("Hero", Items("Sword"), Items("Old Axe", "Shield"), [], stale)!;
+        Assert.Equal(["inv", "house", "bank"], other.Read);
+    }
+
+    [Fact]
+    public void The_bank_read_for_another_character_is_stale_until_one_for_this_character_arrives()
+    {
+        var last = Items("Old Axe");
+        Assert.Null(SkuaInventoryRead.StaleBank("Hero", "hero", last));
+        Assert.Same(last, SkuaInventoryRead.StaleBank("Hero", "Alt", last));
+        Assert.Null(SkuaInventoryRead.StaleBank(null, "Alt", null));
+    }
+
+    [Fact]
+    public void A_bank_counts_as_read_only_when_it_has_items_and_is_not_the_stale_one()
+    {
+        Assert.False(SkuaInventoryRead.BankRead([], null));
+        Assert.False(SkuaInventoryRead.BankRead(null, null));
+        Assert.True(SkuaInventoryRead.BankRead(Items("Axe"), null));
+        Assert.False(SkuaInventoryRead.BankRead(Items("Axe"), Items("Axe")));
+        Assert.True(SkuaInventoryRead.BankRead(Items("Axe"), Items("Bow")));
+    }
 }

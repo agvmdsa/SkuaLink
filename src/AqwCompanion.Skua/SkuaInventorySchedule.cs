@@ -70,6 +70,19 @@ public sealed class SkuaInventorySchedule(Func<DateTimeOffset> now)
         }
     }
 
+    /// <summary>
+    /// A pass that found no bag (still loading after the login, or the read failed): it is not a completed snapshot, so the
+    /// next pass is asked for after <see cref="MinGap"/> and its cost does not widen the gap.
+    /// </summary>
+    public void Retry()
+    {
+        lock (_lock)
+        {
+            _requested = true;
+            _gap = MinGap;
+        }
+    }
+
     /// <summary>A logout, another character or a lost connection: the next pass happens at once.</summary>
     public void Reset()
     {

@@ -118,6 +118,12 @@ internal sealed class PipeClient : IDisposable
             }
             else if (message is InventoryMessage)
             {
+                if (!IsConnected)
+                {
+                    // Never kept for a later connection: the plugin reads and sends again after every connect.
+                    return;
+                }
+
                 Volatile.Write(ref _inventoryLine, line);
                 if (Interlocked.Exchange(ref _inventoryQueued, 1) == 0 && !_queue.Writer.TryWrite(InventoryMarker))
                 {

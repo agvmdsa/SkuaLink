@@ -37,4 +37,15 @@ public class SkuaProfileReadTests
         var p = SkuaProfileRead.Next(null, new SkuaProfileReading(-1, -2, -3, -4, -5, false, "  ", -6), new SkuaClassFacts(0, "X", -9), new SkuaSlotFacts(0, -1, 5))!;
         Assert.Equal(new SkuaProfile(0, 0, 0, 0, 0, 0, false, "X", null, 0, null, null, null, 5), p);
     }
+
+    [Fact]
+    public void No_profile_is_reported_while_the_character_is_still_loading()
+    {
+        var zeros = SkuaProfileRead.Next(null, new SkuaProfileReading(0, 0, 0, 0, 0, false, null, 0), null, null);
+        Assert.Null(SkuaProfileRead.Report(zeros, bagSeen: false));
+        Assert.Same(zeros, SkuaProfileRead.Report(zeros, bagSeen: true));
+        var loaded = SkuaProfileRead.Next(null, Reading, null, null);
+        Assert.Same(loaded, SkuaProfileRead.Report(loaded, bagSeen: false));
+        Assert.Null(SkuaProfileRead.Report(null, bagSeen: true));
+    }
 }

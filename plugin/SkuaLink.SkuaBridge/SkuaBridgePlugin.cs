@@ -76,6 +76,9 @@ public sealed class SkuaBridgePlugin : ISkuaPlugin
     private SkuaSlotFacts? _slots;
     private SkuaInventory? _lastInventorySent;
     private string? _lastCharacter;
+    private bool _bagSeen; // An inventory pass found a bag for this character: its profile may be reported.
+    private List<(string? Name, int Quantity)>? _lastBankRead; // The last bank read that counted, and whose it was.
+    private string? _bankOwner;
 
     // Set from any thread (pipe connect, relogin); read and cleared by the worker.
     private volatile bool _questsForced;
@@ -355,10 +358,12 @@ public sealed class SkuaBridgePlugin : ISkuaPlugin
     private void Dropped(ItemBase? item, bool addedToInv)
     {
         Log(SkuaLogFormatter.Dropped(Now(), item?.Name, addedToInv));
+
+        // Every drop asks for a pass, also one offered in the drop list (picking it raises no event); the gap bounds the cost.
+        _inventorySchedule.Request();
         if (addedToInv)
         {
             RequestSnapshot();
-            _inventorySchedule.Request();
         }
     }
 
@@ -547,11 +552,14 @@ public sealed class SkuaBridgePlugin : ISkuaPlugin
             _class = null;
             _slots = null;
             _lastInventorySent = null;
+            _bagSeen = false;
             _inventorySchedule.Reset();
         }
 
         _lastCharacter = character;
-        var profile = loggedIn ? ReadProfile(bot) : null;
+
+        // No profile while the character is still loading (no bag seen yet and level 0): never a status of zeros.
+        var profile = loggedIn ? SkuaProfileRead.Report(ReadProfile(bot), _bagSeen) : null;
         var map = loggedIn ? bot.Map.Name : null;
 
         // Skua raises MapChanged only while a script runs, so the settle after a stop sees map changes here (every 3 s).
@@ -624,6 +632,7 @@ public sealed class SkuaBridgePlugin : ISkuaPlugin
     /// plain getters, each one Flash call returning the JSON of every item; none writes a Skua cache) and the three slot totals.
     /// Never <c>Bank.Load()</c> (it sends a game packet) and never <c>Player.CurrentClass</c> (it reads the whole inventory again).
     /// The snapshot goes out only when it changed or after a (re)connect; the status follows at once with the class and slots.
+    /// A pass without a bag (still loading, a failed read, another character meanwhile) is retried after the minimum gap.
     /// </summary>
     private void ReadInventoryIfDue()
     {
@@ -641,32 +650,52 @@ public sealed class SkuaBridgePlugin : ISkuaPlugin
         _inventorySchedule.Started();
         _lastSnapshotStart = Stopwatch.GetTimestamp();
         var watch = Stopwatch.StartNew();
+        string? character = null;
         List<InventoryItem>? bag = null, house = null, bank = null;
         SkuaSlotFacts? slots = null;
         try
         {
+            // The name is read before and after the containers: a character switch during a slow pass drops the pass.
+            character = bot.Player.Username?.Trim();
             bag = bot.Inventory.Items is { } b ? [.. b] : null;
             house = bot.House.Items is { } h ? [.. h] : null;
             bank = bot.Bank.Items is { } k ? [.. k] : null;
             slots = new SkuaSlotFacts(bot.Inventory.Slots, bot.Bank.Slots, bot.House.Slots);
+            if (!string.Equals(character, bot.Player.Username?.Trim(), StringComparison.OrdinalIgnoreCase))
+            {
+                bag = null;
+            }
         }
         catch (Exception)
         {
-            // A failed read keeps the last snapshot; the next pass tries again.
-        }
-        finally
-        {
-            _inventorySchedule.Finished(watch.Elapsed);
+            // A failed read keeps the last snapshot; it is retried below like an empty bag.
+            bag = null;
         }
 
-        if (bag is { Count: > 0 })
+        if (bag is not { Count: > 0 })
         {
-            ReplaceSnapshot(bag);
-            _class = SkuaInventoryRead.EquippedClass(bag.Where(i => i is not null).Select(i => (i.ID, (string?)i.Name, i.Quantity, i.Equipped, (string?)i.CategoryString)));
-            _slots = slots ?? _slots;
+            // Right after a login Skua reports logged in before the game loaded the bag: not a completed pass, ask again
+            // after the minimum gap instead of waiting for the periodic one.
+            _inventorySchedule.Retry();
+            return;
         }
 
-        var snapshot = SkuaInventoryRead.Build(bot.Player.Username, Pairs(bag), Pairs(bank), Pairs(house));
+        _inventorySchedule.Finished(watch.Elapsed);
+        ReplaceSnapshot(bag);
+        _bagSeen = true;
+        _class = SkuaInventoryRead.EquippedClass(bag.Where(i => i is not null).Select(i => (i.ID, (string?)i.Name, i.Quantity, i.Equipped, (string?)i.CategoryString)));
+        _slots = slots ?? _slots;
+
+        // A bank list left from another character in this Skua session is not taken for this one's.
+        var bankPairs = Pairs(bank);
+        var stale = SkuaInventoryRead.StaleBank(_bankOwner, character, _lastBankRead);
+        if (SkuaInventoryRead.BankRead(bankPairs, stale))
+        {
+            _lastBankRead = bankPairs;
+            _bankOwner = character;
+        }
+
+        var snapshot = SkuaInventoryRead.Build(character, Pairs(bag), bankPairs, Pairs(house), stale);
         if (snapshot is not null && snapshot != _lastInventorySent)
         {
             _lastInventorySent = snapshot;

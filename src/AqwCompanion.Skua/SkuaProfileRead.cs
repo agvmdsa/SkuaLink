@@ -29,6 +29,13 @@ public static class SkuaProfileRead
             Text(r.Guild), Positive(slots?.Bag), Positive(slots?.Bank), Positive(slots?.House));
     }
 
+    /// <summary>
+    /// The profile to put in the status: none while the character is still loading (no inventory pass has found a bag yet and
+    /// the level reads 0), so a status never carries a profile of zeros.
+    /// </summary>
+    public static SkuaProfile? Report(SkuaProfile? profile, bool bagSeen) =>
+        profile is not null && (bagSeen || profile.Level > 0) ? profile : null;
+
     private static int? Positive(int? value) => value is > 0 ? value : null;
 
     private static string? Text(string? value) =>

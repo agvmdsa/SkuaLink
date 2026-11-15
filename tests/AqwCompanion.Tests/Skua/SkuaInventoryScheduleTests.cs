@@ -87,4 +87,36 @@ public class SkuaInventoryScheduleTests
         Wait(-60);
         Assert.True(s.Due());
     }
+
+    [Fact]
+    public void An_empty_bag_retries_after_the_minimum_gap_then_a_success_uses_the_normal_gap()
+    {
+        var s = New();
+        s.Started();
+        s.Retry();
+        Assert.Equal(SkuaInventorySchedule.MinGap, s.Gap);
+        Wait(4.9);
+        Assert.False(s.Due());
+        Wait(0.2);
+        Assert.True(s.Due());
+        s.Started();
+        s.Finished(TimeSpan.FromSeconds(2));
+        Assert.Equal(TimeSpan.FromSeconds(20), s.Gap);
+        Wait(19);
+        Assert.False(s.Due());
+        Wait(281);
+        Assert.True(s.Due());
+    }
+
+    [Fact]
+    public void A_retry_after_a_slow_pass_goes_back_to_the_minimum_gap()
+    {
+        var s = New();
+        Pass(s, took: 10);
+        Wait(300);
+        s.Started();
+        s.Retry();
+        Wait(5);
+        Assert.True(s.Due());
+    }
 }

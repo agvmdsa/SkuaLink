@@ -122,16 +122,22 @@ throwaway project and read in the tag source.
   - `bagSlots`, `bankSlots`, `houseSlots`: `Inventory.Slots` (`objData.iBagSlots`), `Bank.Slots` (`objData.iBankSlots`),
     `House.Slots` (`objData.iHouseSlots`), read once per inventory pass (one small Flash call each), 0 not sent.
   - A failed read keeps the last profile. A logout or another character clears it (and the class, slots and the last
-    inventory sent), so nothing of one character is reported for another.
+    inventory sent), so nothing of one character is reported for another. No `profile` is sent while the character is
+    still loading: Skua reports logged in (socket connected) before the game loaded the bag, so the profile appears once
+    an inventory pass found a bag, or earlier when the level already reads above 0.
 - `inventory` (AQW-0110): `{character, read, items: [{name, quantity, where}], truncated?}`. `where` is `inv`, `house` or
   `bank`; `read` lists the containers actually read: bag and house always (they arrive with the login), the bank only when
   its read returned at least one item (`world.bankinfo.items` fills only once the bank was opened in Skua this session;
-  the plugin never opens it), so SkuaLink replaces only those and keeps the bank it knew. Names trimmed, blank names
+  the plugin never opens it), so SkuaLink replaces only those and keeps the bank it knew. After a switch to another
+  character in the same Skua, a bank read equal to the last bank read of the previous character does not count (Skua may
+  keep `world.bankinfo.items` across the relogin, U3); a bank read with other items counts for the new character. Names trimmed, blank names
   skipped, negative quantities 0, at most 5000 items per container (`truncated` when cut); a line over 1 MB is cut by the
   protocol (the bank first, it comes last). An empty bag sends nothing (not logged in or not loaded). Sent only when the
   snapshot changed, and once more after every (re)connect. In the pipe queue it is latest-only, like the status (one
   marker, the newest line written), and never replayed after a reconnect: a line not yet written when the connection
-  drops is discarded and the plugin reads again on connect. When it is read: see "Cost of the inventory reads".
+  drops is discarded (and one built while disconnected is not queued at all); the plugin reads again on connect. The
+  character name is read before and after the three containers; a pass during which it changed is dropped. When it is
+  read: see "Cost of the inventory reads".
 - `result` once per command (see below).
 - `log`: bought (quantity = now minus snapshot when positive, else none), sold (name from the snapshot taken before the
   sale), dropped (`Drop: X` for an item offered in the drop list, Skua's `dropItem`, the usual farming case; `Received: X`
@@ -334,10 +340,12 @@ marshalled to Skua's UI thread. The real time of a big bank read, and whether Sk
 The schedule (`src/AqwCompanion.Skua/SkuaInventorySchedule.cs`, unit-tested with a fake clock) therefore limits the
 passes. A pass (bag, house, bank and the three slot totals) runs on the plugin's worker, on the 3 s poll, only while
 SkuaLink is connected and a character is logged in. It runs at once when nothing was read since the last login, character
-change or connect; otherwise when an item event asked for it (bought, sold, dropped into the inventory, quest turned in,
-item added to the bank; these fire only while a script runs) and at least the gap has passed since the last pass started;
-and without any event every 5 min (manual play raises no events). The gap is `max(5 s, 10 x the time the last pass
-took)`, capped at 5 min, measured with `Stopwatch`. A request that comes during a pass stays for the next one.
+change or connect; otherwise when an item event asked for it (bought, sold, every drop, also one offered in the drop
+list, quest turned in, item added to the bank; these fire only while a script runs) and at least the gap has passed
+since the last pass started; and without any event every 5 min (manual play raises no events). The gap is `max(5 s, 10 x
+the time the last pass took)`, capped at 5 min, measured with `Stopwatch`. A request that comes during a pass stays for
+the next one. A pass that found no bag (the bag is not loaded yet right after a login, the read failed, or the character
+changed during the pass) is not a completed pass: it sends nothing, sets nothing, and the next one follows after 5 s.
 
 ## Audit: every Skua member the plugin touches
 
@@ -348,9 +356,9 @@ Generated from the compiled DLL's member references (System.Reflection.Metadata)
 | `ISkuaPlugin` (implemented: `Name`, `Author`, `Description`, `Options`, `Load`, `Unload`) | implemented by the plugin | plugin entry point |
 | `IServiceProvider.GetService(typeof(IScriptInterface))`, `GetService(typeof(IScriptManager))` | read (service lookup) | `Load`; the `IScriptManager` (or `bot.Manager`) drives the commands |
 | `IScriptInterface.Events` | read | subscribe / re-attach / unsubscribe |
-| `IScriptEvent.ItemBought` | event subscription | log "Bought" |
-| `IScriptEvent.ItemSold` | event subscription | log "Sold" |
-| `IScriptEvent.ItemDropped` | event subscription | log "Drop" |
+| `IScriptEvent.ItemBought` | event subscription | log "Bought", asks for an inventory pass |
+| `IScriptEvent.ItemSold` | event subscription | log "Sold", asks for an inventory pass |
+| `IScriptEvent.ItemDropped` | event subscription | log "Drop", asks for an inventory pass (every drop) |
 | `IScriptEvent.MapChanged` | event subscription | log "Map", status refresh |
 | `IScriptEvent.PlayerDeath` | event subscription | log "Died" |
 | `IScriptEvent.Logout` | event subscription | log "Logged out", status refresh |
@@ -461,10 +469,15 @@ Only the owner's Windows can prove these; the full step-by-step list is kept out
     stutter on each read (at most one every 5 s, and one every 5 min without events). Note how long a read seems to take.
   - U3. Bank: before the bank is opened in Skua this session, the Overview shows the bank items saved last time (or
     none); after it is opened, the bank items count in the Hard Farms within 5 min; closing the bank window does not erase
-    them. Nothing depends on Skua's `Bank.Loaded`.
+    them. Nothing depends on Skua's `Bank.Loaded`. Unknown: whether `world.bankinfo.items` is cleared on a relogin to
+    another character in the same Skua session. To be safe the plugin treats the bank as not read after a character
+    change until a bank read with other items than the previous character's arrives; check that after switching
+    characters the Overview does not show the other character's bank, and that opening the bank shows the right one.
   - U4. House: the house items appear right after login, without visiting the house.
-  - U14. Events: with a script running, buying, selling, picking up a drop, turning in a quest and a drop that goes
-    straight to the bank update the Hard Farms within seconds.
+  - U14. Events: with a script running, buying, selling, a drop (offered in the drop list and picked, or received
+    straight into the inventory), turning in a quest and a drop that goes straight to the bank update the Hard Farms
+    within seconds. Right after a login the inventory shows within about 10 s (the first pass may find the bag not yet
+    loaded and is retried after 5 s).
 - **Control (AQW-0088):**
   - The two-way pipe connects to the new SkuaLink; that Windows refuses the `InOut` client of an older SkuaLink's
     inbound-only pipe with `UnauthorizedAccessException` (so the plugin falls back to send-only) is from the Win32 rules,
