@@ -176,6 +176,138 @@ public class CharacterBookTests
     }
 
     [Fact]
+    public async Task A_flush_during_a_write_waits_for_it_and_then_writes_the_newer_state()
+    {
+        var gated = new GatedStore();
+        var book = new CharacterBook(gated, () => _now);
+        gated.Block = true;
+        var first = Task.Run(() => book.OnStatus(Status("Hero", Profile(1))));
+        Assert.True(gated.Entered.Wait(TimeSpan.FromSeconds(5)));
+
+        _now = T0.AddSeconds(5);
+        book.OnStatus(Status("Hero", Profile(2)));   // a throttled save never waits for a write in progress
+        var flush = Task.Run(book.Flush);
+        await Task.Delay(100);
+        Assert.False(flush.IsCompleted);
+        gated.Block = false;
+        gated.Release.Set();
+        await Task.WhenAll(first, flush).WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal([1L, 2L], gated.Saved.Select(s => s.Single().Profile!.Gold));
+    }
+
+    [Fact]
+    public async Task Quiesce_waits_for_a_write_in_progress()
+    {
+        var gated = new GatedStore { Block = true };
+        var book = new CharacterBook(gated, () => _now);
+        var write = Task.Run(() => book.OnStatus(Status("Hero", Profile(1))));
+        Assert.True(gated.Entered.Wait(TimeSpan.FromSeconds(5)));
+
+        var quiesce = Task.Run(book.Quiesce);
+        await Task.Delay(100);
+        Assert.False(quiesce.IsCompleted);
+        gated.Release.Set();
+        await Task.WhenAll(write, quiesce).WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public void Characters_restored_next_to_live_ones_are_written_too()
+    {
+        _store.Stored = [new CharacterRecord("Alt", T0.AddDays(-2), Profile(6))];
+        var book = NewBook();
+        // A status arrives while the stored book is being read: its save holds only the live character.
+        _store.OnLoad = () => { _store.OnLoad = null; book.OnStatus(Status("Hero", Profile(7))); };
+        book.Restore();
+
+        Assert.Equal(["Alt", "Hero"], book.All.Select(r => r.Name));
+        Assert.Equal(["Alt", "Hero"], _store.Stored.Select(r => r.Name).Order());
+    }
+
+    [Fact]
+    public void Beyond_the_stored_item_cap_the_longest_unseen_lose_their_inventory_contents_first()
+    {
+        var book = NewBook();
+        for (var i = 0; i < 5; i++)
+        {
+            _now = T0.AddMinutes(i);
+            book.OnStatus(Status($"C{i}", Profile(i)));
+            book.OnInventory($"C{i}", Full($"C{i}"));
+        }
+
+        Assert.Null(book.Find("C0")!.Inventory);
+        Assert.Null(book.Find("C0")!.InventoryAtUtc);
+        Assert.Equal(0, book.Find("C0")!.Profile!.Gold);
+        Assert.All(["C1", "C2", "C3", "C4"], n => Assert.Equal(3 * SkuaProtocol.MaxInventoryItems, book.Find(n)!.Inventory!.Items.Count));
+        Assert.Equal(CharacterBook.MaxStoredItems, book.All.Sum(r => r.Inventory?.Items.Count ?? 0));
+    }
+
+    [Fact]
+    public void The_character_being_fed_is_never_pruned_even_when_it_is_the_longest_unseen()
+    {
+        var book = NewBook();
+        var full = Full("C0");
+        book.OnStatus(Status("C0"));
+        book.OnInventory("C0", full with { Items = [.. full.Items.Skip(1)] });
+        for (var i = 1; i < 4; i++)
+        {
+            _now = T0.AddMinutes(i);
+            book.OnStatus(Status($"C{i}"));
+            book.OnInventory($"C{i}", Full($"C{i}"));
+        }
+
+        _now = T0.AddMinutes(4);
+        book.OnStatus(Status("C4"));
+        book.OnInventory("C4", new SkuaInventory("C4", ["inv"], [new SkuaItem("Sword", 1, "inv")]));
+        Assert.Equal(CharacterBook.MaxStoredItems, book.All.Sum(r => r.Inventory?.Items.Count ?? 0));
+
+        book.OnInventory("C0", Full("C0"));   // C0 is the longest unseen, but it is the one being fed
+
+        Assert.Equal(3 * SkuaProtocol.MaxInventoryItems, book.Find("C0")!.Inventory!.Items.Count);
+        Assert.Null(book.Find("C1")!.Inventory);
+        Assert.NotNull(book.Find("C2")!.Inventory);
+        Assert.NotNull(book.Find("C4")!.Inventory);
+    }
+
+    private static SkuaInventory Full(string character) =>
+        new(character, SkuaProtocol.InventoryContainers, [.. SkuaProtocol.InventoryContainers
+            .SelectMany(c => Enumerable.Range(0, SkuaProtocol.MaxInventoryItems).Select(n => new SkuaItem($"{c} item {n}", 1, c)))]);
+
+    /// <summary>A store whose save can be held inside the write, to pin what happens while a write is in progress.</summary>
+    private sealed class GatedStore : ICharacterBookStore
+    {
+        public volatile bool Block;
+
+        public ManualResetEventSlim Entered { get; } = new();
+
+        public ManualResetEventSlim Release { get; } = new();
+
+        public List<List<CharacterRecord>> Saved { get; } = [];
+
+        public IReadOnlyList<CharacterRecord> Load() => [];
+
+        public bool Save(IReadOnlyList<CharacterRecord> records)
+        {
+            if (Block)
+            {
+                Entered.Set();
+                Release.Wait(TimeSpan.FromSeconds(10));
+            }
+
+            lock (Saved)
+            {
+                Saved.Add([.. records]);
+            }
+
+            return true;
+        }
+
+        public void Delete()
+        {
+        }
+    }
+
+    [Fact]
     public void A_handler_that_throws_never_stops_the_book()
     {
         var book = NewBook();

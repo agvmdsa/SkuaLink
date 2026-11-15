@@ -11,13 +11,20 @@ namespace AqwCompanion.Phone.Characters;
 /// </summary>
 /// <remarks>
 /// Saves are throttled to one per <see cref="SaveEvery"/>; <see cref="Flush"/> (also on <see cref="Dispose"/>) writes what is
-/// left. A save that was taken before a Forget is never written after it. A save before <see cref="Restore"/> restores first,
+/// left. Snapshots are taken and written under one I/O lock, so writes land in order, and a Forget deletes only after a write in
+/// progress. A save before <see cref="Restore"/> restores first,
 /// so the stored characters are never overwritten by the live ones only.
 /// </remarks>
 public sealed class CharacterBook(ICharacterBookStore store, Func<DateTimeOffset> now) : IForgettable, IDisposable
 {
     /// <summary>At most this many characters are kept.</summary>
     public const int MaxCharacters = 20;
+
+    /// <summary>
+    /// At most this many items are kept across all characters, so the stored book stays one small database document; beyond
+    /// it the longest unseen characters lose their inventory contents first (their profile and reputation stay).
+    /// </summary>
+    public const int MaxStoredItems = 60_000;
 
     /// <summary>The store is written at most once per this interval, except by <see cref="Flush"/>.</summary>
     public static readonly TimeSpan SaveEvery = TimeSpan.FromSeconds(30);
@@ -33,7 +40,6 @@ public sealed class CharacterBook(ICharacterBookStore store, Func<DateTimeOffset
     private bool _dirty;
     private bool _quiesced;
     private bool _restored;
-    private long _epoch;
 
     public event EventHandler? Changed;
 
@@ -80,8 +86,10 @@ public sealed class CharacterBook(ICharacterBookStore store, Func<DateTimeOffset
 
         var stored = store.Load();
         var added = false;
+        bool live;
         lock (_lock)
         {
+            live = _records.Count > 0;
             foreach (var record in stored)
             {
                 if (record is null || string.IsNullOrWhiteSpace(record.Name) || _records.ContainsKey(record.Name)
@@ -93,6 +101,19 @@ public sealed class CharacterBook(ICharacterBookStore store, Func<DateTimeOffset
                 _records[record.Name] = record;
                 added = true;
             }
+
+            if (added)
+            {
+                Prune(null);
+
+                // Live characters may have been saved alone while the stored book was being read: write them together.
+                _dirty |= live;
+            }
+        }
+
+        if (added && live)
+        {
+            Save(force: true);
         }
 
         if (added)
@@ -192,6 +213,7 @@ public sealed class CharacterBook(ICharacterBookStore store, Func<DateTimeOffset
             }
 
             _records[record.Name] = record;
+            Prune(record.Name);
             _dirty = true;
         }
 
@@ -225,11 +247,17 @@ public sealed class CharacterBook(ICharacterBookStore store, Func<DateTimeOffset
     /// <summary>Writes the unsaved changes now.</summary>
     public void Flush() => Save(force: true);
 
+    /// <summary>Stops recording and saving; returns once a write in progress has finished, so the database can be deleted.</summary>
     public void Quiesce()
     {
         lock (_lock)
         {
             _quiesced = true;
+        }
+
+        lock (_io)
+        {
+            // Only waits for a write in progress.
         }
     }
 
@@ -244,17 +272,16 @@ public sealed class CharacterBook(ICharacterBookStore store, Func<DateTimeOffset
     /// <summary>Drops every character and deletes the stored book.</summary>
     public void Forget()
     {
-        lock (_lock)
-        {
-            _records.Clear();
-            _restored = true;
-            _epoch++;
-            _dirty = false;
-            _lastSave = null;
-        }
-
         lock (_io)
         {
+            lock (_lock)
+            {
+                _records.Clear();
+                _restored = true;
+                _dirty = false;
+                _lastSave = null;
+            }
+
             store.Delete();
         }
 
@@ -303,6 +330,11 @@ public sealed class CharacterBook(ICharacterBookStore store, Func<DateTimeOffset
         return new SkuaInventory(character, read, items, incoming.Truncated);
     }
 
+    /// <summary>
+    /// Writes the unsaved changes. The snapshot is taken and written under the I/O lock, so writes land in the order of their
+    /// snapshots and an older one is never written after a newer one. A throttled save never waits for a write in progress:
+    /// it leaves the changes for the next save or <see cref="Flush"/>.
+    /// </summary>
     private void Save(bool force)
     {
         bool restoreFirst;
@@ -317,47 +349,73 @@ public sealed class CharacterBook(ICharacterBookStore store, Func<DateTimeOffset
             Restore();
         }
 
-        List<CharacterRecord> snapshot;
-        long epoch;
-        lock (_lock)
+        var entered = false;
+        try
         {
-            var at = now();
-            if (!_dirty || _quiesced || (!force && _lastSave is { } last && at - last < SaveEvery))
+            if (force)
+            {
+                Monitor.Enter(_io, ref entered);
+            }
+            else
+            {
+                Monitor.TryEnter(_io, ref entered);
+            }
+
+            if (!entered)
             {
                 return;
             }
 
-            snapshot = [.. _records.Values.OrderBy(r => r.Name, StringComparer.OrdinalIgnoreCase)];
-            epoch = _epoch;
-            _dirty = false;
-            _lastSave = at;
-        }
-
-        lock (_io)
-        {
+            List<CharacterRecord> snapshot;
             lock (_lock)
             {
-                if (epoch != _epoch || _quiesced)
+                var at = now();
+                if (!_dirty || _quiesced || (!force && _lastSave is { } last && at - last < SaveEvery))
                 {
-                    if (epoch == _epoch)
-                    {
-                        _dirty = true;
-                    }
-
                     return;
                 }
+
+                snapshot = [.. _records.Values.OrderBy(r => r.Name, StringComparer.OrdinalIgnoreCase)];
+                _dirty = false;
+                _lastSave = at;
             }
 
             if (!store.Save(snapshot))
             {
                 lock (_lock)
                 {
-                    if (epoch == _epoch)
-                    {
-                        _dirty = true;
-                    }
+                    _dirty = true;
                 }
             }
+        }
+        finally
+        {
+            if (entered)
+            {
+                Monitor.Exit(_io);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Under the lock: beyond <see cref="MaxStoredItems"/>, the longest unseen characters lose their inventory contents first;
+    /// <paramref name="fed"/> (the character whose inventory just arrived) never does.
+    /// </summary>
+    private void Prune(string? fed)
+    {
+        var total = _records.Values.Sum(r => r.Inventory?.Items.Count ?? 0);
+        while (total > MaxStoredItems)
+        {
+            var oldest = _records.Values
+                .Where(r => r.Inventory is not null && (fed is null || !string.Equals(r.Name, fed, StringComparison.OrdinalIgnoreCase)))
+                .MinBy(r => r.LastSeenUtc);
+            if (oldest is null)
+            {
+                return;
+            }
+
+            total -= oldest.Inventory!.Items.Count;
+            _records[oldest.Name] = oldest with { Inventory = null, InventoryAtUtc = null };
         }
     }
 

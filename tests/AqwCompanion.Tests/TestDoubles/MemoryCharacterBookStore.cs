@@ -9,7 +9,15 @@ public sealed class MemoryCharacterBookStore : ICharacterBookStore
     public int Deletes { get; private set; }
     public bool FailSave { get; set; }
 
-    public IReadOnlyList<CharacterRecord> Load() => [.. Stored];
+    /// <summary>Runs inside <see cref="Load"/>, before the stored records are returned (something happening during a load).</summary>
+    public Action? OnLoad { get; set; }
+
+    public IReadOnlyList<CharacterRecord> Load()
+    {
+        var stored = Stored;
+        OnLoad?.Invoke();
+        return [.. stored];
+    }
 
     public bool Save(IReadOnlyList<CharacterRecord> records)
     {
