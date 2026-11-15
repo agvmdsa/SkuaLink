@@ -36,7 +36,7 @@ const dockHost = document.createElement('div');
 dockHost.className = 'dock-host';
 app.after(dockHost);
 // What an earlier page on this address may have left: removed, never read.
-const OLD_KEYS = ['qkr-last-state', 'qkr-last-state-v1'];
+const OLD_KEYS = ['qkr-last-state', 'qkr-last-state-v1', 'qkp-last-state-v1'];
 const standalone = (navigator as Navigator & { standalone?: boolean }).standalone === true || matchMedia('(display-mode: standalone)').matches;
 // iPadOS 13 and later report a Mac; the touch points tell an iPad apart.
 const installHint = iosInstallHint(navigator.userAgent, standalone, navigator.maxTouchPoints ?? 0);

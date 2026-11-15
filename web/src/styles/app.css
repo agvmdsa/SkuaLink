@@ -32,7 +32,7 @@ main > div { display: grid; gap: 1rem; }
 .name { font-weight: 600; overflow-wrap: anywhere; }
 .level { color: var(--muted); font-size: 0.9375rem; }
 .gold { font-variant-numeric: tabular-nums; }
-.row-status { grid-column: 1 / -1; }
+.row-status { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 0.5rem; }
 
 .status { display: flex; align-items: center; gap: 0.5rem; font-size: 0.9375rem; }
 .dot { width: 0.75rem; height: 0.75rem; flex: none; border-radius: 50%; border: 2px solid var(--border); }
@@ -77,7 +77,7 @@ summary { display: flex; align-items: center; min-height: 3rem; cursor: pointer;
 button { min-height: 3rem; margin-top: 0.5rem; padding: 0 1rem; font: inherit; font-weight: 600; color: var(--on-accent); background: var(--accent); border: 1px solid var(--border); border-radius: 0.5rem; cursor: pointer; }
 
 @media (hover: hover) {
-  .row:hover .name { text-decoration: underline; text-underline-offset: 0.15em; }
+  a.row:hover .name { text-decoration: underline; text-underline-offset: 0.15em; }
 }
 
 :focus-visible { outline: 3px solid var(--link); outline-offset: 2px; }

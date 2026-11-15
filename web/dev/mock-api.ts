@@ -24,8 +24,29 @@ function state(): RemoteState {
       ],
       hardFarms: { owned: 1, total: 138, missing: Array.from({ length: 40 }, (_, i) => `Hard Farm item ${i + 1}`) },
     },
+    characters: [
+      {
+        name: 'Shake the babe', hasCharacter: true, instanceId: 'mock-1', live: true, lastSeenUtc: now,
+        profile: {
+          level: 82, xp: 1609986, xpToLevel: 5590000, gold: 93650135, coins: 777, classRank: 10, isMember: true, className: 'Void Highlord', classId: 31,
+          classPoints: 302500, guild: 'Heroes of Lore', bagSlots: 140, bankSlots: 300, houseSlots: 50,
+        },
+        factions: [{ id: 1, name: 'Yokai', rank: 8, totalRep: 192600, rep: 30000, requiredRep: 39900 }, { id: 2, name: 'Good', rank: 10, totalRep: 302500, rep: 0, requiredRep: 0 }],
+        factionsLive: true, hardFarmsState: 'Ready',
+        hardFarms: { owned: 1, total: 138, missing: Array.from({ length: 40 }, (_, i) => `Hard Farm item ${i + 1}`) },
+        inventoryAtUtc: now, inventoryTruncated: false,
+      },
+      {
+        name: 'Second Hero', hasCharacter: true, instanceId: null, live: false, lastSeenUtc: new Date(Date.now() - 3 * 3600_000).toISOString(),
+        profile: {
+          level: 60, xp: 340, xpToLevel: 5000, gold: 1200, coins: 0, classRank: 4, isMember: false, className: null, classId: null,
+          classPoints: null, guild: null, bagSlots: null, bankSlots: null, houseSlots: null,
+        },
+        factions: null, factionsLive: false, hardFarmsState: 'NoInventory', hardFarms: null, inventoryAtUtc: null, inventoryTruncated: false,
+      },
+    ],
     notices: [{ id: 'rank:Shake the babe:Yokai:8', kind: 'RankUp', character: 'Shake the babe', title: 'Rank up', body: 'Yokai reached rank 8.', atUtc: now }],
-    // MOCK=skua adds one connected Skua playing the selected character, so the Skua tab and its reputation link can be seen.
+    // MOCK=skua adds the connected Skua the first character plays in, so its Running badge, the Skua tab and its reputation link can be seen.
     ...(process.env.MOCK === 'skua' ? { skuaInstances: [skua(now)] } : {}),
   };
 }

@@ -166,6 +166,9 @@ const ALLOWED = new Set([
   'NotConnected', // Skua connection enum value of the protocol
   'Connected', // Skua connection enum value of the protocol
   'VersionMismatch', // Skua connection enum value of the protocol
+  'Ready', // Hard Farms state enum value of the protocol
+  'NoList', // Hard Farms state enum value of the protocol
+  'NoInventory', // Hard Farms state enum value of the protocol
   'action:${t.action}', // focusKey(): an internal id used to restore keyboard focus, never shown
   'action:${t.action}:${t.value}', // focusKey(): an internal id used to restore keyboard focus, never shown
   'theme.${choice}', // a catalog key (theme.system, theme.light, theme.dark), resolved through t()

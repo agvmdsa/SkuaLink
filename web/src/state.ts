@@ -1,19 +1,12 @@
 import { STATE_TIMEOUT_MS, type PairOutcome } from './api';
 import { formatNumberLocale, t, type MessageKey } from './i18n';
-import { parseSkua, parseSkuaInstances } from './skua';
-import type { Character, Figures, HardFarms, Notice, NoticeKind, RemoteState } from './types';
+import { parseCharacters } from './characters';
+import { isObject, parseSkua, parseSkuaInstances } from './skua';
+import type { HardFarms, Notice, NoticeKind, RemoteState, SkuaProfile } from './types';
 
 export interface Banner {
   tone: 'warn' | 'neutral';
   text: string;
-}
-
-export interface Row {
-  name: string;
-  level: number;
-  kind: 'live' | 'idle' | 'saved';
-  status: string;
-  gold: string;
 }
 
 export interface HardFarmsView {
@@ -24,14 +17,16 @@ export interface HardFarmsView {
   hidden: number;
 }
 
-export type Route = { view: 'list' } | { view: 'skua' } | { view: 'character'; name: string } | { view: 'pair'; token: string };
+/** The two sections of a character: its numbers, reputation and Hard Farms, and its bot. */
+export type Section = 'overview' | 'bot';
+
+export type Route = { view: 'list' } | { view: 'skua' } | { view: 'character'; name: string; section: Section } | { view: 'pair'; token: string };
 
 /** The localStorage key of the last state shown; a new shape gets a new version. */
-export const KEPT_KEY = 'qkp-last-state-v1';
+export const KEPT_KEY = 'qkp-last-state-v2';
 
 const UNITS: [number, string][] = [[1e9, 'B'], [1e6, 'M'], [1e3, 'K']];
 const HARD_FARMS_SHOWN = 20;
-const LIVE_WINDOW_MS = 120_000;
 const CLOCK_SKEW_MS = 60_000;
 const RECONNECT_MS = [2000, 4000, 8000, 15000];
 const PAIR_FAILURE: Record<PairOutcome, MessageKey | null> = {
@@ -40,8 +35,6 @@ const PAIR_FAILURE: Record<PairOutcome, MessageKey | null> = {
   invalid: 'pair.rejected',
   failed: 'pair.rejected',
 };
-
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 /** True when the snapshot has every part the views read: an unknown or broken shape is refused before it is drawn or stored. */
 export function isUsableState(s: RemoteState): boolean {
@@ -164,7 +157,7 @@ export function focusKey(t: FocusTarget): string | null {
 function toState(value: unknown): RemoteState | null {
   if (!isObject(value) || !('snapshot' in value)) return null;
   const notices: unknown[] = Array.isArray(value.notices) ? value.notices : [];
-  const state = { snapshot: value.snapshot ?? null, notices: notices.filter(isNotice), skua: parseSkua(value.skua), skuaInstances: parseSkuaInstances(value.skuaInstances) } as RemoteState;
+  const state = { snapshot: value.snapshot ?? null, notices: notices.filter(isNotice), skua: parseSkua(value.skua), skuaInstances: parseSkuaInstances(value.skuaInstances), characters: parseCharacters(value.characters) } as RemoteState;
   return isUsableState(state) ? state : null;
 }
 
@@ -255,26 +248,9 @@ export function linkBanner(sseOpen: boolean, lastUpdateMs: number | null, nowMs:
   return { tone: 'warn', text: age ? t('banner.oldWithAge', { age }) : t('banner.old') };
 }
 
-export function characterRow(c: Character, nowMs: number): Row {
-  const last = c.lastLiveUpdateUtc ? Date.parse(c.lastLiveUpdateUtc) : Number.NaN;
-  let kind: Row['kind'] = 'saved';
-  let status = t('status.saved', { when: relativeTime(c.savedAtUtc, nowMs) });
-  if (c.live && !Number.isNaN(last)) {
-    const fresh = nowMs - last <= LIVE_WINDOW_MS;
-    const when = relativeTime(c.lastLiveUpdateUtc!, nowMs);
-    kind = fresh ? 'live' : 'idle';
-    status = fresh ? t('status.live', { when }) : t('status.idle', { when });
-  }
-  return { name: c.name, level: c.level, kind, status, gold: formatCompact(c.figures.gold) };
-}
-
-export function characterRows(state: RemoteState | null, nowMs: number): Row[] {
-  return (state?.snapshot?.characters ?? []).map((c) => characterRow(c, nowMs));
-}
-
-export function expFraction(f: Figures): number {
-  if (f.expToLevel <= 0) return 0;
-  return Math.min(1, Math.max(0, f.exp / f.expToLevel));
+export function expFraction(p: Pick<SkuaProfile, 'xp' | 'xpToLevel'>): number {
+  if (p.xpToLevel <= 0) return 0;
+  return Math.min(1, Math.max(0, p.xp / p.xpToLevel));
 }
 
 export function hardFarmsView(hf: HardFarms | null, showAll: boolean): HardFarmsView | null {
@@ -314,21 +290,21 @@ export function wellFormed(text: string): string {
   return out;
 }
 
-export function characterHref(name: string): string {
-  try {
-    return `#/c/${encodeURIComponent(name)}`;
-  } catch {
-    // A lone surrogate makes encodeURIComponent throw; show it as U+FFFD instead of failing the whole list.
-    return `#/c/${encodeURIComponent(wellFormed(name))}`;
-  }
+export function characterHref(name: string, section: Section = 'overview'): string {
+  // A lone surrogate would make encodeURIComponent throw: it is shown as U+FFFD instead of failing the whole list.
+  return '#/character/' + encodeURIComponent(wellFormed(name)) + (section === 'bot' ? '/bot' : '');
 }
+
+/** A character page: `#/character/<name>` (Overview) or `#/character/<name>/bot`; the old `#/c/<name>` opens the Overview. */
+const CHARACTER_ROUTE = /^#\/(?:character|c)\/([^/]+)(\/bot)?$/;
 
 export function parseRoute(hash: string): Route {
   if (hash.startsWith('#t=')) return { view: 'pair', token: hash.slice(3) };
   if (hash === '#/skua') return { view: 'skua' };
-  if (hash.startsWith('#/c/')) {
+  const match = CHARACTER_ROUTE.exec(hash);
+  if (match) {
     try {
-      return { view: 'character', name: decodeURIComponent(hash.slice(4)) };
+      return { view: 'character', name: decodeURIComponent(match[1]!), section: match[2] ? 'bot' : 'overview' };
     } catch {
       return { view: 'list' };
     }

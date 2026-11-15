@@ -1,4 +1,5 @@
 import { t, type MessageKey } from './i18n';
+import { factionRowsOf, type FactionRow } from './characters';
 import { relativeTime } from './state';
 import type { Faction, RemoteState, SkuaConnection, SkuaControl, SkuaFaction, SkuaInstance, SkuaLogEntry, SkuaQuest, SkuaState, SkuaStatus } from './types';
 
@@ -17,7 +18,7 @@ const MAX_LABEL = 300;
 /** The localStorage key of the Skua instance last looked at, by its label (the character name). */
 export const SKUA_INSTANCE_KEY = 'sl-skua-instance';
 
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+export const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const str = (v: unknown): string | null => (typeof v === 'string' ? v : null);
 
 function parseStatus(v: unknown): SkuaStatus | null {
@@ -39,7 +40,7 @@ function parseStatus(v: unknown): SkuaStatus | null {
 }
 
 /** Cut to the text cap without leaving half of a surrogate pair at the end. */
-function cut(text: string): string {
+export function cut(text: string): string {
   if (text.length <= MAX_TEXT) return text;
   const last = text.charCodeAt(MAX_TEXT - 1);
   return text.slice(0, last >= 0xd800 && last <= 0xdbff ? MAX_TEXT - 1 : MAX_TEXT);
@@ -59,10 +60,10 @@ function parseQuests(v: unknown): SkuaQuest[] | null {
 }
 
 /** A whole number from 0 to the int32 maximum, or null. */
-const count = (v: unknown): number | null => (typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= MAX_INT32 ? v : null);
+export const count = (v: unknown): number | null => (typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= MAX_INT32 ? v : null);
 
 /** The factions; anything but an array is "not reported" (null), and a damaged entry is left out on its own. */
-function parseFactions(v: unknown): SkuaFaction[] | null {
+export function parseFactions(v: unknown): SkuaFaction[] | null {
   if (!Array.isArray(v)) return null;
   const factions: SkuaFaction[] = [];
   for (const f of v as unknown[]) {
@@ -269,87 +270,26 @@ export function questRows(s: SkuaState): SkuaQuest[] | null {
   return [...quests.filter((q) => q.ready), ...quests.filter((q) => !q.ready)];
 }
 
-export interface FactionRow {
-  name: string;
-  rank: number;
-  /** The maximum rank: rank 10, or a rank step of 0. */
-  max: boolean;
-  /** The share of the current rank already earned, 0 to 1 (1 at the maximum rank). */
-  fraction: number;
-  toNext: number;
-}
+export type { FactionRow };
 
-const finite = (n: number): number => (Number.isFinite(n) ? n : 0);
-
-/** The ordering key of the capture-based list (FeedSnapshotBuilder): what is missing for the next rank, the maximum rank last. */
-const missing = (r: FactionRow): number => (r.max ? Number.POSITIVE_INFINITY : r.toNext);
-
-/** Ordinal comparison ignoring case, like the app's StringComparer.OrdinalIgnoreCase. */
-const byName = (a: string, b: string): number => {
-  const x = a.toUpperCase(), y = b.toUpperCase();
-  return x < y ? -1 : x > y ? 1 : 0;
-};
-
-/**
- * The Reputation card's rows, ordered like the capture-based reputation list: closest to the next rank first, the maximum
- * rank last, ties by name ignoring case. Null when the plugin does not report reputation or Skua is not connected.
- */
+/** The Skua tab's Reputation rows, in the shared order; null when the plugin does not report reputation or Skua is not connected. */
 export function factionRows(s: SkuaState): FactionRow[] | null {
-  return ranked(s)?.map((x) => x.row) ?? null;
-}
-
-/** The rows with the faction's total reputation, in the shared order. */
-function ranked(s: SkuaState): { row: FactionRow; rep: number }[] | null {
   const factions = s.connection === 'Connected' ? s.status?.factions : null;
-  if (!factions) return null;
-  return factions
-    .map((f) => {
-      const max = f.rank >= 10 || f.requiredRep <= 0;
-      const fraction = max ? 1 : Math.min(1, Math.max(0, finite(f.rep / f.requiredRep)));
-      const toNext = max ? 0 : Math.max(0, finite(f.requiredRep - f.rep));
-      const row: FactionRow = { name: f.name, rank: f.rank, max, fraction, toNext };
-      return { row, rep: f.totalRep };
-    })
-    .sort((a, b) => missing(a.row) - missing(b.row) || byName(a.row.name, b.row.name));
+  return factions ? factionRowsOf(factions) : null;
 }
 
 /**
- * The list the phone's main Reputation card shows. Skua's live list wins only when a connected Skua (any of them) reports factions
- * for the selected character, ignoring letter case. An empty Skua list falls back to the capture list: a logged-in character with
- * no reputation at all is rare, and a transient empty read (Skua answers [] on any read failure) must not blank the page.
- */
-export function effectiveFactions(state: RemoteState): { factions: Faction[]; source: 'skua' | 'capture' } {
-  const snapshot = state.snapshot;
-  const capture = { factions: snapshot?.factions ?? [], source: 'capture' as const };
-  if (!snapshot || snapshot.selected === null) return capture;
-  const selected = snapshot.selected.toUpperCase();
-  // Every connected Skua is a candidate: the selected character may be played in any of them. An older app sends only the single one.
-  const candidates: SkuaState[] = state.skuaInstances?.length ? state.skuaInstances.filter(isLive) : state.skua ? [state.skua] : [];
-  for (const skua of candidates) {
-    const character = skua.status?.character;
-    if (!character || character.toUpperCase() !== selected) continue;
-    const rows = ranked(skua);
-    if (!rows || rows.length === 0) continue;
-    return { factions: rows.map(({ row, rep }) => ({ name: row.name, rank: row.rank, rep, toNext: row.toNext, fraction: row.fraction, max: row.max })), source: 'skua' };
-  }
-  return capture;
-}
-
-/**
- * The captured character whose screen shows this Skua's reputation, or null. The character screen shows reputation only for the
- * selected character (live from Skua when it matches), so a Skua points there only when its character is captured and selected,
- * ignoring letter case; otherwise the Skua tab keeps the full list so nothing is lost.
+ * The character whose Overview shows this Skua's reputation: the one SkuaLink knows by the Skua's character name, ignoring letter
+ * case; null otherwise, and the Skua tab then keeps the full list so nothing is lost.
  */
 export function reputationHome(state: RemoteState | null, skua: SkuaState): string | null {
-  const snapshot = state?.snapshot;
-  const who = skua.status?.character;
-  if (!snapshot || !who || snapshot.selected === null || snapshot.selected.toUpperCase() !== who.toUpperCase()) return null;
-  return snapshot.characters.find((c) => c.name === snapshot.selected)?.name ?? null;
+  const who = skua.status?.character?.toUpperCase();
+  return (who && state?.characters?.find((c) => c.hasCharacter && c.name.toUpperCase() === who)?.name) || null;
 }
 
 /**
- * A reputation list in one line: how many factions, and the one closest to its next rank, if any. Both lists effectiveFactions
- * gives are ordered closest first (the maximum rank last), so that is the first one not at the maximum rank.
+ * A reputation list in one line: how many factions, and the one closest to its next rank, if any. The lists are ordered closest
+ * first (the maximum rank last), so that is the first one not at the maximum rank.
  */
 export function reputationSummary<F extends Pick<Faction, 'max'>>(factions: readonly F[]): { count: number; closest: F | null } {
   return { count: factions.length, closest: factions.find((f) => !f.max) ?? null };

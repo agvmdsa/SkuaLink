@@ -1,8 +1,9 @@
-import { characterHref, characterRow, characterRows, expFraction, formatNumber, hardFarmsView, noticeLine, type Route } from './state';
+import { characterRows, factionRowsOf, findCharacter, lastSeen, overviewFacts, TONE_KIND, type CharacterRowView } from './characters';
+import { characterHref, expFraction, formatNumber, hardFarmsView, noticeLine, relativeTime, type Route, type Section } from './state';
 import { plural, t, type MessageKey } from './i18n';
-import { effectiveFactions, factionRows, instanceState, LOG_FILTERS, LOG_FILTER_LABELS, questRows, reputationHome, reputationSummary, selectInstance, skuaEmptyText, skuaLogRows, skuaNow, skuaSummary, type LogFilter } from './skua';
+import { factionRows, instanceState, LOG_FILTERS, LOG_FILTER_LABELS, questRows, reputationHome, reputationSummary, selectInstance, skuaEmptyText, skuaLogRows, skuaNow, skuaSummary, type LogFilter } from './skua';
 import { THEMES, type ThemeChoice } from './theme';
-import type { Faction, RemoteState, SkuaInstance, SkuaState } from './types';
+import type { Faction, Notice, PhoneCharacter, RemoteState, SkuaInstance, SkuaState } from './types';
 
 export interface VNode {
   tag: string;
@@ -30,6 +31,8 @@ export interface Model {
   skuaInstanceId?: string | null;
   /** Draws the Control card of an instance (loaded with the Skua tab); without it the tab shows no Control card. */
   controlCard?: (i: SkuaInstance) => VNode | null;
+  /** The section last opened for a character; the Overview when absent. */
+  sectionOf?: (name: string) => Section;
 }
 
 type Child = VNode | null | false;
@@ -69,16 +72,13 @@ export function bar(label: string, fraction: number): VNode {
   );
 }
 
-function status(kind: string, text: string): VNode {
-  return h('p', { className: 'status' }, h('span', { className: 'dot', attrs: { 'data-kind': kind, 'aria-hidden': 'true' } }), h('span', { text }));
+function status(kind: string, text: string, tag = 'p'): VNode {
+  return h(tag, { className: 'status' }, h('span', { className: 'dot', attrs: { 'data-kind': kind, 'aria-hidden': 'true' } }), h('span', { text }));
 }
 
-function fact(label: string, value: string): VNode[] {
-  return [h('dt', { text: label }), h('dd', { text: value })];
-}
 
 export function listView(model: Model): VNode {
-  const rows = characterRows(model.state, model.nowMs);
+  const rows = characterRows(model.state, model.nowMs, model.sectionOf);
   const notices = model.state?.notices ?? [];
   return h(
     'div',
@@ -87,57 +87,54 @@ export function listView(model: Model): VNode {
       'section',
       { className: 'card' },
       h('h2', { text: t('list.title') }),
-      rows.length === 0
-        ? empty(t('list.empty'))
-        : h(
-            'ul',
-            { className: 'list' },
-            ...rows.map((r) =>
-              h(
-                'li',
-                {},
-                h(
-                  'a',
-                  { className: 'row', attrs: { href: characterHref(r.name) } },
-                  h('span', { className: 'title' }, h('span', { className: 'name', text: r.name }), h('span', { className: 'level', text: t('list.level', { level: r.level }) })),
-                  h('span', { className: 'gold', text: t('list.gold', { gold: r.gold }) }),
-                  h('span', { className: 'row-status' }, status(r.kind, r.status)),
-                ),
-              ),
-            ),
-          ),
+      rows.length === 0 ? empty(t('list.empty')) : h('ul', { className: 'list' }, ...rows.map(characterRowNode)),
     ),
-    model.state?.skua
-      ? h(
-          'section',
-          { className: 'card' },
-          h('h2', { text: t('skua.title') }),
-          h('a', { className: 'row', attrs: { href: '#/skua' } }, h('span', { className: 'name', text: skuaSummary(model.state.skua) })),
-        )
-      : null,
-    h(
-      'section',
-      { className: 'card' },
-      h('h2', { text: t('list.notices.title') }),
-      notices.length === 0
-        ? empty(t('list.notices.empty'))
-        : h(
-            'ul',
-            { className: 'notices' },
-            ...notices.slice(0, 10).map((n) => {
-              const line = noticeLine(n, model.nowMs);
-              return h(
-                'li',
-                {},
-                h('p', { className: 'notice-title', text: line.title }),
-                h('p', { text: line.body }),
-                h('p', { className: 'muted', text: n.character ? t('list.notices.when', { character: n.character, when: line.when }) : line.when }),
-              );
-            }),
-          ),
-    ),
-    model.state?.snapshot ? h('p', { className: 'note', text: t('list.capture', { state: model.state.snapshot.capture.state }) }) : null,
+    model.state?.skua ? skuaLinkCard(model.state.skua) : null, // removed in Task 8
+    noticesCard(notices, model.nowMs),
     model.installHint ? h('p', { className: 'note', text: model.installHint }) : null,
+  );
+}
+
+function characterRowNode(r: CharacterRowView): VNode {
+  const inner = [
+    h('span', { className: 'title' }, h('span', { className: 'name', text: r.name }), r.level ? h('span', { className: 'level', text: r.level }) : null),
+    r.gold ? h('span', { className: 'gold', text: r.gold }) : null,
+    h('span', { className: 'row-status' }, status(r.badge.kind, r.badge.text, 'span'), r.age ? h('span', { className: 'muted', text: r.age }) : null),
+  ];
+  // A Skua with nobody logged in has no character to open: the same row, as plain text.
+  return h('li', {}, h(r.href ? 'a' : 'div', { className: 'row', attrs: r.href ? { href: r.href } : {} }, ...inner));
+}
+
+function skuaLinkCard(skua: SkuaState): VNode {
+  return h(
+    'section',
+    { className: 'card' },
+    h('h2', { text: t('skua.title') }),
+    h('a', { className: 'row', attrs: { href: '#/skua' } }, h('span', { className: 'name', text: skuaSummary(skua) })),
+  );
+}
+
+function noticesCard(notices: Notice[], nowMs: number): VNode {
+  return h(
+    'section',
+    { className: 'card' },
+    h('h2', { text: t('list.notices.title') }),
+    notices.length === 0
+      ? empty(t('list.notices.empty'))
+      : h(
+          'ul',
+          { className: 'notices' },
+          ...notices.slice(0, 10).map((n) => {
+            const line = noticeLine(n, nowMs);
+            return h(
+              'li',
+              {},
+              h('p', { className: 'notice-title', text: line.title }),
+              h('p', { text: line.body }),
+              h('p', { className: 'muted', text: n.character ? t('list.notices.when', { character: n.character, when: line.when }) : line.when }),
+            );
+          }),
+        ),
   );
 }
 
@@ -168,7 +165,7 @@ function questsCard(skua: SkuaState): VNode | null {
   );
 }
 
-/** The one way a reputation list is drawn, on the character screen and (for a character not captured) on the Skua tab. */
+/** The one way a reputation list is drawn, on the Overview and (for a character SkuaLink does not know) on the Skua tab. */
 function reputationCard(factions: Pick<Faction, 'name' | 'rank' | 'max' | 'fraction' | 'toNext'>[], note: string | null = null): VNode {
   return h(
     'section',
@@ -180,16 +177,16 @@ function reputationCard(factions: Pick<Faction, 'name' | 'rank' | 'max' | 'fract
 }
 
 /**
- * The Skua tab's reputation: a one-line link to the character screen when that screen shows it (the character is captured and
- * selected), else the full list here. Hidden when the plugin does not report reputation.
+ * The Skua tab's reputation: a one-line link to the character's Overview when SkuaLink knows the character, else the full list
+ * here. Hidden when the plugin does not report reputation.
  */
 function skuaReputation(skua: SkuaState, state: RemoteState | null): VNode | null {
   const rows = factionRows(skua);
   if (!rows) return null;
   const home = reputationHome(state, skua);
-  if (home === null || !state) return reputationCard(rows);
-  // What the character screen shows: the live list, or the capture list when the live one is empty.
-  const sum = reputationSummary(effectiveFactions(state).factions);
+  if (home === null) return reputationCard(rows);
+  // What the Overview shows: the character's list, live or last known.
+  const sum = reputationSummary(factionRowsOf(findCharacter(state, home)?.factions ?? []));
   return h(
     'section',
     { className: 'card' },
@@ -246,7 +243,7 @@ function instanceLabel(i: SkuaInstance, selected: boolean, role: 'chip' | 'list'
   const common = { 'data-action': 'skua-instance', 'data-value': i.instanceId, type: 'button' };
   const inner = [
     h('span', { className: 'chip-name', text: i.label }),
-    h('span', { className: 'chip-state' }, h('span', { className: 'dot', attrs: { 'data-kind': st.tone === 'run' ? 'live' : st.tone === 'warn' ? 'idle' : 'saved', 'aria-hidden': 'true' } }), h('span', { text: st.text })),
+    h('span', { className: 'chip-state' }, h('span', { className: 'dot', attrs: { 'data-kind': TONE_KIND[st.tone], 'aria-hidden': 'true' } }), h('span', { text: st.text })),
   ];
   const off = i.disconnected || i.connection === 'NotConnected';
   if (role === 'list') {
@@ -283,7 +280,7 @@ export function skuaView(model: Model): VNode {
   return h('div', {}, selector, nowCard(live, model.nowMs), control, questsCard(live), skuaReputation(live, model.state), logCard(live, model));
 }
 
-/** One faction: from the capture (Faction) or from Skua (FactionRow), which carry the same fields. */
+/** One faction row (FactionRow; the capture's Faction carries the same fields). */
 function factionRow(f: Pick<Faction, 'name' | 'rank' | 'max' | 'fraction' | 'toNext'>): VNode {
   return h(
     'li',
@@ -295,74 +292,59 @@ function factionRow(f: Pick<Faction, 'name' | 'rank' | 'max' | 'fraction' | 'toN
 }
 
 export function characterView(model: Model, name: string): VNode {
-  const snapshot = model.state?.snapshot;
-  const character = snapshot?.characters.find((c) => c.name === name);
-  if (!snapshot || !character) {
-    return h('div', {}, back(), h('section', { className: 'card' }, empty(t('character.notLoggedIn'))));
-  }
-
-  const row = characterRow(character, model.nowMs);
-  const f = character.figures;
-  const kill = character.lastKill;
-  const figures = h(
-    'section',
-    { className: 'card' },
-    h('h2', { text: character.name }),
-    status(row.kind, row.status),
-    h(
-      'dl',
-      { className: 'figures' },
-      ...fact(t('character.level'), String(character.level)),
-      ...fact(t('character.gold'), formatNumber(f.gold)),
-      ...fact(t('character.exp'), t('character.expOf', { exp: formatNumber(f.exp), toLevel: formatNumber(f.expToLevel) })),
-      ...fact(t('character.ac'), String(f.ac)),
-      ...fact(t('character.classPoints'), formatNumber(f.classPoints)),
-      ...fact(t('character.daysPlayed'), String(f.daysPlayed)),
-      ...fact(t('character.lastKill'), kill ? t('character.lastKill.value', { gold: formatNumber(kill.gold), exp: formatNumber(kill.exp) }) : t('character.lastKill.none')),
-    ),
-    bar(t('character.expBar'), expFraction(f)),
-  );
-
-  if (snapshot.selected !== name) {
-    const note = snapshot.selected
-      ? t('character.note.selectedElsewhere', { selected: snapshot.selected })
-      : t('character.note.selectHere');
-    return h('div', {}, back(), figures, h('p', { className: 'note', text: note }));
-  }
-
-  const reputation = effectiveFactions(model.state!);
-  const hf = hardFarmsView(snapshot.hardFarms, model.showAll);
-  const missingCount = hf ? hf.shown.length + hf.hidden : 0;
+  const c = findCharacter(model.state, name);
+  if (!c?.hasCharacter) return h('div', {}, back(), h('section', { className: 'card' }, empty(t('character.notKnown'))));
+  const p = c.profile;
+  const seen = c.live ? t('character.live') : lastSeen(c, model.nowMs);
   return h(
     'div',
     {},
     back(),
-    figures,
-    reputationCard(reputation.factions, reputation.source === 'skua' ? t('factions.fromSkua') : null),
     h(
       'section',
       { className: 'card' },
-      h('h2', { text: t('hardFarms.title') }),
-      hf === null
-        ? empty(t('hardFarms.notLoaded'))
-        : h(
-            'div',
-            {},
-            h('p', { text: t('hardFarms.owned', { owned: hf.owned, total: hf.total }) }),
-            bar(t('hardFarms.bar'), hf.fraction),
-            hf.shown.length + hf.hidden === 0
-              ? null
-              : h(
-                  'details',
-                  { attrs: model.hfOpen ? { open: '' } : {} },
-                  h('summary', { text: t('hardFarms.missing', { count: missingCount }) }),
-                  h('ul', { className: 'missing' }, ...hf.shown.map((item) => h('li', { text: item }))),
-                  hf.hidden > 0 ? h('button', { text: t('hardFarms.showMore', { count: hf.hidden }), attrs: { type: 'button', 'data-action': 'toggle-all' } }) : null,
-                  model.showAll && missingCount > 20 ? h('button', { text: t('hardFarms.showFewer'), attrs: { type: 'button', 'data-action': 'toggle-all' } }) : null,
-                ),
-            h('p', { className: 'muted', text: t('hardFarms.source') }),
-          ),
+      h('h2', { text: c.name }),
+      seen ? status(c.live ? 'live' : 'saved', seen) : null,
+      p ? h('dl', { className: 'figures' }, ...overviewFacts(p).flatMap((f) => [h('dt', { text: f.label }), h('dd', { text: f.value })])) : empty(t('character.noProfile')),
+      p ? bar(t('character.expBar'), expFraction(p)) : null,
     ),
+    reputationCard(factionRowsOf(c.factions ?? []), c.factionsLive ? t('factions.fromSkua') : null),
+    hardFarmsCard(c, model),
+  );
+}
+
+function hardFarmsCard(c: PhoneCharacter, model: Model): VNode {
+  const hf = c.hardFarmsState === 'Ready' ? hardFarmsView(c.hardFarms, model.showAll) : null;
+  const missingCount = hf ? hf.shown.length + hf.hidden : 0;
+  return h(
+    'section',
+    { className: 'card' },
+    h('h2', { text: t('hardFarms.title') }),
+    hf === null
+      ? empty(t(c.hardFarmsState === 'NoList' ? 'hardFarms.notLoaded' : 'hardFarms.noInventory'))
+      : h(
+          'div',
+          {},
+          h('p', { text: t('hardFarms.owned', { owned: hf.owned, total: hf.total }) }),
+          bar(t('hardFarms.bar'), hf.fraction),
+          missingCount === 0
+            ? null
+            : h(
+                'details',
+                { attrs: model.hfOpen ? { open: '' } : {} },
+                h('summary', { text: t('hardFarms.missing', { count: missingCount }) }),
+                h('ul', { className: 'missing' }, ...hf.shown.map((item) => h('li', { text: item }))),
+                // One toggle: Show more while some are hidden, Show fewer once all of a long list are shown.
+                hf.hidden > 0 || (model.showAll && missingCount > 20)
+                  ? h('button', { text: hf.hidden > 0 ? t('hardFarms.showMore', { count: hf.hidden }) : t('hardFarms.showFewer'), attrs: { type: 'button', 'data-action': 'toggle-all' } })
+                  : null,
+              ),
+          // The notes under the list: a gap above them (.hint), then they read as one block of footnotes.
+          c.inventoryTruncated ? h('p', { className: 'hint', text: t('hardFarms.truncated') }) : null,
+          c.inventoryAtUtc ? h('p', { className: 'muted hint', text: t('hardFarms.inventoryAge', { when: relativeTime(c.inventoryAtUtc, model.nowMs) }) }) : null,
+          h('p', { className: 'muted', text: t('hardFarms.bankHint') }),
+        ),
+    h('p', { className: 'muted', text: t('hardFarms.source') }),
   );
 }
 

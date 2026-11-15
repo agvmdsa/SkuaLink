@@ -1,12 +1,12 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
-  effectiveFactions, followSelection, instanceStateText, loadInstance, neighbourId, parseSkuaInstances, reputationHome, reputationSummary, saveInstance, selectInstance,
+  followSelection, instanceStateText, loadInstance, neighbourId, parseSkuaInstances, reputationHome, reputationSummary, saveInstance, selectInstance,
   SKUA_INSTANCE_KEY,
 } from '../src/skua';
 import { noticeLine, parseState } from '../src/state';
 import { characterView, skuaView, listView, type Model, type VNode } from '../src/views';
-import type { Faction, RemoteState, SkuaInstance } from '../src/types';
+import type { Faction, PhoneCharacter, RemoteState, SkuaInstance } from '../src/types';
 
 const NOW = Date.parse('2026-11-11T12:12:00Z');
 const status = (over: object = {}) => ({
@@ -246,42 +246,6 @@ describe('the selector in the Skua view', () => {
   it('shows the Skua card on the list view as before', () => expect(texts(listView(model(many(2))))).toContain('Skua connected.'));
 });
 
-describe('effectiveFactions across instances', () => {
-  const capture: Faction[] = [{ name: 'Captured', rank: 2, rep: 5, toNext: 95, fraction: 0.05, max: false }];
-  const fac = (name: string) => [{ id: 1, name, rank: 3, totalRep: 10, rep: 10, requiredRep: 100 }];
-  const remote = (list: SkuaInstance[], selected: string | null = 'Mule'): RemoteState => ({
-    snapshot: { contract: 1, capture: { state: 'Listening.', listening: true }, selected, characters: [], factions: capture, hardFarms: null },
-    notices: [], skua: list[0] ?? null, skuaInstances: list,
-  });
-  it('finds the selected character in a later instance', () => {
-    const r = effectiveFactions(remote([inst('Hero', {}, { factions: fac('H') }), inst('Mule', {}, { factions: fac('FromMule') })]));
-    expect(r.source).toBe('skua');
-    expect(r.factions[0]!.name).toBe('FromMule');
-  });
-  it('matches case-insensitively', () => expect(effectiveFactions(remote([inst('mule', {}, { factions: fac('X') })], 'MULE')).source).toBe('skua'));
-  it.each([['NotConnected'], ['VersionMismatch']])('ignores an instance whose connection is %s even when it is not marked disconnected', (connection) => {
-    const r = effectiveFactions(remote([inst('Mule', { connection }, { factions: fac('Stale') })]));
-    expect(r).toEqual({ factions: capture, source: 'capture' });
-  });
-  it('ignores disconnected instances', () => {
-    const r = effectiveFactions(remote([inst('Mule', { disconnected: true }, { factions: fac('Stale') })]));
-    expect(r).toEqual({ factions: capture, source: 'capture' });
-  });
-  it('skips a match with an empty list and uses a later one', () => {
-    const r = effectiveFactions(remote([inst('Mule', {}, { factions: [] }), inst('Mule', {}, { factions: fac('Second') })]));
-    expect(r.factions[0]!.name).toBe('Second');
-  });
-  it('falls back to the capture list when nobody matches', () => {
-    expect(effectiveFactions(remote([inst('Hero', {}, { factions: fac('H') })]))).toEqual({ factions: capture, source: 'capture' });
-  });
-  it('still works from the old skua field without instances', () => {
-    const r = remote([]);
-    r.skuaInstances = undefined;
-    r.skua = inst('Mule', {}, { factions: fac('Old') });
-    expect(effectiveFactions(r).source).toBe('skua');
-  });
-});
-
 describe('the new notice kinds', () => {
   const n = (kind: string, character: string | null) => ({ id: '1', kind, character, title: 'server title', body: 'server body', atUtc: new Date(NOW - 120_000).toISOString() }) as never;
   it('render with catalog texts and the label', () => {
@@ -374,26 +338,22 @@ describe('reputation in one place', () => {
     { name: 'Captured', rank: 2, rep: 5, toNext: 95, fraction: 0.05, max: false },
   ];
   const fac = (id: number, name: string, rep: number, requiredRep: number, rank = 3) => ({ id, name, rank, totalRep: 10, rep, requiredRep });
-  const character = (name: string) => ({
-    name, level: 80, live: true, savedAtUtc: '2026-11-11T12:00:00Z', lastLiveUpdateUtc: null, liveUpdates: 0,
-    figures: { gold: 1, exp: 1, expToLevel: 2, ac: 1, classPoints: 1, daysPlayed: 1 }, lastKill: null,
+  const character = (name: string, factions: PhoneCharacter['factions'] = null, over: Partial<PhoneCharacter> = {}): PhoneCharacter => ({
+    name, hasCharacter: true, instanceId: null, live: true, lastSeenUtc: '2026-11-11T12:00:00Z', profile: null, factions, factionsLive: true,
+    hardFarmsState: 'NoList', hardFarms: null, inventoryAtUtc: null, inventoryTruncated: false, ...over,
   });
-  const remote = (list: SkuaInstance[], characters: string[], selected: string | null = characters[0] ?? null): RemoteState => ({
-    snapshot: { contract: 1, capture: { state: 'Listening.', listening: true }, selected, characters: characters.map(character), factions: capture, hardFarms: null },
-    notices: [], skua: list[0] ?? null, skuaInstances: list,
-  });
+  const remote = (list: SkuaInstance[], characters: PhoneCharacter[]): RemoteState => ({ snapshot: null, notices: [], skua: list[0] ?? null, skuaInstances: list, characters });
   const at = (state: RemoteState, saved: string | null = null): Model => ({ state, nowMs: NOW, showAll: false, hfOpen: false, installHint: null, skuaInstance: saved });
   const headings = (v: VNode) => all(v).filter((n) => n.tag === 'h2').map((n) => n.text);
   const reputationCards = (v: VNode) => all(v).filter((n) => n.tag === 'section' && n.children[0]?.text === 'Reputation');
 
-  it('finds the character screen of a Skua whose character is captured and selected, ignoring case', () => {
-    expect(reputationHome(remote([], ['Hero']), inst('hero'))).toBe('Hero');
+  it('finds the Overview of a Skua whose character SkuaLink knows, ignoring case', () => {
+    expect(reputationHome(remote([], [character('Hero')]), inst('hero'))).toBe('Hero');
   });
-  it('finds none when the character is not captured, not selected, or nobody is logged in', () => {
-    expect(reputationHome(remote([], ['Other']), inst('Hero'))).toBeNull();
-    expect(reputationHome(remote([], ['Hero', 'Other'], 'Other'), inst('Hero'))).toBeNull();
-    expect(reputationHome(remote([], ['Hero'], null), inst('Hero'))).toBeNull();
-    expect(reputationHome(remote([], ['Hero']), inst('Hero', {}, { character: null }))).toBeNull();
+  it('finds none when the character is unknown, the row has no character, or nobody is logged in', () => {
+    expect(reputationHome(remote([], [character('Other')]), inst('Hero'))).toBeNull();
+    expect(reputationHome(remote([], [character('Hero', null, { hasCharacter: false })]), inst('Hero'))).toBeNull();
+    expect(reputationHome(remote([], [character('Hero')]), inst('Hero', {}, { character: null }))).toBeNull();
     expect(reputationHome({ snapshot: null, notices: [] }, inst('Hero'))).toBeNull();
     expect(reputationHome(null, inst('Hero'))).toBeNull();
   });
@@ -406,58 +366,48 @@ describe('reputation in one place', () => {
     expect(reputationSummary([])).toEqual({ count: 0, closest: null });
   });
 
-  it('a captured, selected character: the Skua tab links to its screen instead of drawing the list', () => {
-    const list = [inst('Hero', {}, { factions: [fac(1, 'Yokai', 100, 1000), fac(2, 'Nation', 900, 1000)] })];
-    const v = skuaView(at(remote(list, ['Hero'])));
+  it('a known character: the Skua tab links to its Overview instead of drawing the list', () => {
+    const factions = [fac(1, 'Yokai', 100, 1000), fac(2, 'Nation', 900, 1000)];
+    const v = skuaView(at(remote([inst('Hero', {}, { factions })], [character('Hero', factions)])));
     const cards = reputationCards(v);
     expect(cards).toHaveLength(1);
     expect(all(cards[0]!).some((n) => n.attrs?.role === 'progressbar')).toBe(false);
     const link = all(cards[0]!).find((n) => n.tag === 'a')!;
-    expect(link.attrs!.href).toBe('#/c/Hero');
+    expect(link.attrs!.href).toBe('#/character/Hero');
     expect(texts(link)).toEqual(['2 factions for Hero', 'Closest to next rank: Nation (100 to go)']);
   });
-  it('the summary follows what the character screen shows: the capture list when the live list is empty', () => {
-    const v = skuaView(at(remote([inst('Hero', {}, { factions: [] })], ['Hero'])));
-    expect(texts(v)).toEqual(expect.arrayContaining(['2 factions for Hero', 'Closest to next rank: Captured (95 to go)']));
+  it('the summary follows what the Overview shows: the character list, here the last known one', () => {
+    const v = skuaView(at(remote([inst('Hero', {}, { factions: [] })], [character('Hero', [fac(1, 'Kept', 5, 100)], { factionsLive: false })])));
+    expect(texts(v)).toEqual(expect.arrayContaining(['1 faction for Hero', 'Closest to next rank: Kept (95 to go)']));
   });
   it('says all are at the maximum rank when none has a next rank', () => {
-    const v = skuaView(at(remote([inst('Hero', {}, { factions: [fac(1, 'Good', 0, 0, 10)] })], ['Hero'])));
+    const factions = [fac(1, 'Good', 0, 0, 10)];
+    const v = skuaView(at(remote([inst('Hero', {}, { factions })], [character('Hero', factions)])));
     expect(texts(v)).toEqual(expect.arrayContaining(['1 faction for Hero', 'All at max rank']));
   });
-  it('a character that is not captured keeps the full card on the Skua tab, so nothing is lost', () => {
-    const list = [inst('Stranger', {}, { factions: [fac(1, 'Yokai', 100, 1000)] })];
-    const v = skuaView(at(remote(list, ['Hero'])));
+  it('a character SkuaLink does not know keeps the full card on the Skua tab, so nothing is lost', () => {
+    const v = skuaView(at(remote([inst('Stranger', {}, { factions: [fac(1, 'Yokai', 100, 1000)] })], [character('Hero')])));
     const cards = reputationCards(v);
     expect(cards).toHaveLength(1);
     expect(all(cards[0]!).some((n) => n.attrs?.role === 'progressbar')).toBe(true);
     expect(texts(cards[0]!)).toEqual(['Reputation', 'Yokai', 'Rank 3', '900 to next rank']);
     expect(all(cards[0]!).some((n) => n.tag === 'a')).toBe(false);
   });
-  it('a captured character that is not the selected one keeps the full card too (its screen shows no reputation)', () => {
-    const list = [inst('Hero', {}, { factions: [fac(1, 'Yokai', 100, 1000)] })];
-    const v = skuaView(at(remote(list, ['Hero', 'Other'], 'Other')));
-    expect(all(reputationCards(v)[0]!).some((n) => n.attrs?.role === 'progressbar')).toBe(true);
-  });
   it('shows no reputation card when the plugin does not report reputation', () => {
-    expect(headings(skuaView(at(remote([inst('Hero')], ['Hero']))))).not.toContain('Reputation');
+    expect(headings(skuaView(at(remote([inst('Hero')], [character('Hero')]))))).not.toContain('Reputation');
   });
-  it('the character screen titles its single card Reputation and takes the live list when Skua matches', () => {
-    const list = [inst('Hero', {}, { factions: [fac(1, 'LiveFaction', 100, 1000)] })];
-    const live = characterView(at(remote(list, ['Hero'])), 'Hero');
+  it('the Overview titles its single card Reputation and shows the character list', () => {
+    const live = characterView(at(remote([], [character('Hero', [fac(1, 'LiveFaction', 100, 1000)])])), 'Hero');
     expect(reputationCards(live)).toHaveLength(1);
     expect(texts(live)).toEqual(expect.arrayContaining(['Live from Skua', 'LiveFaction']));
-    const captured = characterView(at(remote([inst('Stranger', {}, { factions: [fac(1, 'LiveFaction', 100, 1000)] })], ['Hero'])), 'Hero');
-    expect(texts(captured)).toContain('Captured');
-    expect(texts(captured)).not.toContain('Live from Skua');
-    expect(texts(captured)).not.toContain('LiveFaction');
   });
   it('writes hostile names as text only, in the link and the summary', () => {
     const evil = '<img src=x onerror=alert(1)>';
-    const list = [inst(evil, {}, { factions: [fac(1, '<b>F</b>', 100, 1000)] })];
-    const v = skuaView(at(remote(list, [evil])));
+    const factions = [fac(1, '<b>F</b>', 100, 1000)];
+    const v = skuaView(at(remote([inst(evil, {}, { factions })], [character(evil, factions)])));
     expect(texts(v)).toEqual(expect.arrayContaining([`1 faction for ${evil}`, 'Closest to next rank: <b>F</b> (900 to go)']));
-    const link = all(v).find((n) => n.tag === 'a' && n.attrs?.href?.startsWith('#/c/'))!;
-    expect(link.attrs!.href).toBe(`#/c/${encodeURIComponent(evil)}`);
+    const link = all(v).find((n) => n.tag === 'a' && n.attrs?.href?.startsWith('#/character/'))!;
+    expect(link.attrs!.href).toBe(`#/character/${encodeURIComponent(evil)}`);
     for (const n of all(v)) {
       expect(['img', 'b', 'script']).not.toContain(n.tag);
       for (const k of Object.keys(n.attrs ?? {})) expect(k === 'style' || k.startsWith('on')).toBe(false);
