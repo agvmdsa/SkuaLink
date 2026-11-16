@@ -83,7 +83,11 @@ public sealed class SkuaInventorySchedule(Func<DateTimeOffset> now)
         }
     }
 
-    /// <summary>A logout, another character or a lost connection: the next pass happens at once.</summary>
+    /// <summary>
+    /// A logout or another character: the next pass happens at once. A lost connection does not reset: after a (re)connect the
+    /// plugin only asks (<see cref="Request"/>), so the resend waits for the cost gap (up to <see cref="Periodic"/> with a big
+    /// bank) and SkuaLink's last known book covers the gap.
+    /// </summary>
     public void Reset()
     {
         lock (_lock)

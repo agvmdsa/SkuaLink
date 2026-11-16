@@ -76,7 +76,7 @@ export const en = {
 
   'hardFarms.title': 'Hard Farms',
   'hardFarms.notLoaded': 'Hard Farms are not loaded yet. Import the list in SkuaLink.',
-  'hardFarms.noInventory': 'Hard Farms: inventory not reported by this plugin version. Update the Skua plugin to the same release as SkuaLink.',
+  'hardFarms.noInventory': 'No inventory has been read for this character yet.',
   'hardFarms.inventoryAge': 'Inventory read {when}',
   'hardFarms.truncated': 'The inventory list was cut, so some items may show as missing.',
   'hardFarms.bankHint': 'Bank items count once the bank was opened in Skua during the session.',

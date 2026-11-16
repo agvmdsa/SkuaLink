@@ -609,7 +609,11 @@ public sealed class SkuaBridgePlugin : ISkuaPlugin
         _wasLoggedIn = loggedIn;
     }
 
-    /// <summary>Eight plain getters (one Flash read each, see the README audit); a failed read keeps the last profile.</summary>
+    /// <summary>
+    /// Eight plain getters (one Flash read each, see the README audit). Skua's getters catch a failed Flash call and return the
+    /// default, so a failed read mostly arrives as a level of 0, not as an exception: SkuaProfileRead.Next keeps the last
+    /// profile for both.
+    /// </summary>
     private SkuaProfile? ReadProfile(IScriptInterface bot)
     {
         SkuaProfileReading? reading;

@@ -2,7 +2,8 @@ namespace AqwCompanion.Skua;
 
 /// <summary>
 /// The pure rules of the plugin's inventory pass, kept here so they are tested without Skua. The bag and the house arrive with
-/// the login and are always read together; the bank is filled only once it was opened in Skua this session (the plugin never
+/// the login; the house counts as read when its list came back (an empty list too), not when it is null (a failed Flash call
+/// or not loaded yet), so the app keeps the house it knew. The bank is filled only once it was opened in Skua this session (the plugin never
 /// opens it: that sends a game packet), so an empty bank read counts as "not read" and the app keeps the bank it knew.
 /// </summary>
 public static class SkuaInventoryRead
@@ -25,7 +26,12 @@ public static class SkuaInventoryRead
             return null;
         }
 
-        var read = new List<string> { SkuaProtocol.ContainerInventory, SkuaProtocol.ContainerHouse };
+        var read = new List<string> { SkuaProtocol.ContainerInventory };
+        if (house is not null)
+        {
+            read.Add(SkuaProtocol.ContainerHouse);
+        }
+
         var items = new List<SkuaItem>();
         items.AddRange(bag.Select(i => new SkuaItem(i.Name, i.Quantity, SkuaProtocol.ContainerInventory)));
         items.AddRange(Clean(house).Select(i => new SkuaItem(i.Name, i.Quantity, SkuaProtocol.ContainerHouse)));

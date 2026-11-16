@@ -166,8 +166,10 @@ public static class CompositionRoot
     [
         sp.GetRequiredService<HardFarmsViewModel>(),
         new LegacyReputationFolder(sp.GetRequiredService<AppPaths>()),
-        sp.GetRequiredService<SkuaHub>(),
+        // The book forgets before the hub: a re-report arriving between the two is then kept by the book (resumed already)
+        // instead of dropped by a still-quiesced one; the plugin reports again only on a change.
         sp.GetRequiredService<CharacterBook>(),
+        sp.GetRequiredService<SkuaHub>(),
         sp.GetRequiredService<SkuaScriptPrefs>(),
         sp.GetRequiredService<SkuaOptionCache>(),
         // PhoneController MUST stay the LAST participant: its Forget resets the phone hub, which reads the feed, and then brings

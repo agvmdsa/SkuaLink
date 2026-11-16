@@ -26,7 +26,7 @@ public partial class SettingsViewModel : ObservableObject
     public const string PairPhoneText = "Pair a phone...";
     public const string PhoneCopyLinkText = "Copy local pairing link";
     public const string SkuaTitleText = "Skua";
-    public const string SkuaDescriptionText = "Shows what each Skua is doing in the Skua tab of the phone page, and lets you start and stop its scripts and set their options from the phone. The plugin and SkuaLink must come from the same release.";
+    public const string SkuaDescriptionText = "Everything SkuaLink shows comes from this plugin: each character's numbers, reputation and Hard Farms, and, in the Bot section of each character on the phone page, what its Skua is doing, with its scripts started, stopped and set up from the phone. The plugin and SkuaLink must come from the same release.";
     public const string SkuaStepsText = "1. Download SkuaLink.SkuaBridge.dll from the release page. 2. Copy it into Skua's plugins folder. 3. Close and reopen Skua.";
     public const string OpenSkuaPluginsFolderText = "Open Skua's plugins folder";
     public const string OpenReleasePageText = "Open the release page";

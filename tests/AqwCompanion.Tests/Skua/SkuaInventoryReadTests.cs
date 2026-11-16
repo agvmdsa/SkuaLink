@@ -1,4 +1,6 @@
+using AqwCompanion.Phone.Characters;
 using AqwCompanion.Skua;
+using AqwCompanion.Tests.TestDoubles;
 
 namespace AqwCompanion.Tests.Skua;
 
@@ -81,5 +83,28 @@ public class SkuaInventoryReadTests
         Assert.True(SkuaInventoryRead.BankRead(Items("Axe"), null));
         Assert.False(SkuaInventoryRead.BankRead(Items("Axe"), Items("Axe")));
         Assert.True(SkuaInventoryRead.BankRead(Items("Axe"), Items("Bow")));
+    }
+
+    [Fact]
+    public void A_house_that_was_not_read_is_not_listed_as_read_and_an_empty_one_is()
+    {
+        var missing = SkuaInventoryRead.Build("Hero", Items("Sword"), null, null)!;
+        Assert.Equal(["inv"], missing.Read);
+        var empty = SkuaInventoryRead.Build("Hero", Items("Sword"), null, [])!;
+        Assert.Equal(["inv", "house"], empty.Read);
+    }
+
+    [Fact]
+    public void A_house_that_was_not_read_keeps_the_remembered_house_in_the_book()
+    {
+        var at = new DateTimeOffset(2026, 11, 15, 12, 0, 0, TimeSpan.Zero);
+        using var book = new CharacterBook(new MemoryCharacterBookStore(), () => at);
+        book.OnInventory("Hero", SkuaInventoryRead.Build("Hero", Items("Sword"), null, Items("Statue"))!);
+
+        book.OnInventory("Hero", SkuaInventoryRead.Build("Hero", Items("Sword", "Shield"), null, null)!);
+
+        var inventory = book.Find("Hero")!.Inventory!;
+        Assert.Contains(new SkuaItem("Statue", 1, "house"), inventory.Items);
+        Assert.Contains(new SkuaItem("Shield", 1, "inv"), inventory.Items);
     }
 }

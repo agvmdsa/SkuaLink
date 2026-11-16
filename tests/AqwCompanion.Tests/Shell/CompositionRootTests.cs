@@ -168,7 +168,7 @@ public class CompositionRootTests
     }
 
     [Fact]
-    public void The_skua_hub_is_shared_with_the_feed_and_the_command_channel_and_forgets_before_the_phone_controller()
+    public void The_skua_hub_is_shared_with_the_feed_and_the_command_channel_and_forgets_after_the_book_and_before_the_phone_controller()
     {
         var paths = new AppPaths(Path.Combine(Path.GetTempPath(), "aqw-tests", Guid.NewGuid().ToString("N")));
 
@@ -182,6 +182,10 @@ public class CompositionRootTests
         var bridgeIndex = participants.FindIndex(p => ReferenceEquals(p, bridge));
         Assert.True(bridgeIndex >= 0);
         Assert.True(bridgeIndex < participants.FindIndex(p => p is PhoneController));
+        // The book forgets first: a re-report arriving between the two would otherwise be dropped by the still-quiesced book,
+        // and the plugin sends again only on a change.
+        var bookIndex = participants.FindIndex(p => ReferenceEquals(p, services.GetRequiredService<CharacterBook>()));
+        Assert.InRange(bookIndex, 0, bridgeIndex - 1);
         Assert.False(Directory.Exists(paths.Root));
     }
 

@@ -482,8 +482,10 @@ public class SettingsViewModelTests
     }
 
     [Fact]
-    public void The_skua_texts_are_set_and_make_no_gold_or_inventory_claim()
+    public void The_skua_texts_are_set_and_stay_general()
     {
+        // The texts describe the plugin in general words; which numbers it reads (gold, the inventory...) is told by the
+        // plugin README, not by Settings.
         string[] texts =
         [
             SettingsViewModel.SkuaTitleText, SettingsViewModel.SkuaDescriptionText, SettingsViewModel.SkuaStepsText,
@@ -496,6 +498,14 @@ public class SettingsViewModelTests
             Assert.DoesNotContain("gold", t, StringComparison.OrdinalIgnoreCase);
             Assert.DoesNotContain("inventory", t, StringComparison.OrdinalIgnoreCase);
         });
+    }
+
+    [Fact]
+    public void The_skua_description_names_the_bot_section_and_no_skua_tab()
+    {
+        Assert.DoesNotContain("tab", SettingsViewModel.SkuaDescriptionText, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Bot section", SettingsViewModel.SkuaDescriptionText);
+        Assert.Contains("reputation and Hard Farms", SettingsViewModel.SkuaDescriptionText);
     }
 
     [Fact]

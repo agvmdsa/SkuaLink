@@ -13,12 +13,14 @@ public readonly record struct SkuaSlotFacts(int Bag, int Bank, int House);
 public static class SkuaProfileRead
 {
     /// <summary>
-    /// The profile to report. A failed read (null) keeps the last one. Negative numbers become 0; a blank guild, a class id or
+    /// The profile to report. A failed read keeps the last one (none before the first good read): null, or a level of 0 or less,
+    /// because Skua's getters catch a failed Flash call and return the default (0, false, null) instead of throwing, and a
+    /// loaded character is at least level 1. Negative numbers become 0; a blank guild, a class id or
     /// a slot total of 0 or less are not reported; texts are trimmed and cut to <see cref="SkuaProtocol.MaxTextLength"/>.
     /// </summary>
     public static SkuaProfile? Next(SkuaProfile? last, SkuaProfileReading? read, SkuaClassFacts? equippedClass, SkuaSlotFacts? slots)
     {
-        if (read is not { } r)
+        if (read is not { Level: > 0 } r)
         {
             return last;
         }

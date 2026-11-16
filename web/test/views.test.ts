@@ -79,7 +79,7 @@ describe('character Overview', () => {
     expect(texts(characterView(model(stateWith([hero({ live: false, lastSeenUtc: iso(90) })])), 'Hero <b>x</b>'))).toContain('Last seen 1 h ago');
   });
   it.each([
-    ['NoInventory', 'Hard Farms: inventory not reported by this plugin version. Update the Skua plugin to the same release as SkuaLink.'],
+    ['NoInventory', 'No inventory has been read for this character yet.'],
     ['NoList', 'Hard Farms are not loaded yet. Import the list in SkuaLink.'],
   ] as const)('the Overview explains a missing Hard Farms result (%s)', (hardFarmsState, text) => {
     const v = characterView(model(stateWith([hero({ hardFarmsState, hardFarms: null })])), 'Hero <b>x</b>');

@@ -130,12 +130,15 @@ throwaway project and read in the tag source.
     unverified (U1). Not sent before the first inventory pass; a class changed by hand shows with the next pass.
   - `bagSlots`, `bankSlots`, `houseSlots`: `Inventory.Slots` (`objData.iBagSlots`), `Bank.Slots` (`objData.iBankSlots`),
     `House.Slots` (`objData.iHouseSlots`), read once per inventory pass (one small Flash call each), 0 not sent.
-  - A failed read keeps the last profile. A logout or another character clears it (and the class, slots and the last
+  - A failed read keeps the last profile (none is sent before the first good read). Skua's getters catch a failed Flash
+    call and return the default instead of throwing, so a failed read mostly arrives as zeros (for example `dataLeaf`
+    during a map join): a reading whose level is 0 or less counts as failed. A logout or another character clears it (and the class, slots and the last
     inventory sent), so nothing of one character is reported for another. No `profile` is sent while the character is
     still loading: Skua reports logged in (socket connected) before the game loaded the bag, so the profile appears once
     an inventory pass found a bag, or earlier when the level already reads above 0.
-- `inventory` (AQW-0110): `{character, read, items: [{name, quantity, where}], truncated?}`. `where` is `inv`, `house` or
-  `bank`; `read` lists the containers actually read: bag and house always (they arrive with the login), the bank only when
+- `inventory` (AQW-0110): `{character, read, items: [{name, qty, where}], truncated?}`. `where` is `inv`, `house` or
+  `bank`; `read` lists the containers actually read: the bag always, the house when its list came back (an empty one
+  too; not when the read returned nothing, a failed Flash call or not loaded yet, so SkuaLink keeps the house it knew), the bank only when
   its read returned at least one item (`world.bankinfo.items` fills only once the bank was opened in Skua this session;
   the plugin never opens it), so SkuaLink replaces only those and keeps the bank it knew. After a switch to another
   character in the same Skua, a bank read equal to the last bank read of the previous character does not count (Skua may
