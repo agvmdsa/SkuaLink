@@ -1,5 +1,6 @@
 using AqwCompanion.Core.Forgetting;
 using AqwCompanion.Phone.Characters;
+using AqwCompanion.Phone.Notices;
 using AqwCompanion.Skua;
 
 namespace AqwCompanion.Phone.Skua;
@@ -42,6 +43,7 @@ public sealed class SkuaHub : ISkuaFeed, ISkuaCommandChannel, IForgettable
     private readonly Func<DateTimeOffset> _now;
     private readonly Func<TimeSpan, CancellationToken, Task> _delay;
     private readonly CharacterBook? _characters;
+    private readonly PhoneStops? _stops;
     private readonly List<SkuaInstance> _instances = [];
     private readonly HashSet<Attachment> _attached = [];
     private readonly Dictionary<string, Pending> _pending = new(StringComparer.Ordinal);
@@ -54,8 +56,10 @@ public sealed class SkuaHub : ISkuaFeed, ISkuaCommandChannel, IForgettable
     /// <param name="delay">The command timer; tests pass a fake so nothing sleeps. Defaults to <see cref="Task.Delay(TimeSpan, CancellationToken)"/>.</param>
     /// <param name="characters">The book of the last known profile, reputation and inventory per character; null keeps none.</param>
     public SkuaHub(
-        ISkuaLogStores stores, Func<DateTimeOffset> now, Func<TimeSpan, CancellationToken, Task>? delay = null, CharacterBook? characters = null)
+        ISkuaLogStores stores, Func<DateTimeOffset> now, Func<TimeSpan, CancellationToken, Task>? delay = null, CharacterBook? characters = null,
+        PhoneStops? stops = null)
     {
+        _stops = stops;
         _stores = stores;
         _now = now;
         _delay = delay ?? Task.Delay;
@@ -215,6 +219,11 @@ public sealed class SkuaHub : ISkuaFeed, ISkuaCommandChannel, IForgettable
             connection = pipe.Connection;
         }
 
+        if (command is StopCommand or StartCommand)
+        {
+            _stops?.Note(instanceId);
+        }
+
         using var timer = CancellationTokenSource.CreateLinkedTokenSource(ct);
         try
         {
@@ -316,6 +325,7 @@ public sealed class SkuaHub : ISkuaFeed, ISkuaCommandChannel, IForgettable
             _quiesced = false;
         }
 
+        _stops?.Clear();
         Fail(failed);
         Raise(Changed);
         Raise(Forgotten);

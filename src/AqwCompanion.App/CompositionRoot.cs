@@ -117,8 +117,9 @@ public static class CompositionRoot
         });
         services.AddSingleton(sp => new VapidKeyStore(sp.GetRequiredService<AppPaths>().VapidKeyPath));
         services.AddSingleton<IVapidKeySource>(sp => sp.GetRequiredService<VapidKeyStore>());
+        services.AddSingleton(sp => new PhoneStops(() => DateTimeOffset.UtcNow));
         services.AddSingleton(sp => new PhoneHub(
-            sp.GetRequiredService<IFeedSource>(), new NoticeEngine(), new NoticeLog(50), () => DateTimeOffset.UtcNow,
+            sp.GetRequiredService<IFeedSource>(), new NoticeEngine(stops: sp.GetRequiredService<PhoneStops>()), new NoticeLog(50), () => DateTimeOffset.UtcNow,
             ex => Log.Warning("Phone hub failed: {ExceptionType}", ex.GetType().Name),
             skua: sp.GetRequiredService<ISkuaFeed>(),
             characters: sp.GetRequiredService<CharacterBook>(),
@@ -134,7 +135,8 @@ public static class CompositionRoot
         services.AddSingleton<ICharacterBookStore>(sp => new StoredCharacterBookStore(sp.GetRequiredService<StoredData>()));
         services.AddSingleton(sp => new CharacterBook(sp.GetRequiredService<ICharacterBookStore>(), () => DateTimeOffset.UtcNow));
         services.AddSingleton(sp => new SkuaHub(
-            sp.GetRequiredService<ISkuaLogStores>(), () => DateTimeOffset.UtcNow, characters: sp.GetRequiredService<CharacterBook>()));
+            sp.GetRequiredService<ISkuaLogStores>(), () => DateTimeOffset.UtcNow, characters: sp.GetRequiredService<CharacterBook>(),
+            stops: sp.GetRequiredService<PhoneStops>()));
         services.AddSingleton<ISkuaFeed>(sp => sp.GetRequiredService<SkuaHub>());
         services.AddSingleton<ISkuaCommandChannel>(sp => sp.GetRequiredService<SkuaHub>());
         services.AddSingleton(sp => new SkuaBridgeHost(

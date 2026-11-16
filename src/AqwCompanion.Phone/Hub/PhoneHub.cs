@@ -240,6 +240,11 @@ public sealed class PhoneHub : IDisposable
         {
             lock (_lock)
             {
+                if (_characters is not null)
+                {
+                    _engine.NoteProgress(_characters.All, _now());
+                }
+
                 PublishState();
             }
         }

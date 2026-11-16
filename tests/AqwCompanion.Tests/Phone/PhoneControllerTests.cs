@@ -5,6 +5,8 @@ using AqwCompanion.Core.Forgetting;
 using AqwCompanion.Phone.Devices;
 using AqwCompanion.Phone.Hub;
 using AqwCompanion.Phone.Notices;
+using AqwCompanion.Phone.Skua;
+using AqwCompanion.Skua;
 using AqwCompanion.Tests.TestDoubles;
 
 namespace AqwCompanion.Tests.Phone;
@@ -40,7 +42,7 @@ public class PhoneControllerTests
         public FakeTimer? Live => Timers.LastOrDefault(t => !t.Disposed);
     }
 
-    private static Rig Build(bool saved = false, bool canStart = true, Action<Exception>? onError = null, Action? tickThrows = null, FeedSnapshot? initial = null, FakeTailscale? tailscale = null, FakeServeMarker? marker = null, Action<Action>? onUi = null, Action? resetHub = null)
+    private static Rig Build(bool saved = false, bool canStart = true, Action<Exception>? onError = null, Action? tickThrows = null, FeedSnapshot? initial = null, FakeTailscale? tailscale = null, FakeServeMarker? marker = null, Action<Action>? onUi = null, Action? resetHub = null, ISkuaFeed? skua = null)
     {
         marker ??= new FakeServeMarker();
         tailscale ??= new FakeTailscale();
@@ -51,7 +53,7 @@ public class PhoneControllerTests
         var clock = new ManualClock(new DateTimeOffset(2026, 11, 9, 12, 0, 0, TimeSpan.Zero));
         var registry = new PhoneRegistry(store, clock.GetUtcNow);
         var log = new NoticeLog(50);
-        var hub = new PhoneHub(new FakeFeedSource(initial), new NoticeEngine(), log, clock.GetUtcNow, onError);
+        var hub = new PhoneHub(new FakeFeedSource(initial), new NoticeEngine(), log, clock.GetUtcNow, onError, skua: skua);
         Rig? rig = null;
         IDisposable Factory(TimeSpan interval, Action tick)
         {
@@ -168,16 +170,15 @@ public class PhoneControllerTests
     [Fact]
     public void The_tick_timer_drives_the_hub_so_a_stalled_character_is_announced()
     {
-        var start = new DateTimeOffset(2026, 11, 9, 12, 0, 0, TimeSpan.Zero);
-        var hero = new FeedCharacter("Alpha", 60, true, start, start, 1, new FeedFigures(1, 2, 3, 4, 5, 6), null);
-        var rig = Build(initial: new FeedSnapshot(1, new FeedCapture("Listening.", true), "Alpha", [hero], [], null));
+        var skua = new FakeSkua { Current = new SkuaHubView([FakeSkua.Instance("a", "Hero", status: NoticeEngineScriptTests.Status(profile: null))]) };
+        var rig = Build(skua: skua);
         rig.Settings.PhoneAccessEnabled = true;
         Assert.Empty(rig.Hub.Current.Notices);
 
         rig.Clock.Advance(TimeSpan.FromHours(1));
         rig.Live!.Tick();
 
-        Assert.Contains(rig.Hub.Current.Notices, n => n.Kind == NoticeKind.ActivityStopped);
+        Assert.Contains(rig.Hub.Current.Notices, n => n.Kind == NoticeKind.NoProgress);
     }
 
     [Fact]
