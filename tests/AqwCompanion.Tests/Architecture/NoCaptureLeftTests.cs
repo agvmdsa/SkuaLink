@@ -43,6 +43,20 @@ public class NoCaptureLeftTests
         Assert.DoesNotContain(referenced, n => CaptureNames.Any(c => n.Contains(c, StringComparison.OrdinalIgnoreCase)));
     }
 
+    [Fact]
+    public void The_readme_the_docs_and_the_installer_never_mention_npcap_or_the_capture()
+    {
+        var root = RepositoryRoot();
+        var files = new[] { "README.md", Path.Combine("installer", "SkuaLink.iss"), Path.Combine("plugin", "SkuaLink.SkuaBridge", "README.md") }
+            .Concat(Directory.EnumerateFiles(Path.Combine(root, "docs"), "*.md").Select(f => Path.GetRelativePath(root, f)));
+        foreach (var file in files)
+        {
+            var text = File.ReadAllText(Path.Combine(root, file));
+            Assert.False(text.Contains("npcap", StringComparison.OrdinalIgnoreCase), file + " mentions Npcap");
+            Assert.False(text.Contains("administrator rights each time", StringComparison.OrdinalIgnoreCase), file + " still asks for administrator rights");
+        }
+    }
+
     private static string RepositoryRoot()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);

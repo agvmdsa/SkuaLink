@@ -72,8 +72,7 @@ jobs:
           New-Item -ItemType Directory -Force dist | Out-Null
           Compress-Archive -Path out/publish/* -DestinationPath "dist/$($env:APP_NAME)-$($env:TAG)-win-x64.zip"
 
-      # The installer wraps the same published files. It does not contain Npcap (its license forbids redistribution);
-      # it checks for it and links to the official download page.
+      # The installer wraps the same published files.
       - name: Build the installer
         shell: pwsh
         env:

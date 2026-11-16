@@ -217,14 +217,15 @@ public sealed class SkuaPipeServer(string pipeName, SkuaHub hub, Action<Exceptio
     /// Windows: an explicit security descriptor (see <see cref="CreateUserOnlySecurity"/>) instead of
     /// <see cref="PipeOptions.CurrentUserOnly"/>, because .NET builds that one from the token's default owner, which for an
     /// elevated administrator token is BUILTIN\Administrators instead of the user. Since 0.6.0 SkuaLink runs as the normal
-    /// user, but it can still be started elevated (Run as administrator), and the user-SID descriptor is right for any token,
-    /// normal or elevated: whoever the user is, only that user's processes may connect, at either integrity level.
+    /// user, but it can still be started elevated (Run as administrator), and the user-SID descriptor is right for any token.
+    /// The ACL admits the user's own processes at either integrity level and no other account. That is only the server side:
+    /// the plugin opens the pipe with its own CurrentUserOnly check, which compares the pipe owner with the plugin's token's
+    /// default owner, so it additionally refuses a Skua started as administrator (its default owner is
+    /// BUILTIN\Administrators, not the user SID). Run Skua without administrator rights.
     /// Elsewhere (tests on macOS/Linux): CurrentUserOnly as before.
     /// UNVERIFIED on Windows (the owner's checklist): SkuaLink and Skua both running as the normal user (pipe owner and the
     /// plugin's token owner are both the user SID: expected to connect); and Skua started as administrator with a normal
-    /// SkuaLink. In that second case the pipe's ACL lets the elevated Skua in (its token holds the user SID), but the plugin's
-    /// CurrentUserOnly check compares the pipe owner with its own token's default owner, which for an elevated administrator
-    /// is BUILTIN\Administrators, so the plugin is expected to refuse the connection: run Skua without administrator rights.
+    /// SkuaLink (expected to be refused by the plugin, as above).
     /// </summary>
     private static NamedPipeServerStream CreatePipe(string name) =>
         OperatingSystem.IsWindows()

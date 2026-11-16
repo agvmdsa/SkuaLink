@@ -3,16 +3,25 @@
 A Skua plugin. It runs inside Skua 1.4.5.0, reports Skua's state and a short event log to SkuaLink over a local named
 pipe (`SkuaLink.SkuaBridge.v1`, current Windows user only, two-way since AQW-0088), and accepts a fixed set of commands
 from SkuaLink. Status: **connect and status verified by the owner on Windows on 2026-11-11 with an earlier build; the
-quest reading, the re-attach across script runs, the commands, the options handling and several Skua at once are not yet
-verified** (only the owner's
-Windows can prove it).
+quest reading, the re-attach across script runs, the commands, the options handling, several Skua at once and the
+profile and inventory reads (0.6.0) are not yet verified** (only the owner's Windows can prove it). Since 0.6.0 the plugin
+is SkuaLink's only data source, and SkuaLink runs as the normal user.
 
 ## What the plugin can do
 
 Exactly this, nothing else:
 
-1. **Report** (as before): `hello`, `status` and `log` lines, plus (AQW-0110) the character's numbers in the status and
-   an `inventory` snapshot line, see "What it sends".
+1. **Report** (as before): `hello`, `status` and `log` lines, plus (AQW-0110) the character's profile and its inventory,
+   see "What it sends":
+   - **Profile**, in the status while logged in: level, experience and what the level needs, gold, coins, class name, class
+     rank and class points (from the equipped class item), membership, guild, and the bag, bank and house slot counts.
+   - **Inventory**, its own `inventory` line: the names and quantities of the items in the bag, the house and the bank
+     (the bank only once it was opened in Skua this session; the plugin never opens it), at most 5000 items per container
+     and 1 MB per line (`truncated` when cut), latest-only in the queue and never replayed after a reconnect.
+   - **When:** a pass runs on the 3 s poll, only while SkuaLink is connected and a character is logged in: at once after a
+     login, a character change or a connect; after an item event (bought, sold, dropped, quest turned in, added to the
+     bank; these fire only while a script runs) once the gap since the last pass has passed (5 s, or 10 times the last
+     pass's duration, at most 5 min); and every 5 min otherwise. See "Cost of the inventory reads".
 2. **List scripts** (`listScripts`): the `.cs` files under Skua's scripts folder (`ClientFileSources.SkuaScriptsDIR`,
    `%AppData%\Skua\Scripts`), except Skua's compile cache `Cached-Scripts`, hidden/system files and links, sorted by
    folder then name, at most `SkuaProtocol.MaxScripts` (the answer says `truncated` when cut). Each script travels as
@@ -448,8 +457,9 @@ Desktop framework reference, no package) for the options dialog: the DLL then al
 
 Only the owner's Windows can prove these; the full step-by-step list is kept outside the repository.
 
-- **Load and connect:** the plugin loads in Skua 1.4.5.0 and connects to SkuaLink, including an elevated SkuaLink with a
-  non-elevated Skua. The plugin and SkuaLink must come from the same release.
+- **Load and connect:** the plugin loads in Skua 1.4.5.0 and connects to SkuaLink with both running as the normal user
+  (SkuaLink runs as the normal user since 0.6.0; Skua started as administrator is not tested, and the plugin's own
+  `CurrentUserOnly` check is expected to refuse it). The plugin and SkuaLink must come from the same release.
 - **Reports:**
   - Whether the game has applied a purchase to the inventory when `buyItem` arrives (the plugin reads it 300 ms later);
     if not, "Bought" shows without a quantity and possibly as `item #id`. The quantity can also be wrong for back-to-back
@@ -461,10 +471,10 @@ Only the owner's Windows can prove these; the full step-by-step list is kept out
   - The faction list read every 3 s: its cost with about 50 factions (the 0.4.0 item "reputation cost every 3 s"), that it
     matches the game's Reputation panel, and that `Rep` / `RequiredRep` are the in-rank progress and the rank step (0 at
     rank 10).
-- **Profile and inventory (AQW-0110):**
-  - U1. Class points: "Class points" matches the game for the equipped class (the plugin uses the class item's quantity,
-    `iQty`). A class changed by hand shows its new name and rank within 5 min (at once if a script is running and buys or
-    drops something).
+- **Profile and inventory (AQW-0110, 0.6.0):**
+  - U1. Class points: on the Overview, "Class points" matches the game for the equipped class (the plugin uses the class
+    item's quantity, `iQty`). A class changed by hand shows its new name and rank within 5 min (at once if a script is
+    running and buys or drops something).
   - U2. Read cost: with a big bank (hundreds or thousands of items) opened in Skua, Skua's window does not visibly
     stutter on each read (at most one every 5 s, and one every 5 min without events). Note how long a read seems to take.
   - U3. Bank: before the bank is opened in Skua this session, the Overview shows the bank items saved last time (or
@@ -474,10 +484,14 @@ Only the owner's Windows can prove these; the full step-by-step list is kept out
     change until a bank read with other items than the previous character's arrives; check that after switching
     characters the Overview does not show the other character's bank, and that opening the bank shows the right one.
   - U4. House: the house items appear right after login, without visiting the house.
-  - U14. Events: with a script running, buying, selling, a drop (offered in the drop list and picked, or received
-    straight into the inventory), turning in a quest and a drop that goes straight to the bank update the Hard Farms
-    within seconds. Right after a login the inventory shows within about 10 s (the first pass may find the bag not yet
-    loaded and is retried after 5 s).
+  - U14. Events: with a script running, buying, selling, picking up a drop, turning in a quest and a drop that goes
+    straight to the bank update the Hard Farms within seconds. Right after a login the inventory shows within about 10 s
+    (the first pass may find the bag not yet loaded and is retried after 5 s). Picking up an item from the drop list
+    raises no event of its own (the event comes when the drop is offered), so the pass it asks for may run before the
+    pickup; the item then shows with the next event or the 5 min pass. Without a script running there are no item events,
+    only the 5 min pass.
+  - U15. An older 0.5 plugin with SkuaLink 0.6: the character appears, the Overview says the plugin does not report the
+    numbers or the inventory, and the Bot section works as before.
 - **Control (AQW-0088):**
   - The two-way pipe connects to the new SkuaLink; that Windows refuses the `InOut` client of an older SkuaLink's
     inbound-only pipe with `UnauthorizedAccessException` (so the plugin falls back to send-only) is from the Win32 rules,
@@ -513,14 +527,13 @@ Only the owner's Windows can prove these; the full step-by-step list is kept out
     them (`Convert.ChangeType`, current culture); that the plugin thread's culture is Skua's script thread's is not seen.
     After a Skua restart SkuaLink converts doubles itself with its own culture (same Windows user assumed) and sends enum
     members with spaces; that Skua reads both back correctly is not seen.
-- **Several Skua (AQW-0090):** up to 8 plugins connect at once and each one's commands reach only that Skua (also one
-  elevated and one not); a ninth Skua, closed at once by SkuaLink, keeps retrying every second without errors in Skua; a
+- **Several Skua (AQW-0090):** up to 8 plugins connect at once and each one's commands reach only that Skua; a ninth Skua, closed at once by SkuaLink, keeps retrying every second without errors in Skua; a
   restarted Skua (new instance id) takes over its old entry once its character logs in; a Skua on the send-only fallback
   still reports while its commands time out ("Skua did not answer"); the per-character log files
   (`skua-log.<character>.json`) appear in SkuaLink's data folder and the old `skua-log.json` is folded into the first
   character that logs in. The 0.4.0 item "character names match without regard to case" is still open here too.
-- **Phone page (AQW-0093):** start, stop and the options step end to end against a real Skua (every option type); the
-  chip row, its fade and scrolling the selected chip into view; the sheet as the browser's own dialog (focus in and back,
+- **Phone page (AQW-0093, AQW-0116):** start, stop and the options step end to end against a real Skua (every option
+  type) from a character's Bot section, and with two Skua open each Bot section acting on its own Skua; the sheet as the browser's own dialog (focus in and back,
   Escape, back gesture, backdrop tap) on iPhone Safari 15.4 or later and Android Chrome; the lazy control chunk loading
   offline from the service worker; the "Ask for options" switch on the running card; "Skua did not answer" after a real
   504; the notices `SkuaDisconnected`, `SkuaReconnected` and `SkuaOptionsWaiting`.
