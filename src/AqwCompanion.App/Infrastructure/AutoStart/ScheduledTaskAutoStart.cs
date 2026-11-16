@@ -1,12 +1,9 @@
-using AqwCompanion.App.Infrastructure.Elevation;
-
 namespace AqwCompanion.App.Infrastructure.AutoStart;
 
 /// <summary>
-/// Starts the app at sign-in through a Windows scheduled task. A Run-key entry cannot work here: the app always asks for
-/// administrator rights, and Windows does not start such a program from the Run key. A task with the highest privileges does,
-/// and the app (already elevated) can create it without another prompt. The task starts the app with <c>--background</c> so it
-/// waits in the notification area instead of opening its window.
+/// Starts the app at sign-in through a Windows scheduled task (kept from the versions that needed administrator rights, so an
+/// existing task can be recreated in place). The task starts the app with <c>--background</c> so it waits in the notification
+/// area. <c>/F</c> overwrites a task of an older version, which ran with the highest privileges.
 /// </summary>
 public sealed class ScheduledTaskAutoStart(IProcessRunner runner, string? exePath, string? userName, Func<bool> isWindows) : IAutoStart
 {
@@ -31,7 +28,7 @@ public sealed class ScheduledTaskAutoStart(IProcessRunner runner, string? exePat
                 Schtasks,
                 [
                     "/Create", "/TN", TaskName, "/TR", "\"" + exePath + "\" " + StartupArguments.BackgroundOption, "/SC", "ONLOGON",
-                    "/RL", "HIGHEST", "/RU", userName!, "/IT", "/DELAY", "0000:15", "/F",
+                    "/RL", "LIMITED", "/RU", userName!, "/IT", "/DELAY", "0000:15", "/F",
                 ]) == 0;
         }
 

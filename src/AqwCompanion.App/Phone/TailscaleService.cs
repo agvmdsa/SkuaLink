@@ -4,7 +4,8 @@ using Serilog;
 namespace AqwCompanion.App.Phone;
 
 /// <summary>
-/// Talks to the installed Tailscale client. Security: this app runs as administrator, so the program is only ever
+/// Talks to the installed Tailscale client. Security: the app may run as administrator (versions before 0.6 always did, and
+/// it can still be started that way), so the program is only ever
 /// <c>&lt;Program Files&gt;\Tailscale\tailscale.exe</c> (no PATH search, no configured path) and the arguments are fixed.
 /// Nothing from Tailscale's output is logged or passed on, except a DNS name that passed the strict name check.
 /// </summary>

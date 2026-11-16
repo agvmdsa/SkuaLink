@@ -139,4 +139,11 @@ public class SingleInstanceTests
         first.SignalPrimary();
         first.ListenForSignals(() => throw new InvalidOperationException());
     }
+
+    [Fact]
+    public void A_mutex_held_by_an_instance_with_more_rights_counts_as_another_instance()
+    {
+        using var instance = new SingleInstance("aqw-test-" + Guid.NewGuid().ToString("N"), true, _ => throw new UnauthorizedAccessException());
+        Assert.False(instance.TryBecomePrimary(TimeSpan.Zero));
+    }
 }

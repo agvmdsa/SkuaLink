@@ -497,4 +497,35 @@ public class SettingsViewModelTests
             Assert.DoesNotContain("inventory", t, StringComparison.OrdinalIgnoreCase);
         });
     }
+
+    [Fact]
+    public async Task An_existing_sign_in_task_is_recreated_once_without_the_highest_privileges()
+    {
+        var store = new FakeAppSettingsStore();
+        var autoStart = new FakeAutoStart { Supported = true, Enabled = true };
+        var vm = new SettingsViewModel(store, Coordinator(() => true), autoStart);
+        await vm.MigrateAutoStartAsync();
+        await vm.MigrateAutoStartAsync();
+        Assert.Equal(1, autoStart.SetCalls);
+        Assert.True(store.Load().AutoStartMigrated);
+    }
+
+    [Fact]
+    public async Task A_failed_recreation_is_tried_again_at_the_next_start()
+    {
+        var store = new FakeAppSettingsStore();
+        var autoStart = new FakeAutoStart { Supported = true, Enabled = true, SetResult = false };
+        await new SettingsViewModel(store, Coordinator(() => true), autoStart).MigrateAutoStartAsync();
+        Assert.False(store.Load().AutoStartMigrated);
+    }
+
+    [Fact]
+    public async Task Without_a_task_nothing_is_created_and_the_migration_is_done()
+    {
+        var store = new FakeAppSettingsStore();
+        var autoStart = new FakeAutoStart { Supported = true, Enabled = false };
+        await new SettingsViewModel(store, Coordinator(() => true), autoStart).MigrateAutoStartAsync();
+        Assert.Equal(0, autoStart.SetCalls);
+        Assert.True(store.Load().AutoStartMigrated);
+    }
 }

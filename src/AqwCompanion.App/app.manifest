@@ -9,12 +9,12 @@
     </application>
   </compatibility>
 
-  <!-- The Game data capture opens network devices, which needs administrator rights, and it starts by itself when the app
-       opens. Windows therefore asks for the administrator prompt at every launch of the exe. -->
+  <!-- SkuaLink runs as the user who starts it; nothing it does needs administrator rights (the Npcap capture that did was
+       removed in 0.6.0). -->
   <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
     <security>
       <requestedPrivileges>
-        <requestedExecutionLevel level="requireAdministrator" uiAccess="false" />
+        <requestedExecutionLevel level="asInvoker" uiAccess="false" />
       </requestedPrivileges>
     </security>
   </trustInfo>

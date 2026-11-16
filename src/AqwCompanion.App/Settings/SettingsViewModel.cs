@@ -16,7 +16,7 @@ public partial class SettingsViewModel : ObservableObject
     public const string TitleText = "Settings";
     public const string AutoStartTitleText = "Start with Windows";
     public const string AutoStartDescriptionText = "Opens the app in the notification area when you sign in to the PC, so your phone and the Skua plugin find it running.";
-    public const string AutoStartFailedText = "Windows did not accept the change. Run the app as administrator and try again.";
+    public const string AutoStartFailedText = "Windows did not accept the change. Try again; if it keeps failing, delete the SkuaLink task in Task Scheduler and turn this on again.";
     public const string FeedTitleText = "Let other programs on this PC read my characters";
     public const string FeedDescriptionText = "Opens a read-only feed on this computer only (127.0.0.1) with your characters' numbers, factions and Hard Farms. A program needs the secret in the file below to read it. Nothing is sent to the game.";
     public const string FeedNewSecretText = "New secret";
@@ -279,6 +279,30 @@ public partial class SettingsViewModel : ObservableObject
         OnPropertyChanged(nameof(StartWithWindows));
         OnPropertyChanged(nameof(CanAutoStart));
         PhoneRefreshRequested?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>
+    /// Once per install: an existing start-at-sign-in task of a version before 0.6 runs with the highest privileges; it is created
+    /// again without them. When Windows refuses (the old task may need rights this process lacks) it is tried again at the next
+    /// start; the old task still starts the app (elevated), and that start can recreate it.
+    /// </summary>
+    public async Task MigrateAutoStartAsync()
+    {
+        if (_settings.AutoStartMigrated)
+        {
+            return;
+        }
+
+        var autoStart = _autoStart;
+        var done = await Task.Run(() => !autoStart.IsSupported || !autoStart.IsEnabled() || autoStart.TrySet(true)).ConfigureAwait(true);
+        if (!done)
+        {
+            Log.Warning("Start with Windows: the sign-in task could not be recreated; trying again at the next start");
+            return;
+        }
+
+        _settings = _settings with { AutoStartMigrated = true };
+        _store.Save(_settings);
     }
 
     [ObservableProperty]
