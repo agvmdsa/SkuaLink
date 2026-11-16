@@ -219,17 +219,18 @@ public sealed class SkuaHub : ISkuaFeed, ISkuaCommandChannel, IForgettable
             connection = pipe.Connection;
         }
 
-        if (command is StopCommand or StartCommand)
-        {
-            _stops?.Note(instanceId);
-        }
-
         using var timer = CancellationTokenSource.CreateLinkedTokenSource(ct);
         try
         {
             try
             {
                 await connection.SendAsync(outgoing, ct).ConfigureAwait(false);
+                if (outgoing is StopCommand)
+                {
+                    // Noted only once the stop was handed to the pipe (a send that failed or timed out does not hide a genuine
+                    // ScriptStopped); only a stop, because a start produces no ScriptStopped the owner asked for.
+                    _stops?.Note(instanceId);
+                }
             }
             catch (Exception) when (!ct.IsCancellationRequested)
             {

@@ -125,6 +125,31 @@ public class NoticeEngineProgressTests
     }
 
     [Fact]
+    public void An_inventory_equal_by_content_is_not_progress_and_the_name_case_does_not_matter()
+    {
+        var engine = Started();
+        CharacterRecord Rec(string name, int qty) => new(name, T0, Inventory: new SkuaInventory("Hero", ["inv"], [new SkuaItem("Sword", qty, "inv")]));
+
+        engine.NoteProgress([Rec("Hero", 1)], T0.AddMinutes(3));
+        engine.NoteProgress([Rec("HERO", 1)], T0.AddMinutes(8));   // a new but equal snapshot
+
+        Assert.Single(engine.Tick(T0.AddMinutes(10)));
+
+        engine.NoteProgress([Rec("hero", 2)], T0.AddMinutes(11));   // really different, other case
+        Assert.Empty(engine.Tick(T0.AddMinutes(20)));
+    }
+
+    [Fact]
+    public void A_character_is_watched_under_one_key_whatever_the_case()
+    {
+        var engine = new NoticeEngine();
+        engine.ProcessSkua(View(Inst("a", "Hero", Status("Hero", profile: Profile()))), T0);
+        engine.ProcessSkua(View(Inst("a", "Hero", Status("HERO", profile: Profile()))), T0.AddMinutes(1));
+
+        Assert.Single(engine.Tick(T0.AddMinutes(10)));
+    }
+
+    [Fact]
     public void Two_characters_are_watched_apart()
     {
         var engine = new NoticeEngine();

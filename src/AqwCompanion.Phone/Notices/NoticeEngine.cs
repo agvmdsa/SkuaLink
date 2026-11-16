@@ -26,10 +26,10 @@ public sealed class NoticeEngine(NoticeOptions? options = null, PhoneStops? stop
     private readonly Dictionary<string, string> _script = new(StringComparer.Ordinal);
     private readonly Dictionary<string, bool> _wasRunning = new(StringComparer.Ordinal);
     private readonly Dictionary<string, DateTimeOffset> _lastErrorAt = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, DateTimeOffset> _lastKick = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, Dying> _dying = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, Progress> _progress = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, int?> _inventoryHash = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, DateTimeOffset> _lastKick = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, Dying> _dying = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, Progress> _progress = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, SkuaInventory?> _inventories = new(StringComparer.OrdinalIgnoreCase);
     private bool _haveView;
 
     /// <summary>Forgets everything: the next snapshot and the next Skua view are baselines again and no notice id is remembered.</summary>
@@ -48,7 +48,7 @@ public sealed class NoticeEngine(NoticeOptions? options = null, PhoneStops? stop
         _lastKick.Clear();
         _dying.Clear();
         _progress.Clear();
-        _inventoryHash.Clear();
+        _inventories.Clear();
         _haveView = false;
     }
 
@@ -119,10 +119,9 @@ public sealed class NoticeEngine(NoticeOptions? options = null, PhoneStops? stop
     {
         foreach (var record in records)
         {
-            var hash = record.Inventory?.GetHashCode();
-            var known = _inventoryHash.TryGetValue(record.Name, out var before);
-            _inventoryHash[record.Name] = hash;
-            if (known && before != hash && _progress.TryGetValue(record.Name, out var state))
+            var known = _inventories.TryGetValue(record.Name, out var before);
+            _inventories[record.Name] = record.Inventory;
+            if (known && !Equals(before, record.Inventory) && _progress.TryGetValue(record.Name, out var state))
             {
                 state.Restart(now);
             }
@@ -172,7 +171,7 @@ public sealed class NoticeEngine(NoticeOptions? options = null, PhoneStops? stop
     private void Entry(SkuaInstanceView instance, SkuaLogEntry entry, List<SkuaLogEntry> batch, bool running, DateTimeOffset now, List<Notice> found)
     {
         var id = instance.InstanceId;
-        var label = instance.Label;
+        var label = Who(instance);
         switch (entry.Kind)
         {
             case SkuaLogKind.ScriptStarted:
@@ -194,8 +193,8 @@ public sealed class NoticeEngine(NoticeOptions? options = null, PhoneStops? stop
                 break;
             case SkuaLogKind.ScriptError:
                 _lastErrorAt[id] = entry.At;
-                if (!SuppressedByPhone(id, now))
                 {
+                    // A failure always notifies: the phone-stop suppression is for ScriptStopped only.
                     var script = _script.GetValueOrDefault(id) ?? instance.Status?.Script;
                     var line = Cut(FirstLine(After(entry.Text, ErrorPrefix) ?? entry.Text), MaxErrorLine);
                     var name = script is null ? "the script" : script;
@@ -222,6 +221,9 @@ public sealed class NoticeEngine(NoticeOptions? options = null, PhoneStops? stop
         }
     }
 
+    /// <summary>The character the notice is about: the status character name, the instance label only when there is none. Keys every per-character state.</summary>
+    private static string Who(SkuaInstanceView instance) => instance.Status?.Character is { Length: > 0 } name ? name : instance.Label;
+
     private bool SuppressedByPhone(string instanceId, DateTimeOffset now) => stops?.Within(instanceId, now, _options.PhoneStopWindow) == true;
 
     private bool PairedWithError(string instanceId, SkuaLogEntry stop, List<SkuaLogEntry> batch)
@@ -239,7 +241,7 @@ public sealed class NoticeEngine(NoticeOptions? options = null, PhoneStops? stop
 
     private void Death(SkuaInstanceView instance, SkuaLogEntry entry, DateTimeOffset now, List<Notice> found)
     {
-        var label = instance.Label;
+        var label = Who(instance);
         if (!_dying.TryGetValue(label, out var state))
         {
             _dying[label] = state = new Dying();
@@ -269,6 +271,10 @@ public sealed class NoticeEngine(NoticeOptions? options = null, PhoneStops? stop
             $"{label} died {_options.DyingCount} times in {minutes} minutes{where}.", now));
     }
 
+    /// <summary>
+    /// Re-arm timing: the clean time starts at the first evaluation (a view or a Tick) that sees fewer than DyingCount deaths in the
+    /// window, not at the moment the window actually emptied; the caller's Tick keeps this within a tick of the exact time.
+    /// </summary>
     private void Rearm(DateTimeOffset now)
     {
         foreach (var state in _dying.Values)
@@ -292,7 +298,7 @@ public sealed class NoticeEngine(NoticeOptions? options = null, PhoneStops? stop
 
     private void UpdateProgress(SkuaHubView view, DateTimeOffset now)
     {
-        var watched = new HashSet<string>(StringComparer.Ordinal);
+        var watched = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var instance in view.Instances)
         {
             if (instance.Disconnected || instance.Status is not { LoggedIn: true, Character: { Length: > 0 } name } status)

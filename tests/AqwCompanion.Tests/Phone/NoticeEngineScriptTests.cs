@@ -208,6 +208,72 @@ public class NoticeEngineScriptTests
     }
 
     [Fact]
+    public void A_script_error_within_60_seconds_of_a_phone_stop_or_start_still_notifies()
+    {
+        var stops = new PhoneStops(() => T0);
+        var engine = new NoticeEngine(stops: stops);
+        engine.ProcessSkua(View(Inst("a", "Hero", Status())), T0);
+        stops.Note("a");
+
+        var notice = Assert.Single(engine.ProcessSkua(View(Inst("a", "Hero", Status(), [Error(T0.AddSeconds(5), "boom")])), T0.AddSeconds(5)));
+
+        Assert.Equal(NoticeKind.ScriptError, notice.Kind);
+    }
+
+    [Fact]
+    public void A_script_error_notifies_and_its_paired_stop_stays_quiet_even_after_a_phone_stop()
+    {
+        var stops = new PhoneStops(() => T0);
+        var engine = new NoticeEngine(stops: stops);
+        engine.ProcessSkua(View(Inst("a", "Hero", Status())), T0);
+        stops.Note("a");
+
+        var notices = engine.ProcessSkua(View(Inst("a", "Hero", Status(), [Stopped(T0.AddSeconds(6)), Error(T0.AddSeconds(5), "boom")])), T0.AddSeconds(6));
+
+        Assert.Equal(NoticeKind.ScriptError, Assert.Single(notices).Kind);
+    }
+
+    [Fact]
+    public void A_script_stopped_with_no_phone_stop_noted_is_not_suppressed()
+    {
+        var stops = new PhoneStops(() => T0);   // a phone start is never noted, so nothing is in the stops
+        var engine = new NoticeEngine(stops: stops);
+        engine.ProcessSkua(View(Inst("a", "Hero", Status())), T0);
+
+        var notice = Assert.Single(engine.ProcessSkua(View(Inst("a", "Hero", Status(running: false), [Stopped(T0.AddSeconds(5))])), T0.AddSeconds(5)));
+
+        Assert.Equal(NoticeKind.ScriptStopped, notice.Kind);
+    }
+
+    [Fact]
+    public void One_character_is_one_key_whatever_the_case_or_the_instance_label()
+    {
+        var engine = new NoticeEngine();
+        engine.ProcessSkua(View(Inst("a", "Skua 1", Status("Hero"))), T0);
+        var first = Deaths(3, T0.AddSeconds(1), TimeSpan.FromSeconds(5));
+        engine.ProcessSkua(View(Inst("a", "Skua 1", Status("Hero"), first)), T0.AddSeconds(20));
+
+        // The same character on another instance, spelled differently: its deaths count with the first ones.
+        engine.ProcessSkua(View(Inst("a", "Skua 1", Status("Hero"), first), Inst("b", "Skua 2", Status("HERO"))), T0.AddSeconds(21));
+        var notices = engine.ProcessSkua(View(Inst("a", "Skua 1", Status("Hero"), first), Inst("b", "Skua 2", Status("HERO"), Deaths(2, T0.AddSeconds(25), TimeSpan.FromSeconds(1)))), T0.AddSeconds(30));
+
+        var notice = Assert.Single(notices, n => n.Kind == NoticeKind.DyingOften);
+        Assert.Equal("HERO", notice.Character);
+    }
+
+    [Fact]
+    public void Notices_name_the_status_character_and_not_the_instance_label()
+    {
+        var engine = new NoticeEngine();
+        engine.ProcessSkua(View(Inst("a", "Skua 1", Status("Hero"))), T0);
+
+        var notice = Assert.Single(engine.ProcessSkua(View(Inst("a", "Skua 1", Status("Hero", running: false), [Stopped(T0.AddSeconds(5))])), T0.AddSeconds(5)));
+
+        Assert.Equal("Hero", notice.Character);
+        Assert.Equal("Hero: Farm.cs stopped.", notice.Body);
+    }
+
+    [Fact]
     public void Reset_forgets_cursors_so_the_next_view_is_a_baseline_again()
     {
         var engine = new NoticeEngine();

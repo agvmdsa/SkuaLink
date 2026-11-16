@@ -31,11 +31,11 @@ public class SkuaHubPhoneStopsTests
     }
 
     [Fact]
-    public void A_start_command_is_noted_too()
+    public void A_start_command_is_not_noted()
     {
         _ = _hub.SendCommandAsync("id-a", new StartCommand("", "0123456789abcdef"), CancellationToken.None);
 
-        Assert.True(_stops.Within("id-a", T0, Window));
+        Assert.False(_stops.Within("id-a", T0, Window));
     }
 
     [Fact]
@@ -55,6 +55,18 @@ public class SkuaHubPhoneStopsTests
     }
 
     [Fact]
+    public async Task A_stop_that_could_not_be_sent_is_not_noted()
+    {
+        var hub = new SkuaHub(_stores, () => T0, (_, ct) => new TaskCompletionSource().Task.WaitAsync(ct), stops: _stops);
+        var attachment = hub.Attach(new FakeConnection { Fail = true })!;
+        hub.Accept(attachment, new HelloMessage(new SkuaHello("0.5.0", "1.4.5.0", "id-z")));
+
+        Assert.Null(await hub.SendCommandAsync("id-z", new StopCommand(""), CancellationToken.None));
+
+        Assert.False(_stops.Within("id-z", T0, Window));
+    }
+
+    [Fact]
     public void Forget_clears_the_noted_stops()
     {
         _ = _hub.SendCommandAsync("id-a", new StopCommand(""), CancellationToken.None);
@@ -66,6 +78,8 @@ public class SkuaHubPhoneStopsTests
 
     private sealed class FakeConnection : ISkuaConnection
     {
-        public Task SendAsync(SkuaMessage message, CancellationToken ct) => Task.CompletedTask;
+        public bool Fail { get; init; }
+
+        public Task SendAsync(SkuaMessage message, CancellationToken ct) => Fail ? Task.FromException(new IOException("broken")) : Task.CompletedTask;
     }
 }
