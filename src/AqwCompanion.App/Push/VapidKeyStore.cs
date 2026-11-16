@@ -25,17 +25,22 @@ public sealed class VapidKeyStore(string path) : IVapidKeySource, IForgettable
                 return _key;
             }
 
-            var key = Read();
-            if (key is null)
+            var key = Read(out var unreadable);
+            if (key is not null)
             {
-                key = VapidKey.Create();
-                if (!_quiesced)
-                {
-                    Write(key);
-                }
+                return _key = key;
             }
 
-            return _key = key;
+            // A file that exists but cannot be read right now (antivirus, backup) is not a missing one: hand out a key for this call
+            // only, keep the file and retry the read next time. The same goes while quiesced: nothing is written, so nothing is kept.
+            var fresh = VapidKey.Create();
+            if (unreadable || _quiesced)
+            {
+                return fresh;
+            }
+
+            Write(fresh);
+            return _key = fresh;
         }
     }
 
@@ -76,14 +81,17 @@ public sealed class VapidKeyStore(string path) : IVapidKeySource, IForgettable
         }
     }
 
-    private VapidKey? Read()
+    private VapidKey? Read(out bool unreadable)
     {
+        unreadable = false;
         try
         {
             return File.Exists(path) ? VapidKey.TryParse(File.ReadAllText(path)) : null;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
+            Log.Error("Vapid key load failed: {ExceptionType}", ex.GetType().Name);
+            unreadable = true;
             return null;
         }
     }

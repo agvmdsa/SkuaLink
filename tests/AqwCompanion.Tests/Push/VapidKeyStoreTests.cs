@@ -94,6 +94,47 @@ public sealed class VapidKeyStoreTests : IDisposable
         Assert.Same(holder.Key, store.GetOrCreate());
     }
 
+    [Fact]
+    public void An_unreadable_file_is_never_overwritten_and_the_next_call_returns_the_original_key()
+    {
+        var original = Store().GetOrCreate().PublicKeyText;
+        var before = File.ReadAllText(_paths.VapidKeyPath);
+        var store = Store();
+
+        string duringLock;
+        using (new FileStream(_paths.VapidKeyPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        {
+            duringLock = store.GetOrCreate().PublicKeyText;
+        }
+
+        Assert.NotEqual(original, duringLock);
+        Assert.Equal(before, File.ReadAllText(_paths.VapidKeyPath));
+        Assert.Equal(original, store.GetOrCreate().PublicKeyText);
+    }
+
+    [Fact]
+    public void A_key_made_while_quiesced_is_not_kept_and_the_first_use_after_Resume_writes_one()
+    {
+        var store = Store();
+        store.Quiesce();
+        _ = store.GetOrCreate();
+        store.Resume();
+
+        var key = store.GetOrCreate();
+
+        Assert.Equal(key.PublicKeyText, Store().GetOrCreate().PublicKeyText);
+    }
+
+    [Fact]
+    public async Task Two_concurrent_first_calls_return_the_same_key()
+    {
+        var store = Store();
+
+        var keys = await Task.WhenAll(Enumerable.Range(0, 8).Select(_ => Task.Run(store.GetOrCreate)));
+
+        Assert.Single(keys.Select(k => k.PublicKeyText).Distinct());
+    }
+
     private sealed class VapidKeyHolder
     {
         public AqwCompanion.Phone.Push.VapidKey? Key { get; set; }

@@ -157,6 +157,41 @@ public class PushSubscriptionStoreTests
     }
 
     [Fact]
+    public void An_empty_kinds_list_stays_empty_on_load_and_Set_and_SetKinds_store_it_as_given()
+    {
+        _file.Saved = new PushFile([new PushSubscription("d0", Fcm, "P", "A", [], T0, null)]);
+        var store = Create();
+
+        Assert.Empty(store.Get("d0")!.Kinds);
+        Assert.Empty(store.Set("d1", Fcm + "1", "P", "A", []).Kinds);
+        store.Set("d2", Fcm + "2", "P", "A", null);
+        Assert.True(store.SetKinds("d2", []));
+        Assert.Empty(store.Get("d2")!.Kinds);
+    }
+
+    [Fact]
+    public void Set_with_invalid_kinds_falls_back_to_the_existing_kinds_else_all()
+    {
+        var store = Create();
+
+        Assert.Equal(PushKinds.All, store.Set("d1", Fcm, "P", "A", ["Bogus"]).Kinds);
+        store.Set("d2", Fcm + "2", "P", "A", ["RankUp"]);
+        Assert.Equal(["RankUp"], store.Set("d2", Fcm + "2", "P", "A", ["Bogus"]).Kinds);
+    }
+
+    [Fact]
+    public void Entries_with_an_empty_key_or_auth_are_dropped_on_load()
+    {
+        _file.Saved = new PushFile(
+        [
+            new PushSubscription("nokey", Fcm, "", "A", PushKinds.All, T0, null),
+            new PushSubscription("noauth", Fcm + "2", "P", "", PushKinds.All, T0, null),
+        ]);
+
+        Assert.Empty(Create().All);
+    }
+
+    [Fact]
     public void Quiesce_stops_writes_and_changes_and_Resume_restores_them()
     {
         var store = Create();
