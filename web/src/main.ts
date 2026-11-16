@@ -11,7 +11,7 @@ import {
 } from './state';
 import { loadInstance } from './skua';
 import type { LogFilter } from './bot';
-import { findCharacter, liveInstance, skuaRedirect } from './characters';
+import { controlTarget, skuaRedirect } from './characters';
 import { detectLocale, setLocale, t } from './i18n';
 import type { Notice, RemoteState, SkuaInstance } from './types';
 import { characterView, drawFailedView, fallbackNav, listView, mount, pairNeededView, withFooter, type Model, type VNode } from './views';
@@ -89,6 +89,7 @@ function loadControl(): void {
 // change or when the device is back online); until then the section shows a loading card.
 let bot: typeof import('./botViews') | null = null;
 let botLoading = false;
+let botFailed = false;
 
 function loadBot(): void {
   if (bot || botLoading) return;
@@ -100,6 +101,8 @@ function loadBot(): void {
     })
     .catch(() => {
       botLoading = false;
+      botFailed = true;
+      draw();
     });
 }
 // The floating dock, once its chunk has loaded.
@@ -210,7 +213,7 @@ function tree(): VNode {
   const loaded = bot;
   const model: Model = {
     state: state && { ...state, notices }, nowMs, showAll, hfOpen, installHint, theme,
-    sectionOf: (n) => sections.get(n) ?? 'overview',
+    sectionOf: (n) => sections.get(n) ?? 'overview', botFailed,
     botSection: loaded ? (_c, i) => loaded.botSection(i, { nowMs, skuaFilter, controlCard }) : undefined,
   };
   // The Appearance choice lives in the dock's Settings panel; the Not paired screen has no dock, so it keeps it as a footer.
@@ -220,18 +223,15 @@ function tree(): VNode {
   if (route.view !== 'character') return listView(model);
   sections.set(route.name, route.section);
   if (route.section === 'bot') {
-    loadBot();
+    // After three failed tries it waits for the next page change or for the device to be back online.
+    if (!botFailed) loadBot();
     loadControl();
   }
   return characterView(model, route.name, route.section);
 }
 
-/** The connected Skua of the character on screen (its Bot section's controls act on it), or null. */
-function routeInstance(): SkuaInstance | null {
-  const route = parseRoute(location.hash);
-  const c = route.view === 'character' ? findCharacter(state, route.name) : null;
-  return c?.hasCharacter ? liveInstance(state, c) : null;
-}
+/** The connected Skua of the Bot section on screen (its controls act on it), or null. */
+const routeInstance = (): SkuaInstance | null => controlTarget(state, parseRoute(location.hash));
 
 /** The old Skua tab is gone: its link opens the Bot section of the Skua last chosen there, else of the first live character. */
 function redirectLegacy(): void {
@@ -536,12 +536,14 @@ window.addEventListener('hashchange', () => {
   if (control?.sheet) control.close();
   dock?.close();
   loadDock();
+  botFailed = false;
   redirectLegacy();
   control?.track(routeInstance());
   draw();
 });
 window.addEventListener('online', () => {
   loadDock();
+  botFailed = false;
   if (parseRoute(location.hash).view === 'character') draw();
 });
 

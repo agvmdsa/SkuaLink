@@ -98,6 +98,11 @@ describe('character Overview', () => {
     expect(texts(characterView(model(stateWith([hero({ profile: null })])), 'Hero <b>x</b>'))).toContain(en['character.noProfile']);
     expect(texts(characterView(model(stateWith([])), 'Nobody'))).toContain(en['character.notKnown']);
   });
+  it('counts every missing item in the heading, even beyond the list the page keeps', () => {
+    const missing = Array.from({ length: 200 }, (_, i) => `Item ${i}`);
+    const v = characterView(model(stateWith([hero({ hardFarms: { owned: 10, total: 260, missing } })])), 'Hero <b>x</b>');
+    expect(texts(v)).toContain('Missing (250)');
+  });
   it('keeps the missing list collapsed and offers the rest on request', () => {
     const missing = Array.from({ length: 30 }, (_, i) => `Item ${i}`);
     const s = stateWith([hero({ hardFarms: { owned: 1, total: 40, missing } })]);
@@ -166,18 +171,40 @@ describe('character sections', () => {
     expect(texts(v)).not.toContain('BOT');
     expect(all(v).some((n) => n.attrs?.['data-action']?.startsWith('control-'))).toBe(false);
   });
-  it('the not-connected card says how old the data is and what the bot did last', () => {
+  it('the not-connected card names the character, says how old the data is and what the bot did last', () => {
     const st = { ...instance().status!, script: 'Farm <b>.cs</b>', map: 'battleon', scriptRunning: true };
     const s = stateWith([hero({ live: false, lastSeenUtc: iso(30) })], [instance({ disconnected: true, status: st })]);
-    const t = texts(characterView(model(s), 'Hero <b>x</b>', 'bot'));
-    expect(t).toContain('Last data 30 min ago. Open Skua with the SkuaLink plugin to see and control this bot.');
-    expect(t).toContain('Last: Farm <b>.cs</b> · battleon');
+    const v = characterView(model(s), 'Hero <b>x</b>', 'bot');
+    expect(all(v).filter((n) => n.tag === 'h2').map((n) => n.text)).toEqual(['Hero <b>x</b>']);
+    const t = texts(v);
+    expect(t).toEqual(expect.arrayContaining(['Skua is not connected', 'Open Skua with the SkuaLink plugin to see and control this bot.', 'Last data 30 min ago.', 'Last: Farm <b>.cs</b> · battleon']));
     const idle = stateWith([hero({ live: false, lastSeenUtc: iso(30) })], [instance({ disconnected: true, status: { ...st, scriptRunning: false } })]);
     expect(texts(characterView(model(idle), 'Hero <b>x</b>', 'bot'))).toContain('Last: No script running · battleon');
+  });
+  it('keeps the instruction when the time is unknown, leaving out only the age and the last state', () => {
     const unknown = stateWith([hero({ live: false, lastSeenUtc: 'odd', instanceId: null })], []);
     const u = texts(characterView(model(unknown), 'Hero <b>x</b>', 'bot'));
-    expect(u).toContain('Skua is not connected');
+    expect(u).toEqual(expect.arrayContaining(['Skua is not connected', 'Open Skua with the SkuaLink plugin to see and control this bot.']));
     expect(u.some((x) => x.startsWith('Last data') || x.startsWith('Last:'))).toBe(false);
+  });
+  it('a Skua that is open but on a version mismatch or not logged in as this character says so, not that it is not connected', () => {
+    const mismatch = stateWith([hero({ live: false })], [instance({ connection: 'VersionMismatch' })]);
+    const m = texts(characterView(model(mismatch, { botSection: () => h('p', { text: 'BOT' }) }), 'Hero <b>x</b>', 'bot'));
+    expect(m).toContain(en['skua.mismatch']);
+    expect(m).not.toContain('Skua is not connected');
+    expect(m).not.toContain('BOT');
+    const atLogin = stateWith([hero({ live: false })], [instance({ status: { ...instance().status!, loggedIn: false, character: null } })]);
+    const l = texts(characterView(model(atLogin), 'Hero <b>x</b>', 'bot'));
+    expect(l).toContain('Skua is open but not logged in as this character.');
+    expect(l).not.toContain('Skua is not connected');
+    expect(l).toContain('Hero <b>x</b>');
+  });
+  it('names the character on the loading card, and says when the bot view could not load', () => {
+    const s = stateWith([hero()], [instance()]);
+    expect(texts(characterView(model(s), 'Hero <b>x</b>', 'bot'))).toEqual(expect.arrayContaining(['Hero <b>x</b>', 'Loading...']));
+    const failed = texts(characterView(model(s, { botFailed: true }), 'Hero <b>x</b>', 'bot'));
+    expect(failed).toContain(en['bot.loadFailed']);
+    expect(failed).not.toContain('Loading...');
   });
   it('the list has no Skua card and the fallback navigation has only Characters', () => {
     expect(texts(listView(model(stateWith([hero()]))))).not.toContain('Skua');

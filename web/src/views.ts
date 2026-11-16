@@ -24,6 +24,8 @@ export interface Model {
   theme?: ThemeChoice;
   /** Draws the Bot section of a character's connected Skua (a chunk of its own, botViews.ts); absent until it has loaded. */
   botSection?: (c: PhoneCharacter, i: SkuaInstance) => VNode | null;
+  /** The Bot views' chunk failed to load (it is tried again on the next page change or when back online). */
+  botFailed?: boolean;
   /** The section last opened for a character; the Overview when absent. */
   sectionOf?: (name: string) => Section;
 }
@@ -177,21 +179,33 @@ function botCards(c: PhoneCharacter, model: Model): VNode[] {
   const i = liveInstance(model.state, c);
   if (!i) return [notConnectedCard(c, instanceOf(model.state, c), model.nowMs)];
   const drawn = model.botSection?.(c, i);
-  if (!drawn) return [h('section', { className: 'card', attrs: { 'aria-busy': 'true' } }, empty(t('bot.loading')))];
+  if (!drawn) return [h('section', { className: 'card', attrs: model.botFailed ? {} : { 'aria-busy': 'true' } }, h('h2', { text: c.name }), empty(t(model.botFailed ? 'bot.loadFailed' : 'bot.loading')))];
   // Flattened into the page's grid, so the cards keep its gap.
   return drawn.tag === 'div' ? drawn.children : [drawn];
 }
 
-/** No connected Skua for the character: how old the data is and what the bot did last; nothing to press. */
+/**
+ * No connected Skua playing the character: a Skua that is open but on a version mismatch or not logged in as it says so; otherwise
+ * Not connected, with what to do, how old the data is and what the bot did last. Nothing to press.
+ */
 function notConnectedCard(c: PhoneCharacter, last: SkuaInstance | null, nowMs: number): VNode {
   const when = ago(c.lastSeenUtc, nowMs);
   const st = last?.status;
+  const open = last && !last.disconnected && last.connection !== 'NotConnected';
   return h(
     'section',
     { className: 'card' },
-    h('h2', { text: t('bot.notConnectedTitle') }),
-    when ? h('p', { text: t('bot.notConnectedBody', { when }) }) : null,
-    st?.map ? h('p', { className: 'muted hint', text: t('bot.lastState', { script: (st.scriptRunning && st.script) || t('skua.noScript'), map: st.map }) }) : null,
+    h('h2', { text: c.name }),
+    open
+      ? h('p', { text: t(last.connection === 'VersionMismatch' ? 'skua.mismatch' : 'bot.notLoggedIn') })
+      : h(
+          'div',
+          {},
+          status('saved', t('bot.notConnectedTitle')),
+          h('p', { className: 'hint', text: t('bot.notConnectedBody') }),
+          when ? h('p', { className: 'muted hint', text: t('bot.lastData', { when }) }) : null,
+          st?.map ? h('p', { className: 'muted', text: t('bot.lastState', { script: (st.scriptRunning && st.script) || t('skua.noScript'), map: st.map }) }) : null,
+        ),
   );
 }
 
@@ -216,7 +230,8 @@ function hardFarmsCard(c: PhoneCharacter, model: Model): VNode {
             : h(
                 'details',
                 { attrs: model.hfOpen ? { open: '' } : {} },
-                h('summary', { text: t('hardFarms.missing', { count: missingCount }) }),
+                // The real count: the PC sends at most 200 names.
+                h('summary', { text: t('hardFarms.missing', { count: Math.max(0, hf.total - hf.owned) || missingCount }) }),
                 h('ul', { className: 'missing' }, ...hf.shown.map((item) => h('li', { text: item }))),
                 // One toggle: Show more while some are hidden, Show fewer once all of a long list are shown.
                 hf.hidden > 0 || (model.showAll && missingCount > 20)

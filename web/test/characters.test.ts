@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { badge, characterRows, factionRowsOf, findCharacter, lastSeen, overviewFacts, parseCharacters, skuaRedirect } from '../src/characters';
+import { badge, characterRows, factionRowsOf, findCharacter, controlTarget, lastSeen, overviewFacts, parseCharacters, skuaRedirect } from '../src/characters';
 import type { PhoneCharacter, RemoteState, SkuaInstance } from '../src/types';
 
 const NOW = Date.parse('2026-11-15T12:00:00Z');
@@ -124,5 +124,26 @@ describe('skuaRedirect', () => {
   it('skips characters whose Skua is gone or disconnected, and Skua rows without a character', () => {
     const s = state([hero({ name: 'Skua 1', hasCharacter: false, instanceId: 'c' }), hero({ instanceId: 'b' })], [instance({ instanceId: 'c', label: 'Skua 1' }), instance({ instanceId: 'b', disconnected: true })]);
     expect(skuaRedirect(s, 'Skua 1')).toBe('#/');
+  });
+});
+
+describe('controlTarget', () => {
+  const bot = { view: 'character', name: 'Hero <b>x</b>', section: 'bot' } as const;
+  it('is the live Skua of the character on its Bot section', () => {
+    expect(controlTarget(state([hero()]), bot)!.instanceId).toBe('a');
+  });
+  it('is null on the Overview, the list and other routes', () => {
+    expect(controlTarget(state([hero()]), { ...bot, section: 'overview' })).toBeNull();
+    expect(controlTarget(state([hero()]), { view: 'list' })).toBeNull();
+    expect(controlTarget(state([hero()]), { view: 'skua' })).toBeNull();
+    expect(controlTarget(null, bot)).toBeNull();
+  });
+  it('is null for a stale or missing instance id, a Skua that is not live, a version mismatch and a character-less row', () => {
+    expect(controlTarget(state([hero({ instanceId: 'gone' })]), bot)).toBeNull();
+    expect(controlTarget(state([hero({ instanceId: null })]), bot)).toBeNull();
+    expect(controlTarget(state([hero({ live: false })]), bot)).toBeNull();
+    expect(controlTarget(state([hero()], [instance({ disconnected: true })]), bot)).toBeNull();
+    expect(controlTarget(state([hero()], [instance({ connection: 'VersionMismatch' })]), bot)).toBeNull();
+    expect(controlTarget(state([hero({ hasCharacter: false })]), bot)).toBeNull();
   });
 });

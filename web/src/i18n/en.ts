@@ -38,7 +38,10 @@ export const en = {
   'bot.notConnected': 'Not connected',
   'bot.loading': 'Loading...',
   'bot.notConnectedTitle': 'Skua is not connected',
-  'bot.notConnectedBody': 'Last data {when}. Open Skua with the SkuaLink plugin to see and control this bot.',
+  'bot.notConnectedBody': 'Open Skua with the SkuaLink plugin to see and control this bot.',
+  'bot.lastData': 'Last data {when}.',
+  'bot.notLoggedIn': 'Skua is open but not logged in as this character.',
+  'bot.loadFailed': 'The bot view could not load. It tries again when you open it or come back online.',
   'bot.lastState': 'Last: {script} · {map}',
 
   'character.sections': 'Character sections',

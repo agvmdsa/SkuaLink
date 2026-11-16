@@ -1,6 +1,6 @@
 import { t, type MessageKey } from './i18n';
 import { count, cut, instanceState, isLive, isObject, parseFactions, type InstanceState } from './skua';
-import { characterHref, formatCompact, formatNumber, relativeTime, type Section } from './state';
+import { characterHref, formatCompact, formatNumber, relativeTime, type Route, type Section } from './state';
 import type { HardFarms, HardFarmsState, PhoneCharacter, RemoteState, SkuaFaction, SkuaInstance, SkuaProfile } from './types';
 
 const MAX_CHARACTERS = 40;
@@ -68,6 +68,12 @@ export function instanceOf(state: RemoteState | null, c: PhoneCharacter): SkuaIn
 export function liveInstance(state: RemoteState | null, c: PhoneCharacter): SkuaInstance | null {
   const i = instanceOf(state, c);
   return c.live && i && isLive(i) ? i : null;
+}
+
+/** The Skua the controls act on: the live Skua of the character whose Bot section is open; null anywhere else. */
+export function controlTarget(state: RemoteState | null, route: Route): SkuaInstance | null {
+  const c = route.view === 'character' && route.section === 'bot' ? findCharacter(state, route.name) : null;
+  return c?.hasCharacter ? liveInstance(state, c) : null;
 }
 
 /**
