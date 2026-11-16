@@ -13,6 +13,98 @@ self.addEventListener('activate', (event) => {
   );
 });
 
+// Push. The payload is the JSON the PC encrypted. A push that cannot be read still shows a notice: iOS drops subscriptions
+// whose pushes show nothing. This script has no module system and cannot use the page's i18n catalog, so these two texts are
+// plain English constants (the fixed English notification text of the spec), not part of the catalog.
+const PUSH_TITLE = 'SkuaLink';
+const PUSH_BODY = 'Something happened. Open SkuaLink.';
+const PUSH_TAG = 'skualink';
+const PUSH_ICON = '/icons/icon-192.png';
+const pushText = (value, fallback, max) => (typeof value === 'string' && value.length > 0 ? value.slice(0, max) : fallback);
+// A path of this site only, the list or a section of it: a payload can never send the tap anywhere else.
+const PUSH_URL = /^\/?#\/[^\s\\]{0,300}$/;
+const pushUrl = (value) => (typeof value === 'string' && (value === '/' || PUSH_URL.test(value)) ? value : '/');
+
+async function showPush(event) {
+  let data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch {
+    data = {};
+  }
+  if (data === null || typeof data !== 'object' || Array.isArray(data)) data = {};
+  try {
+    await self.registration.showNotification(pushText(data.title, PUSH_TITLE, 100), {
+      body: pushText(data.body, PUSH_BODY, 300),
+      tag: pushText(data.tag, PUSH_TAG, 100),
+      icon: PUSH_ICON,
+      data: { url: pushUrl(data.url) },
+    });
+  } catch {
+    // Whatever went wrong, one plain notice still goes out.
+    await self.registration.showNotification(PUSH_TITLE, { body: PUSH_BODY, tag: PUSH_TAG, icon: PUSH_ICON, data: { url: '/' } });
+  }
+}
+
+self.addEventListener('push', (event) => {
+  event.waitUntil(showPush(event).catch(() => undefined));
+});
+
+async function openApp(url) {
+  const hash = url.includes('#') ? url.slice(url.indexOf('#')) : '#/';
+  const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+  const page = windows.find((client) => new URL(client.url).origin === self.location.origin);
+  if (!page) return self.clients.openWindow(url);
+  page.postMessage({ type: 'qkp-open', hash });
+  try {
+    return await page.focus();
+  } catch {
+    return undefined;
+  }
+}
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  event.waitUntil(openApp(pushUrl(event.notification.data && event.notification.data.url)).catch(() => undefined));
+});
+
+const keyBytes = (text) => {
+  const raw = atob(text.replace(/-/g, '+').replace(/_/g, '/'));
+  const bytes = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i += 1) bytes[i] = raw.charCodeAt(i);
+  return bytes;
+};
+
+// The browser dropped or renewed the subscription: subscribe again and tell the PC (the kinds stay as they are on the PC).
+async function resubscribe(event) {
+  try {
+    let subscription = event.newSubscription;
+    if (!subscription) {
+      let options = event.oldSubscription && event.oldSubscription.options;
+      if (!options || !options.applicationServerKey) {
+        const answer = await fetch('/api/push/key', { credentials: 'same-origin', cache: 'no-store' });
+        const body = await answer.json();
+        options = { userVisibleOnly: true, applicationServerKey: keyBytes(body.publicKey) };
+      }
+      subscription = await self.registration.pushManager.subscribe(options);
+    }
+    const { endpoint, keys } = subscription.toJSON();
+    await fetch('/api/push/subscription', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'X-Remote': '1' },
+      body: JSON.stringify({ endpoint, keys }),
+      credentials: 'same-origin',
+      cache: 'no-store',
+    });
+  } catch {
+    // Nothing more can be done here: Settings shows "off" and the owner turns notifications on again.
+  }
+}
+
+self.addEventListener('pushsubscriptionchange', (event) => {
+  event.waitUntil(resubscribe(event));
+});
+
 // Only the shell is kept: the page itself and files with these extensions, never /api/ and never other origins.
 const KEPT = /\.(js|css|png|webmanifest)$/;
 // How long the network may take for the shell before the cached copy is shown instead (the network keeps going in the background).

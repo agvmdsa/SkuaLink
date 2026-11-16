@@ -5,7 +5,7 @@ import './styles/app.css';
 import { getState, openEvents, pair, probeOf, skuaApi, type PairOutcome } from './api';
 import type { Control } from './control';
 import {
-  afterStreamCheck, deviceName, focusKey, iosInstallHint, keepState, KEPT_KEY, linkAfterFreshData, linkBanner, pairFailureText, pairingStep, parseNotice, parsePairingInput, parseRoute,
+  afterStreamCheck, deviceName, focusKey, iosInstallHint, keepState, KEPT_KEY, linkAfterFreshData, linkBanner, pairFailureText, pairingStep, parseNotice, parsePairingInput, parseOpenMessage, parseRoute,
   parseState,
   recallKept, reconnectDelay, retryImport, streamErrorStep, takePairingToken, UNREACHABLE_AFTER_MS, type PairProbe, type Section,
 } from './state';
@@ -640,6 +640,11 @@ sheet.addEventListener('change', onSheetField);
 
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/sw.js').catch(() => undefined);
+  // A tapped notification asks the open page to show its section.
+  navigator.serviceWorker.addEventListener('message', (event) => {
+    const hash = parseOpenMessage(event.data);
+    if (hash) location.hash = hash;
+  });
 }
 draw();
 loadDock();

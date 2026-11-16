@@ -319,8 +319,19 @@ const IOS = /iPhone|iPad/;
  * iPadOS 13 or later reports itself as a Mac: a "Macintosh" with a touch screen (more than one touch point) counts as an iPad.
  */
 export function iosInstallHint(userAgent: string, standalone: boolean, maxTouchPoints = 0): string | null {
-  const ios = IOS.test(userAgent) || (/Macintosh/.test(userAgent) && maxTouchPoints > 1);
-  return ios && !standalone ? t('install.ios') : null;
+  return isIos(userAgent, maxTouchPoints) && !standalone ? t('install.ios') : null;
+}
+
+export function isIos(userAgent: string, maxTouchPoints = 0): boolean {
+  return IOS.test(userAgent) || (/Macintosh/.test(userAgent) && maxTouchPoints > 1);
+}
+
+/** The hash a tapped notification asks the page to show (sent by the service worker); null for anything else. */
+export function parseOpenMessage(data: unknown): string | null {
+  if (data === null || typeof data !== 'object') return null;
+  const message = data as { type?: unknown; hash?: unknown };
+  if (message.type !== 'qkp-open' || typeof message.hash !== 'string') return null;
+  return message.hash.length <= 300 && /^#\/\S*$/.test(message.hash) ? message.hash : null;
 }
 
 export function deviceName(userAgent: string): string {
