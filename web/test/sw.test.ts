@@ -339,6 +339,16 @@ describe('notification click', () => {
     expect(sw.openWindow).toHaveBeenCalledWith('/#/character/Hero/bot');
   });
 
+  it('opens a bare #/ url as an absolute path, never relative to the worker script', async () => {
+    const sw = loadPush([]);
+    const { event, waits } = clickEvent('#/character/Hero/bot');
+
+    sw.listeners.notificationclick!(event);
+    await Promise.all(waits);
+
+    expect(sw.openWindow).toHaveBeenCalledWith('/#/character/Hero/bot');
+  });
+
   it('a url without a section opens the list (hash #/) and a hostile or missing url falls back to /', async () => {
     const page = { url: 'https://pc.tail.ts.net/', postMessage: vi.fn(), focus: vi.fn(async () => undefined) };
     const sw = loadPush([page]);

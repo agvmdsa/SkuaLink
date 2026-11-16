@@ -183,6 +183,17 @@ const ALLOWED = new Set([
   'Escape', // KeyboardEvent.key value, not text
   'already running', // a refusal text of the Skua plugin, matched to choose the page's own words
   'unknown script id', // a refusal text of the Skua plugin, matched to choose the page's own words
+  'push.kind.${kind}', // a catalog key resolved through t()
+  'status ${answer.status}', // the HTTP status of a failed push test, a technical detail passed to push.testFailed, not a sentence
+  'ScriptStopped', // push kind enum value of the protocol, never shown
+  'ScriptError', // push kind enum value of the protocol, never shown
+  'SkuaDisconnected', // push kind enum value of the protocol, never shown
+  'CharacterKicked', // push kind enum value of the protocol, never shown
+  'SkuaOptionsWaiting', // push kind enum value of the protocol, never shown
+  'RankUp', // push kind enum value of the protocol, never shown
+  'HardFarmDrop', // push kind enum value of the protocol, never shown
+  'NoProgress', // push kind enum value of the protocol, never shown
+  'DyingOften', // push kind enum value of the protocol, never shown
   'not found', // a refusal text of the Skua plugin, matched to choose the page's own words
 ]);
 
@@ -191,6 +202,7 @@ const EXCLUDED = new Set([
   'api.ts', // network code: URLs, header names and error messages that are never shown
   'types.ts', // type declarations only: protocol enum values such as RankUp, never shown
   'i18n/en.ts', // the catalog itself
+  'i18n/pushEn.ts', // the catalog of the lazily loaded Notifications block
   'i18n/index.ts', // the i18n module: locale codes, Intl options and key plumbing
 ]);
 

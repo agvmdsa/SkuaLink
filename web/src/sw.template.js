@@ -54,7 +54,8 @@ async function openApp(url) {
   const hash = url.includes('#') ? url.slice(url.indexOf('#')) : '#/';
   const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
   const page = windows.find((client) => new URL(client.url).origin === self.location.origin);
-  if (!page) return self.clients.openWindow(url);
+  // A bare '#/...' would resolve against the worker script (/sw.js#/...): open an absolute path instead.
+  if (!page) return self.clients.openWindow(url.startsWith('#') ? '/' + url : url);
   page.postMessage({ type: 'qkp-open', hash });
   try {
     return await page.focus();

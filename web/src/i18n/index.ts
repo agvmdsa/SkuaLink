@@ -1,6 +1,8 @@
 import { en } from './en';
+import type { pushEn } from './pushEn';
 
-export type MessageKey = keyof typeof en;
+/** Every key, also those of a lazily loaded catalog (type only: nothing of it is bundled here). */
+export type MessageKey = keyof typeof en | keyof typeof pushEn;
 type Params = Record<string, string | number>;
 type Catalog = Readonly<Record<string, string>>;
 
@@ -35,10 +37,18 @@ export function detectLocale(languages: readonly string[]): Locale {
   return 'en';
 }
 
+const loaded: Record<string, string> = {};
+
+/** Registers the texts of a lazily loaded chunk (English). A key shown before its chunk registered reads as ''. */
+export function addMessages(messages: Catalog): void {
+  Object.assign(loaded, messages);
+}
+
 function lookup(catalog: Catalog, key: string): string {
   const text = Object.hasOwn(catalog, key) ? catalog[key] : undefined;
   if (text !== undefined) return text;
-  return Object.hasOwn(en, key) ? (en as Catalog)[key]! : '';
+  if (Object.hasOwn(en, key)) return (en as Catalog)[key]!;
+  return Object.hasOwn(loaded, key) ? loaded[key]! : '';
 }
 
 function fill(text: string, params?: Params): string {

@@ -39,3 +39,9 @@
 @media (prefers-reduced-motion: reduce) {
   .dock-items li { transition: none !important; }
 }
+
+/* The Notifications block lives in the Settings panel: it can be taller than a small phone screen, so the panel scrolls. Layout only, no colour. */
+#dock-settings { max-height: 70vh; overflow-y: auto; }
+.push { margin-top: 1rem; }
+.push-row { display: flex; align-items: center; gap: 0.75rem; min-height: 3rem; }
+.push-row input { flex: none; width: 1.5rem; height: 1.5rem; }

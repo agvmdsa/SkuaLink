@@ -20,7 +20,9 @@ export function dockView(current: DockId | null, open: boolean, settings: ThemeC
   return h(
     'nav',
     { className: 'dock', attrs: { 'aria-label': t('dock.label'), 'data-open': String(open) } },
-    settings ? h('div', { className: 'card', attrs: { id: 'dock-settings' } }, themeFooter({ theme: settings }, 'div')) : null,
+    settings
+      ? h('div', { className: 'card', attrs: { id: 'dock-settings' } }, themeFooter({ theme: settings }, 'div'), h('div', { className: 'push', attrs: { id: 'push-block' } }))
+      : null,
     h(
       'ul',
       { className: 'dock-items', attrs: { id: 'dock-items' } },
@@ -131,6 +133,29 @@ export function startDock(ctx: DockContext): { draw: () => void; close: () => vo
   const desktop = matchMedia(DESKTOP_QUERY);
   const reduced = matchMedia(REDUCED_MOTION_QUERY);
   let refreshMagnify: (() => void) | null = null;
+  let push: { attach(slot: HTMLElement): void } | null = null;
+  let pushLoading = false;
+
+  /** The Notifications block is a chunk of its own, loaded when the Settings panel first opens and drawn into the panel after every mount. */
+  function attachPush(): void {
+    const slot = host.querySelector<HTMLElement>('#push-block');
+    if (!slot) return;
+    if (push) {
+      push.attach(slot);
+      return;
+    }
+    if (pushLoading) return;
+    pushLoading = true;
+    import('./pushUi')
+      .then((m) => {
+        push = m.startPush(host);
+        const current = host.querySelector<HTMLElement>('#push-block');
+        if (current) push.attach(current);
+      })
+      .catch(() => {
+        pushLoading = false; // offline with nothing cached: Settings shows the Appearance choice alone; opening it again tries again
+      });
+  }
 
   function draw(): void {
     const route = parseRoute(location.hash);
@@ -149,6 +174,7 @@ export function startDock(ctx: DockContext): { draw: () => void; close: () => vo
     const key = ctx.focusedKey(host);
     host.replaceChildren(mount(dockView(current, state.menu, theme)));
     settleDock(host, state.menu, env);
+    if (theme !== null) attachPush();
     ctx.restoreFocus(key, host);
     refreshMagnify?.();
   }
