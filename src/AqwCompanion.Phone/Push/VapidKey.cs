@@ -13,16 +13,17 @@ public sealed class VapidKey
 
     private readonly ECDsa _key;
     private readonly object _lock = new();
+    private readonly byte[] _publicKey;
 
     private VapidKey(ECDsa key)
     {
         _key = key;
         var q = key.ExportParameters(false).Q;
-        PublicKey = [0x04, .. q.X!, .. q.Y!];
-        PublicKeyText = Base64Url.EncodeToString(PublicKey);
+        _publicKey = [0x04, .. q.X!, .. q.Y!];
+        PublicKeyText = Base64Url.EncodeToString(_publicKey);
     }
 
-    public byte[] PublicKey { get; }
+    public byte[] PublicKey => (byte[])_publicKey.Clone();
 
     public string PublicKeyText { get; }
 
@@ -39,15 +40,23 @@ public sealed class VapidKey
         try
         {
             var key = ECDsa.Create();
-            key.ImportECPrivateKey(Base64Url.DecodeFromChars(text.Trim()), out _);
-            var q = key.ExportParameters(false).Q;
-            if (q.X is not { Length: 32 } || q.Y is not { Length: 32 })
+            try
+            {
+                key.ImportECPrivateKey(Base64Url.DecodeFromChars(text.Trim()), out _);
+                var q = key.ExportParameters(false).Q;
+                if (q.X is not { Length: 32 } || q.Y is not { Length: 32 })
+                {
+                    key.Dispose();
+                    return null;
+                }
+
+                return new VapidKey(key);
+            }
+            catch
             {
                 key.Dispose();
-                return null;
+                throw;
             }
-
-            return new VapidKey(key);
         }
         catch (Exception ex) when (ex is FormatException or CryptographicException or ArgumentException)
         {

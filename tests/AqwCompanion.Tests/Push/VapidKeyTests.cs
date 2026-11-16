@@ -90,4 +90,20 @@ public class VapidKeyTests
     {
         Assert.True(VapidKey.TokenLife <= TimeSpan.FromHours(24));
     }
+
+    [Fact]
+    public void The_public_key_is_a_copy_that_callers_cannot_change()
+    {
+        var key = VapidKey.Create();
+
+        key.PublicKey[1] ^= 0xFF;
+
+        Assert.Equal(key.PublicKeyText, System.Buffers.Text.Base64Url.EncodeToString(key.PublicKey));
+    }
+
+    [Fact]
+    public void A_der_that_is_not_an_ec_key_is_not_a_key()
+    {
+        Assert.Null(VapidKey.TryParse(System.Buffers.Text.Base64Url.EncodeToString(new byte[40])));
+    }
 }

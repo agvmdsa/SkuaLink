@@ -28,8 +28,10 @@ public static class WebPushEncryption
 
         try
         {
+            // A real agreement against a throwaway key: OpenSSL rejects an off-curve point at import, CNG may only fail here.
             using var key = Import(uaPublic);
-            return true;
+            using var probe = ECDiffieHellman.Create(ECCurve.NamedCurves.nistP256);
+            return probe.DeriveRawSecretAgreement(key.PublicKey).Length == 32;
         }
         catch (CryptographicException)
         {
@@ -51,6 +53,16 @@ public static class WebPushEncryption
             throw new ArgumentException("The auth secret must be 16 bytes.", nameof(authSecret));
         }
 
+        if (salt.Length != SaltBytes)
+        {
+            throw new ArgumentException("The salt must be 16 bytes.", nameof(salt));
+        }
+
+        if (asKey.KeySize != 256)
+        {
+            throw new ArgumentException("The key must be P-256.", nameof(asKey));
+        }
+
         if (uaPublic.Length != PublicKeyBytes || uaPublic[0] != 0x04)
         {
             throw new ArgumentException("The public key must be a 65 byte uncompressed P-256 point.", nameof(uaPublic));
@@ -62,7 +74,7 @@ public static class WebPushEncryption
             length = (length + padBlock - 1) / padBlock * padBlock;
         }
 
-        if (length + TagBytes > RecordSize)
+        if (HeaderBytes + length + TagBytes > RecordSize)
         {
             throw new ArgumentException("The payload does not fit one record.", nameof(plaintext));
         }

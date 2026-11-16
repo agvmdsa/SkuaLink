@@ -114,6 +114,49 @@ public class WebPushEncryptionTests
         Assert.Throws<ArgumentException>(() => WebPushEncryption.Encrypt("x"u8, Public(ua), new byte[15]));
     }
 
+    [Theory]
+    [InlineData(3839, true)]
+    [InlineData(3840, false)]
+    public void The_whole_body_never_exceeds_4096_bytes(int plaintextBytes, bool fits)
+    {
+        using var ua = ECDiffieHellman.Create(ECCurve.NamedCurves.nistP256);
+        var auth = RandomNumberGenerator.GetBytes(16);
+
+        if (fits)
+        {
+            var message = WebPushEncryption.Encrypt(new byte[plaintextBytes], Public(ua), auth);
+            Assert.True(message.Length <= WebPushEncryption.RecordSize);
+        }
+        else
+        {
+            Assert.Throws<ArgumentException>(() => WebPushEncryption.Encrypt(new byte[plaintextBytes], Public(ua), auth));
+        }
+    }
+
+    [Fact]
+    public void Without_padding_the_cap_is_on_the_whole_body_not_only_the_record()
+    {
+        using var ua = ECDiffieHellman.Create(ECCurve.NamedCurves.nistP256);
+        using var asKey = ECDiffieHellman.Create(ECCurve.NamedCurves.nistP256);
+        var max = WebPushEncryption.RecordSize - WebPushEncryption.HeaderBytes - WebPushEncryption.TagBytes - 1;
+
+        var ok = WebPushEncryption.Encrypt(new byte[max], Public(ua), new byte[16], asKey, new byte[16], padBlock: 0);
+
+        Assert.Equal(WebPushEncryption.RecordSize, ok.Length);
+        Assert.Throws<ArgumentException>(() => WebPushEncryption.Encrypt(new byte[max + 1], Public(ua), new byte[16], asKey, new byte[16], padBlock: 0));
+    }
+
+    [Fact]
+    public void The_test_overload_refuses_a_salt_of_the_wrong_length_and_a_key_that_is_not_p256()
+    {
+        using var ua = ECDiffieHellman.Create(ECCurve.NamedCurves.nistP256);
+        using var asKey = ECDiffieHellman.Create(ECCurve.NamedCurves.nistP256);
+        using var p384 = ECDiffieHellman.Create(ECCurve.NamedCurves.nistP384);
+
+        Assert.Throws<ArgumentException>(() => WebPushEncryption.Encrypt("x"u8, Public(ua), new byte[16], asKey, new byte[15], 256));
+        Assert.Throws<ArgumentException>(() => WebPushEncryption.Encrypt("x"u8, Public(ua), new byte[16], p384, new byte[16], 256));
+    }
+
     private static byte[] Public(ECDiffieHellman key)
     {
         var q = key.ExportParameters(false).Q;
