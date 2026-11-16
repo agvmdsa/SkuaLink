@@ -190,7 +190,7 @@ public sealed class PhoneHub : IDisposable
 
     private void OnSourceChanged(object? sender, EventArgs e)
     {
-        // Runs on the raiser's thread (capture session, UI): nothing may escape.
+        // Runs on the raiser's thread (Skua pipe, UI): nothing may escape.
         try
         {
             lock (_lock)

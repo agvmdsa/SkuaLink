@@ -1,5 +1,4 @@
 using AqwCompanion.App;
-using AqwCompanion.App.GameData;
 using AqwCompanion.App.Shell;
 using AqwCompanion.Tests.TestDoubles;
 using Avalonia.Controls;
@@ -16,8 +15,7 @@ public class TrayWindowTests
         services = CompositionRoot.Build(paths);
         var host = services.GetRequiredService<AvaloniaMainWindowHost>();
         exit = new FakeApplicationExit();
-        controller = new TrayController(
-            services.GetRequiredService<CaptureSession>(), host, exit);
+        controller = new TrayController(host, exit);
         var window = new MainWindow { DataContext = services.GetRequiredService<MainViewModel>() };
         host.Attach(window);
         window.KeepInTray(controller);
@@ -70,7 +68,7 @@ public class TrayWindowTests
         using var services = CompositionRoot.Build(paths);
         using var setup = new TrayIconSetup(services.GetRequiredService<TrayController>());
 
-        Assert.Equal("SkuaLink - not capturing", setup.Icon.ToolTipText);
-        Assert.Equal(5, setup.Icon.Menu!.Items.Count);
+        Assert.Equal("SkuaLink - Skua not connected", setup.Icon.ToolTipText);
+        Assert.Equal(["Open", "Debug mode", "-", "Exit"], setup.Icon.Menu!.Items.Select(i => i is NativeMenuItem item ? item.Header : "-"));
     }
 }

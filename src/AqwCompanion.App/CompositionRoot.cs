@@ -4,18 +4,15 @@ using AqwCompanion.App.Characters;
 using AqwCompanion.App.Debug;
 using AqwCompanion.App.Diagnostics;
 using AqwCompanion.App.Feed;
-using AqwCompanion.App.GameData;
 using AqwCompanion.App.HardFarms;
 using AqwCompanion.App.Infrastructure;
 using AqwCompanion.App.Infrastructure.AutoStart;
-using AqwCompanion.App.Infrastructure.Elevation;
 using AqwCompanion.App.Infrastructure.Persistence;
 using AqwCompanion.App.Phone;
 using AqwCompanion.App.Inventory;
 using AqwCompanion.App.Settings;
 using AqwCompanion.App.Skua;
 using AqwCompanion.App.Shell;
-using AqwCompanion.Capture;
 using AqwCompanion.Core.Diagnostics;
 using AqwCompanion.Core.Feed;
 using AqwCompanion.Core.Forgetting;
@@ -70,32 +67,19 @@ public static class CompositionRoot
             sp.GetRequiredService<IActiveInventory>(),
             sp.GetRequiredService<IUrlLauncher>(),
             OnUiThread));
-        services.AddSingleton<IGameDataStore, GameDataStore>();
-        services.AddSingleton<IProcessElevation, WindowsProcessElevation>();
         services.AddSingleton<IApplicationExit, AvaloniaApplicationExit>();
-        services.AddSingleton(sp => new CaptureSession(
-            () => OperatingSystem.IsWindows() ? new LivePacketSource() : new NullPacketSource(),
-            sp.GetRequiredService<IProcessElevation>(),
-            NpcapAvailability.Check,
-            OperatingSystem.IsWindows,
-            sp.GetRequiredService<IGameDataStore>(),
-            sp.GetRequiredService<IDelay>(),
-            sp.GetRequiredService<TimeProvider>(),
-            sp.GetRequiredService<IApplicationExit>(),
-            sp.GetRequiredService<AppPaths>()));
         services.AddSingleton<AvaloniaMainWindowHost>();
         services.AddSingleton<IMainWindowHost>(sp => sp.GetRequiredService<AvaloniaMainWindowHost>());
         services.AddSingleton(sp => new TrayController(
-            sp.GetRequiredService<CaptureSession>(),
             sp.GetRequiredService<IMainWindowHost>(),
             sp.GetRequiredService<IApplicationExit>(),
-            debug: sp.GetRequiredService<DebugModeController>()));
+            debug: sp.GetRequiredService<DebugModeController>(),
+            skua: sp.GetRequiredService<ISkuaFeed>()));
         services.AddSingleton(sp => new CharacterSelection(sp.GetRequiredService<CharacterBook>(), sp.GetRequiredService<ISkuaFeed>()));
         services.AddSingleton<IActiveInventory>(sp => new ActiveInventory(
             sp.GetRequiredService<CharacterBook>(), sp.GetRequiredService<CharacterSelection>(), OnUiThread));
         services.AddSingleton<HardFarmsCheck>();
         services.AddSingleton<IHardFarmsCheck>(sp => sp.GetRequiredService<HardFarmsCheck>());
-        services.AddSingleton(sp => new GameDataViewModel(sp.GetRequiredService<CaptureSession>(), OnUiThread));
         services.AddSingleton(sp => new CharactersViewModel(
             sp.GetRequiredService<CharacterBook>(), sp.GetRequiredService<ISkuaFeed>(), sp.GetRequiredService<CharacterSelection>(), OnUiThread));
         services.AddSingleton<IAppSettingsStore>(sp => new JsonAppSettingsStore(sp.GetRequiredService<AppPaths>().SettingsPath));
@@ -182,7 +166,6 @@ public static class CompositionRoot
     [
         sp.GetRequiredService<HardFarmsViewModel>(),
         new LegacyReputationFolder(sp.GetRequiredService<AppPaths>()),
-        sp.GetRequiredService<CaptureSession>(),
         sp.GetRequiredService<SkuaHub>(),
         sp.GetRequiredService<CharacterBook>(),
         sp.GetRequiredService<SkuaScriptPrefs>(),

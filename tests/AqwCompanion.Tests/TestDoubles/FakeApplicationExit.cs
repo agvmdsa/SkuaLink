@@ -1,4 +1,4 @@
-using AqwCompanion.App.GameData;
+using AqwCompanion.App.Shell;
 
 namespace AqwCompanion.Tests.TestDoubles;
 

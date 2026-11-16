@@ -7,7 +7,6 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\AqwCompanion.Core\AqwCompanion.Core.csproj" />
     <ProjectReference Include="..\..\src\AqwCompanion.App\AqwCompanion.App.csproj" />
-    <ProjectReference Include="..\..\src\AqwCompanion.Capture\AqwCompanion.Capture.csproj" />
     <ProjectReference Include="..\..\src\AqwCompanion.Phone\AqwCompanion.Phone.csproj" />
     <ProjectReference Include="..\..\src\AqwCompanion.Skua\AqwCompanion.Skua.csproj" />
   </ItemGroup>

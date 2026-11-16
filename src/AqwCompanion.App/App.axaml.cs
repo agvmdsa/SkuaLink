@@ -1,5 +1,4 @@
 using AqwCompanion.App.Feed;
-using AqwCompanion.App.GameData;
 using AqwCompanion.App.Infrastructure.Elevation;
 using AqwCompanion.App.Phone;
 using AqwCompanion.App.Shell;
@@ -50,9 +49,6 @@ public partial class CompanionApp : Application
             services.GetRequiredService<CharacterBook>().Restore();
             services.GetRequiredService<SkuaBridgeHost>().Start();
             services.GetRequiredService<SkuaSettingsPresenter>().Start();
-            var capture = services.GetRequiredService<CaptureSession>();
-            _ = capture.RestoreAsync();
-            _ = capture.StartAsync();
             desktop.Exit += (_, _) =>
             {
                 trayIcon.Dispose();

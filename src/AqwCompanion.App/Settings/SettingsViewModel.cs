@@ -15,7 +15,7 @@ public partial class SettingsViewModel : ObservableObject
 {
     public const string TitleText = "Settings";
     public const string AutoStartTitleText = "Start with Windows";
-    public const string AutoStartDescriptionText = "Opens the app in the notification area when you sign in to the PC, so the capture is already listening when you start the game.";
+    public const string AutoStartDescriptionText = "Opens the app in the notification area when you sign in to the PC, so your phone and the Skua plugin find it running.";
     public const string AutoStartFailedText = "Windows did not accept the change. Run the app as administrator and try again.";
     public const string FeedTitleText = "Let other programs on this PC read my characters";
     public const string FeedDescriptionText = "Opens a read-only feed on this computer only (127.0.0.1) with your characters' numbers, factions and Hard Farms. A program needs the secret in the file below to read it. Nothing is sent to the game.";
@@ -34,25 +34,26 @@ public partial class SettingsViewModel : ObservableObject
     public const string SkuaFolderFailedText = "Could not open Skua's plugins folder.";
     public const string ReleasePageFailedText = "Could not open the release page.";
     public const string DebugTitleText = "Debug mode";
-    public const string DebugDescriptionText = "Shows the capture and packet details in their own window. It also opens with Ctrl+Shift+D and from the tray icon menu.";
+    public const string DebugDescriptionText = "Shows the Hard Farms entries without a match and the diagnostics export in their own window. It also opens with Ctrl+Shift+D and from the tray icon menu.";
     public const string PrivacyTitleText = "Privacy";
     public const string ForgetText = "Forget my data";
-    public const string ForgetPromptText = "Remove everything the app saved on this computer? Your game data and the Hard Farms list are cleared until the next login.";
+    public const string ForgetPromptText = "Remove everything the app saved on this computer? Your saved characters, Skua logs and the Hard Farms list are cleared, and so is the game data saved by versions before 0.6.";
     public const string ForgetCompleteText = "Everything the app saved was removed from this computer.";
     public const string ForgetFailedText = "Could not remove the stored data. Close other copies of the app and try again.";
     public const string CreditsTitleText = "Credits";
 
     public const string PrivacyText =
-        "SkuaLink reads, on this computer only, the data the game sends your own computer when you log in, and a few of your own events while you play: " +
-        "character name and level, gold, experience, AC, class points, days played, membership days, faction reputation, and your items. " +
-        "It never reads or keeps your e-mail address, IP address, password, user or character ids, or anything about other players. " +
-        "It never sends anything to the game and never acts for you. Only two things go beyond this computer, and only when you ask for them: the AQW Wiki is contacted when you ask for the Hard Farms list, " +
-        "and with Phone access on the app serves the character numbers it already shows to the phones you paired, over your own Tailscale network. " +
+        "SkuaLink reads, on this computer only, what the SkuaLink plugin inside Skua reports: each character's name, level, experience, gold, AC, class and class rank, class points, " +
+        "membership, guild and slot counts, faction reputation, the names and quantities of the items in the inventory, the house and the bank (once opened in Skua), " +
+        "and what Skua is doing (server, map, script, active quests, a short log). " +
+        "It never reads or keeps your e-mail address, IP address, password, user or character ids, or anything about other players, and it never sends anything to the game. " +
+        "Only two things go beyond this computer, and only when you ask for them: the AQW Wiki is contacted when you ask for the Hard Farms list, " +
+        "and with Phone access on the app serves what it shows to the phones you paired, over your own Tailscale network. " +
         "The data is saved locally so the app opens with it, and Forget my data removes it.";
 
     public const string CreditsText =
         "Unofficial fan project, not made by, endorsed by or connected to Artix Entertainment. AdventureQuest Worlds belongs to its owners. " +
-        "Reputation ranks and the Hard Farms list come from the AQW Wiki (CC BY-SA 3.0). Packet capture uses Npcap and SharpPcap.";
+        "Reputation ranks and the Hard Farms list come from the AQW Wiki (CC BY-SA 3.0).";
 
     private readonly IAppSettingsStore _store;
     private readonly ForgetCoordinator _forgetting;
