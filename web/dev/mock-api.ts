@@ -46,7 +46,7 @@ function state(): RemoteState {
       },
     ],
     notices: [{ id: 'rank:Shake the babe:Yokai:8', kind: 'RankUp', character: 'Shake the babe', title: 'Rank up', body: 'Yokai reached rank 8.', atUtc: now }],
-    // MOCK=skua adds the connected Skua the first character plays in, so its Running badge, the Skua tab and its reputation link can be seen.
+    // MOCK=skua adds the connected Skua the first character plays in, so its Running badge and its Bot section (Now, Control, quests, Log) can be seen; without it the Bot section shows the not-connected card.
     ...(process.env.MOCK === 'skua' ? { skuaInstances: [skua(now)] } : {}),
   };
 }

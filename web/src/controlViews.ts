@@ -5,7 +5,7 @@ import { bar, h, type VNode } from './views';
 import { addRules, pageSheet } from './cssom';
 import controlCss from './styles/control.css?inline';
 
-// The Control card and the sheets, loaded with the Skua tab: the characters view does not need them.
+// The Control card and the sheets, loaded with a character's Bot section: the other views do not need them.
 
 const flag = (on: boolean): Record<string, string> => (on ? { disabled: '', 'aria-busy': 'true' } : {});
 

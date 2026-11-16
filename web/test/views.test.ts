@@ -1,6 +1,7 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { en } from '../src/i18n/en';
-import { characterView, h, listView, pairNeededView, type Model, type VNode } from '../src/views';
+import { characterView, fallbackNav, h, listView, pairNeededView, type Model, type VNode } from '../src/views';
 import type { PhoneCharacter, RemoteState, SkuaInstance } from '../src/types';
 
 const NOW = Date.parse('2026-11-15T12:00:00Z');
@@ -10,12 +11,12 @@ const hero = (over: Partial<PhoneCharacter> = {}): PhoneCharacter => ({
   name: 'Hero <b>x</b>', hasCharacter: true, instanceId: 'a', live: true, lastSeenUtc: iso(0), profile, factions: [], factionsLive: true,
   hardFarmsState: 'Ready', hardFarms: { owned: 1, total: 2, missing: ['X'] }, inventoryAtUtc: iso(3), inventoryTruncated: false, ...over,
 });
-const instance: SkuaInstance = {
+const instance = (over: Partial<SkuaInstance> = {}): SkuaInstance => ({
   instanceId: 'a', label: 'Hero <b>x</b>', disconnected: false, connection: 'Connected', hello: null, log: [],
-  status: { loggedIn: true, character: 'Hero <b>x</b>', server: null, map: null, script: null, scriptRunning: true, runningSince: null, quests: [], factions: [], control: 'running' },
-};
+  status: { loggedIn: true, character: 'Hero <b>x</b>', server: null, map: null, script: null, scriptRunning: true, runningSince: null, quests: [], factions: [], control: 'running' }, ...over,
+});
 const notice = { id: 'n1', kind: 'RankUp' as const, character: 'Hero <b>x</b>', title: 'Rank up', body: 'Yokai reached rank 8.', atUtc: iso(2) };
-const stateWith = (characters: PhoneCharacter[], notices = [notice]): RemoteState => ({ snapshot: null, notices, characters, skuaInstances: [instance] });
+const stateWith = (characters: PhoneCharacter[], instances: SkuaInstance[] = [instance()], notices = [notice]): RemoteState => ({ snapshot: null, notices, characters, skuaInstances: instances });
 
 const model = (s: RemoteState | null, over: Partial<Model> = {}): Model => ({ state: s, nowMs: NOW, showAll: false, hfOpen: false, installHint: null, ...over });
 
@@ -27,7 +28,8 @@ const byClass = (node: VNode, cls: string) => all(node).filter((n) => n.classNam
 
 describe('list view', () => {
   it('draws one row per character with its badge, never as HTML', () => {
-    const v = listView(model(stateWith([hero()])));
+    const v = listView(model(stateWith([hero(), hero({ name: 'Alt', live: false, instanceId: null })])));
+    expect(byClass(v, 'row')).toHaveLength(2);
     expect(texts(v)).toEqual(expect.arrayContaining(['Hero <b>x</b>', 'Running']));
     expect(byClass(v, 'row')[0]!.attrs!.href).toBe('#/character/Hero%20%3Cb%3Ex%3C%2Fb%3E');
   });
@@ -49,7 +51,7 @@ describe('list view', () => {
     expect(t.some((x) => x.endsWith('2 min ago'))).toBe(true);
   });
   it('says nothing has happened when there are no notices', () => {
-    expect(texts(listView(model(stateWith([hero()], []))))).toContain('Nothing has happened yet.');
+    expect(texts(listView(model(stateWith([hero()], [instance()], []))))).toContain('Nothing has happened yet.');
   });
   it('ends with the install hint when there is one, and only then', () => {
     const hint = 'Install: tap Share, then Add to Home Screen.';
@@ -111,6 +113,117 @@ describe('character Overview', () => {
       const credit = all(characterView(model(stateWith([c])), 'Hero <b>x</b>')).find((n) => n.text === 'The Hard Farms list comes from the AQW Wiki (CC BY-SA 3.0).');
       expect(credit?.className).toBe('muted');
     }
+  });
+});
+
+describe('character Overview edge cases', () => {
+  it('writes no half sentence when a time does not parse', () => {
+    const t = texts(characterView(model(stateWith([hero({ live: false, lastSeenUtc: 'not a time', inventoryAtUtc: 'never' })])), 'Hero <b>x</b>'));
+    expect(t.some((x) => x.startsWith('Last seen'))).toBe(false);
+    expect(t.some((x) => x.startsWith('Inventory read'))).toBe(false);
+  });
+  it('a Ready result whose numbers were damaged does not claim the inventory is missing', () => {
+    const t = texts(characterView(model(stateWith([hero({ hardFarmsState: 'Ready', hardFarms: null })])), 'Hero <b>x</b>'));
+    expect(t).not.toContain(en['hardFarms.noInventory']);
+    expect(t).toContain('Hard Farms');
+  });
+  it('says Live from Skua once on a live Overview', () => {
+    const t = texts(characterView(model(stateWith([hero({ factions: [{ id: 2, name: 'Nation', rank: 3, totalRep: 5000, rep: 300, requiredRep: 1200 }] })])), 'Hero <b>x</b>'));
+    expect(t.filter((x) => x === 'Live from Skua')).toHaveLength(1);
+  });
+  it('opens a character, not a character-less Skua row of the same name', () => {
+    const s = stateWith([hero({ name: 'Hero <b>x</b>', hasCharacter: false, profile: null }), hero()]);
+    expect(texts(characterView(model(s), 'Hero <b>x</b>'))).toContain('Level');
+  });
+});
+
+describe('character sections', () => {
+  it('the character screen has an Overview and a Bot link, the current one marked', () => {
+    const nav = all(characterView(model(stateWith([hero()])), 'Hero <b>x</b>', 'bot')).find((n) => n.className === 'segmented')!;
+    expect(nav.tag).toBe('nav');
+    expect(nav.attrs!['aria-label']).toBe('Character sections');
+    const links = nav.children;
+    expect(links.map((l) => [l.text, l.attrs!.href, l.attrs!['aria-current'] ?? null])).toEqual([
+      ['Overview', '#/character/Hero%20%3Cb%3Ex%3C%2Fb%3E', null],
+      ['Bot', '#/character/Hero%20%3Cb%3Ex%3C%2Fb%3E/bot', 'page'],
+    ]);
+  });
+  it('the Overview is the default section', () => {
+    const nav = all(characterView(model(stateWith([hero()])), 'Hero <b>x</b>')).find((n) => n.className === 'segmented')!;
+    expect(nav.children.map((l) => l.attrs!['aria-current'] ?? null)).toEqual(['page', null]);
+  });
+  it('the Bot section of a live character shows the bot views once loaded, a loading card before', () => {
+    const s = stateWith([hero()], [instance()]);
+    expect(texts(characterView(model(s), 'Hero <b>x</b>', 'bot'))).toContain('Loading...');
+    const drawn = characterView(model(s, { botSection: () => h('p', { text: 'BOT' }) }), 'Hero <b>x</b>', 'bot');
+    expect(texts(drawn)).toContain('BOT');
+    expect(texts(drawn)).not.toContain('Level');
+  });
+  it('the Bot section of a character without a live Skua is a calm card with the last state and no controls', () => {
+    const s = stateWith([hero({ live: false, lastSeenUtc: iso(30) })], [instance({ disconnected: true, connection: 'NotConnected' })]);
+    const v = characterView(model(s, { botSection: () => h('p', { text: 'BOT' }) }), 'Hero <b>x</b>', 'bot');
+    expect(texts(v)).toEqual(expect.arrayContaining(['Skua is not connected']));
+    expect(texts(v)).not.toContain('BOT');
+    expect(all(v).some((n) => n.attrs?.['data-action']?.startsWith('control-'))).toBe(false);
+  });
+  it('the not-connected card says how old the data is and what the bot did last', () => {
+    const st = { ...instance().status!, script: 'Farm <b>.cs</b>', map: 'battleon', scriptRunning: true };
+    const s = stateWith([hero({ live: false, lastSeenUtc: iso(30) })], [instance({ disconnected: true, status: st })]);
+    const t = texts(characterView(model(s), 'Hero <b>x</b>', 'bot'));
+    expect(t).toContain('Last data 30 min ago. Open Skua with the SkuaLink plugin to see and control this bot.');
+    expect(t).toContain('Last: Farm <b>.cs</b> · battleon');
+    const idle = stateWith([hero({ live: false, lastSeenUtc: iso(30) })], [instance({ disconnected: true, status: { ...st, scriptRunning: false } })]);
+    expect(texts(characterView(model(idle), 'Hero <b>x</b>', 'bot'))).toContain('Last: No script running · battleon');
+    const unknown = stateWith([hero({ live: false, lastSeenUtc: 'odd', instanceId: null })], []);
+    const u = texts(characterView(model(unknown), 'Hero <b>x</b>', 'bot'));
+    expect(u).toContain('Skua is not connected');
+    expect(u.some((x) => x.startsWith('Last data') || x.startsWith('Last:'))).toBe(false);
+  });
+  it('the list has no Skua card and the fallback navigation has only Characters', () => {
+    expect(texts(listView(model(stateWith([hero()]))))).not.toContain('Skua');
+    expect(all(listView(model(stateWith([hero()])))).some((n) => n.attrs?.href === '#/skua')).toBe(false);
+    expect(fallbackNav({ view: 'list' }, false)!.children.map((c) => c.text)).toEqual(['Characters']);
+  });
+});
+
+describe('section switch styles', () => {
+  const css = readFileSync(new URL('../src/styles/app.css', import.meta.url), 'utf8');
+  const tokens = readFileSync(new URL('../src/styles/tokens.css', import.meta.url), 'utf8');
+  const rule = (sel: string) => css.match(new RegExp(`(?:^|\\n)${sel}\\s*\\{([^}]*)\\}`))?.[1] ?? '';
+  const block = (t: string) => Object.fromEntries([...t.matchAll(/--([a-z-]+):\s*(#[0-9A-Fa-f]{6})\s*;/g)].map((m) => [m[1]!, m[2]!]));
+  const body = (re: RegExp) => tokens.match(re)![1]!;
+  const light = block(body(/^:root\s*\{([^}]*)\}/m));
+  const sysDark = { ...light, ...block(body(/@media \(prefers-color-scheme: dark\)\s*\{\s*:root:not\(\[data-theme='light'\]\)\s*\{([^}]*)\}/)) };
+  const forcedDark = { ...light, ...block(body(/^:root\[data-theme='dark'\]\s*\{([^}]*)\}/m)) };
+  const lum = (hex: string) => {
+    const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)) as [number, number, number];
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const ratio = (a: string, b: string) => {
+    const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x) as [number, number];
+    return (hi + 0.05) / (lo + 0.05);
+  };
+  const decl = (sel: string, prop: string) => rule(sel).match(new RegExp(`(?:^|[;\\s])${prop}:\\s*var\\(--([a-z-]+)\\)`))?.[1];
+  const pairs: [string, string, string, string, number][] = [
+    ['section link', '\\.seg', 'color', 'background', 4.5],
+    ['current section', '\\.seg\\[aria-current="page"\\]', 'color', 'background', 7],
+  ];
+  describe.each([['light', light], ['system dark', sysDark], ['forced dark', forcedDark]] as const)('%s', (_n, t) => {
+    it.each(pairs)('%s reads at its ratio', (_label, sel, fg, bg, min) => {
+      const fgToken = decl(sel, fg)!;
+      const bgToken = decl(sel, bg)!;
+      expect(fgToken, `${sel} ${fg}`).toBeTruthy();
+      expect(bgToken, `${sel} ${bg}`).toBeTruthy();
+      expect(ratio(t[fgToken]!, t[bgToken]!)).toBeGreaterThanOrEqual(min);
+    });
+  });
+  it('keeps the section links 3rem tall and marks the current one by more than colour', () => {
+    expect(rule('\\.seg')).toMatch(/min-height:\s*3rem/);
+    expect(rule('\\.seg\\[aria-current="page"\\]')).toMatch(/border-width:\s*3px/);
+    expect(rule('\\.segmented')).toMatch(/display:\s*flex/);
+  });
+  it('has no rule of the removed instance selector', () => {
+    expect(css).not.toMatch(/\.chip|\.inst-/);
   });
 });
 

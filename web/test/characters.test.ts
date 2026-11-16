@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { badge, characterRows, factionRowsOf, findCharacter, overviewFacts, parseCharacters } from '../src/characters';
+import { badge, characterRows, factionRowsOf, findCharacter, lastSeen, overviewFacts, parseCharacters, skuaRedirect } from '../src/characters';
 import type { PhoneCharacter, RemoteState, SkuaInstance } from '../src/types';
 
 const NOW = Date.parse('2026-11-15T12:00:00Z');
@@ -27,6 +27,20 @@ describe('parseCharacters', () => {
     const parsed = parseCharacters(many)!;
     expect(parsed).toHaveLength(40);
     expect(parsed[0]!.name).toHaveLength(300);
+  });
+  it('reads a damaged membership as not a member and keeps the numbers', () => {
+    for (const isMember of ['yes', 1, null, undefined]) {
+      const p = parseCharacters([{ ...hero(), profile: { ...profile, isMember } }])![0]!.profile;
+      expect(p).not.toBeNull();
+      expect(p!.isMember).toBe(false);
+      expect(p!.level).toBe(60);
+    }
+  });
+  it('keeps at most 200 missing Hard Farms items', () => {
+    const missing = Array.from({ length: 250 }, (_, i) => `Item ${i}`);
+    const hf = parseCharacters([{ ...hero(), hardFarms: { owned: 1, total: 251, missing } }])![0]!.hardFarms!;
+    expect(hf.missing).toHaveLength(200);
+    expect(hf.missing[199]).toBe('Item 199');
   });
   it('turns an unknown hard farms state into NoInventory', () => expect(parseCharacters([{ ...hero(), hardFarmsState: 'Odd' }])![0]!.hardFarmsState).toBe('NoInventory'));
 });
@@ -83,5 +97,32 @@ describe('findCharacter', () => {
     const s = state([hero()]);
     expect(findCharacter(s, 'Hero <b>x</b>')).not.toBeNull();
     expect(findCharacter(s, 'hero <b>x</b>')).toBeNull();
+  });
+  it('prefers a character over a character-less Skua row of the same name', () => {
+    const s = state([hero({ hasCharacter: false, profile: null }), hero()]);
+    expect(findCharacter(s, 'Hero <b>x</b>')!.hasCharacter).toBe(true);
+    expect(findCharacter(state([hero({ hasCharacter: false })]), 'Hero <b>x</b>')!.hasCharacter).toBe(false);
+  });
+});
+
+describe('lastSeen', () => {
+  it('is null when the time is missing or does not parse', () => {
+    expect(lastSeen(hero({ lastSeenUtc: null }), NOW)).toBeNull();
+    expect(lastSeen(hero({ lastSeenUtc: 'not a time' }), NOW)).toBeNull();
+    expect(lastSeen(hero({ lastSeenUtc: iso(90) }), NOW)).toBe('Last seen 1 h ago');
+  });
+});
+
+describe('skuaRedirect', () => {
+  it('goes to the Bot section of the remembered Skua character, else the first live one, else Characters', () => {
+    const s = state([hero(), hero({ name: 'Alt', instanceId: 'b' })], [instance(), instance({ instanceId: 'b', label: 'Alt', status: { ...instance().status!, character: 'Alt' } })]);
+    expect(skuaRedirect(s, 'alt')).toBe('#/character/Alt/bot');
+    expect(skuaRedirect(s, 'Nobody')).toBe('#/character/Hero%20%3Cb%3Ex%3C%2Fb%3E/bot');
+    expect(skuaRedirect(state([hero({ live: false })], []), null)).toBe('#/');
+    expect(skuaRedirect(null, null)).toBe('#/');
+  });
+  it('skips characters whose Skua is gone or disconnected, and Skua rows without a character', () => {
+    const s = state([hero({ name: 'Skua 1', hasCharacter: false, instanceId: 'c' }), hero({ instanceId: 'b' })], [instance({ instanceId: 'c', label: 'Skua 1' }), instance({ instanceId: 'b', disconnected: true })]);
+    expect(skuaRedirect(s, 'Skua 1')).toBe('#/');
   });
 });

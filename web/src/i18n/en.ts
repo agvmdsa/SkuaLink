@@ -36,7 +36,14 @@ export const en = {
   'failed.body': 'The page will try again when new data arrives.',
 
   'bot.notConnected': 'Not connected',
+  'bot.loading': 'Loading...',
+  'bot.notConnectedTitle': 'Skua is not connected',
+  'bot.notConnectedBody': 'Last data {when}. Open Skua with the SkuaLink plugin to see and control this bot.',
+  'bot.lastState': 'Last: {script} · {map}',
 
+  'character.sections': 'Character sections',
+  'character.overview': 'Overview',
+  'character.bot': 'Bot',
   'character.live': 'Live from Skua',
   'character.lastSeen': 'Last seen {when}',
   'character.notKnown': 'SkuaLink does not know this character. Open Skua with the SkuaLink plugin and log in.',
@@ -59,15 +66,10 @@ export const en = {
   'character.expBar': 'Experience to next level',
 
   'factions.title': 'Reputation',
-  'factions.fromSkua': 'Live from Skua',
   'factions.empty': 'No factions read yet.',
   'factions.maxRank': 'Max rank',
   'factions.rank': 'Rank {rank}',
   'factions.toNext': '{n} to next rank',
-  'factions.count.one': '{n} faction for {character}',
-  'factions.count.other': '{n} factions for {character}',
-  'factions.closest': 'Closest to next rank: {name} ({n} to go)',
-  'factions.allMax': 'All at max rank',
 
   'hardFarms.title': 'Hard Farms',
   'hardFarms.notLoaded': 'Hard Farms are not loaded yet. Import the list in SkuaLink.',
@@ -91,9 +93,7 @@ export const en = {
   'pair.locked': 'Too many attempts. Wait a minute and open the pairing link again.',
   'pair.pasteRejected': 'That is not a pairing link. Copy the whole link from SkuaLink on your PC and paste it here.',
 
-  'skua.title': 'Skua',
   'skua.notConnected': 'Skua is not connected.',
-  'skua.connected': 'Skua connected.',
   'skua.mismatch': 'Update the Skua plugin and SkuaLink to the same release.',
   'skua.nothingYet': 'Nothing to show yet.',
   'skua.noScript': 'No script running',
@@ -115,7 +115,6 @@ export const en = {
   'skua.filter.session': 'Session',
   'skua.log.filterEmpty': 'Nothing here yet.',
   'skua.log.title': 'Log',
-  'skua.instances.label': 'Skua instances',
   'skua.state.running': 'Running',
   'skua.state.idle': 'Idle',
   'skua.state.stopping': 'Stopping',

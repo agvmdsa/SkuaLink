@@ -6,7 +6,8 @@ import {
 } from '../src/control';
 import { parseSkuaInstances } from '../src/skua';
 import { controlCard, sheetView } from '../src/controlViews';
-import { skuaView, type Model, type VNode } from '../src/views';
+import { botSection } from '../src/botViews';
+import type { VNode } from '../src/views';
 import type { SkuaInstance } from '../src/types';
 
 const NOW = Date.parse('2026-11-14T12:00:00Z');
@@ -782,11 +783,8 @@ describe('the ask-for-options switch on the running card', () => {
   });
 });
 
-describe('the Control card in the Skua view', () => {
-  const view = (i: SkuaInstance, control?: Control) => {
-    const m: Model = { state: { snapshot: null, notices: [], skua: i, skuaInstances: [i] }, nowMs: NOW, showAll: false, hfOpen: false, installHint: null, controlCard: (x) => controlCard(x, control ?? setup().control, NOW) };
-    return skuaView(m);
-  };
+describe('the Control card in the Bot section', () => {
+  const view = (i: SkuaInstance, control?: Control) => botSection(i, { nowMs: NOW, skuaFilter: 'all', controlCard: (x) => controlCard(x, control ?? setup().control, NOW) });
   const card = (v: VNode) => all(v).find((n) => n.attrs?.['aria-labelledby'] === 'control-title')!;
   it('has a Start a script... button on an idle Skua', () => {
     const c = card(view(inst()));
@@ -830,11 +828,8 @@ describe('the Control card in the Skua view', () => {
     const alert = all(card(view(running(), s.control))).find((n) => n.attrs?.role === 'alert')!;
     expect(alert.text).toBe('Could not stop: a script is already running.');
   });
-  it('is not shown without a controller (an older page model) nor for an older app without instances', () => {
-    const m: Model = { state: { snapshot: null, notices: [], skua: inst(), skuaInstances: [inst()] }, nowMs: NOW, showAll: false, hfOpen: false, installHint: null };
-    expect(all(skuaView(m)).some((n) => n.attrs?.['aria-labelledby'] === 'control-title')).toBe(false);
-    const old: Model = { ...m, state: { snapshot: null, notices: [], skua: inst() }, controlCard: (x) => controlCard(x, setup().control, NOW) };
-    expect(all(skuaView(old)).some((n) => n.attrs?.['aria-labelledby'] === 'control-title')).toBe(false);
+  it('is not shown until the control chunk has passed its card in', () => {
+    expect(all(botSection(inst(), { nowMs: NOW, skuaFilter: 'all' })).some((n) => n.attrs?.['aria-labelledby'] === 'control-title')).toBe(false);
   });
 });
 
@@ -899,7 +894,7 @@ describe('hostile text', () => {
     expect(nodes.some((n) => n.text === `Stop ${evil} on ${evil}?`)).toBe(true);
   });
   it('no source module uses innerHTML', () => {
-    for (const f of ['control.ts', 'controlViews.ts', 'views.ts', 'main.ts', 'api.ts']) {
+    for (const f of ['control.ts', 'controlViews.ts', 'views.ts', 'botViews.ts', 'main.ts', 'api.ts']) {
       expect(readFileSync(new URL(`../src/${f}`, import.meta.url), 'utf8')).not.toMatch(/innerHTML|outerHTML|insertAdjacentHTML/);
     }
   });

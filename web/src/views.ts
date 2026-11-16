@@ -1,9 +1,8 @@
-import { characterRows, factionRowsOf, findCharacter, lastSeen, overviewFacts, TONE_KIND, type CharacterRowView } from './characters';
-import { characterHref, expFraction, formatNumber, hardFarmsView, noticeLine, relativeTime, type Route, type Section } from './state';
-import { plural, t, type MessageKey } from './i18n';
-import { factionRows, instanceState, LOG_FILTERS, LOG_FILTER_LABELS, questRows, reputationHome, reputationSummary, selectInstance, skuaEmptyText, skuaLogRows, skuaNow, skuaSummary, type LogFilter } from './skua';
+import { ago, characterRows, factionRowsOf, findCharacter, lastSeen, liveInstance, instanceOf, overviewFacts, type CharacterRowView } from './characters';
+import { characterHref, expFraction, formatNumber, hardFarmsView, noticeLine, type Route, type Section } from './state';
+import { t } from './i18n';
 import { THEMES, type ThemeChoice } from './theme';
-import type { Faction, Notice, PhoneCharacter, RemoteState, SkuaInstance, SkuaState } from './types';
+import type { Faction, Notice, PhoneCharacter, RemoteState, SkuaInstance } from './types';
 
 export interface VNode {
   tag: string;
@@ -23,14 +22,8 @@ export interface Model {
   installHint: string | null;
   /** The stored appearance choice; System when absent. */
   theme?: ThemeChoice;
-  /** The selected Skua log filter; Everything when absent. */
-  skuaFilter?: LogFilter;
-  /** The label (character name) of the Skua last chosen, or null; the first connected one when absent or gone. */
-  skuaInstance?: string | null;
-  /** The instance chosen in this session; it wins over the label. */
-  skuaInstanceId?: string | null;
-  /** Draws the Control card of an instance (loaded with the Skua tab); without it the tab shows no Control card. */
-  controlCard?: (i: SkuaInstance) => VNode | null;
+  /** Draws the Bot section of a character's connected Skua (a chunk of its own, botViews.ts); absent until it has loaded. */
+  botSection?: (c: PhoneCharacter, i: SkuaInstance) => VNode | null;
   /** The section last opened for a character; the Overview when absent. */
   sectionOf?: (name: string) => Section;
 }
@@ -59,7 +52,7 @@ export function mount(node: VNode): HTMLElement {
 
 const back = (): VNode => h('a', { className: 'back', text: t('common.back'), attrs: { href: '#/' } });
 
-const empty = (text: string): VNode => h('p', { className: 'empty', text });
+export const empty = (text: string): VNode => h('p', { className: 'empty', text });
 
 export function bar(label: string, fraction: number): VNode {
   return h(
@@ -72,7 +65,7 @@ export function bar(label: string, fraction: number): VNode {
   );
 }
 
-function status(kind: string, text: string, tag = 'p'): VNode {
+export function status(kind: string, text: string, tag = 'p'): VNode {
   return h(tag, { className: 'status' }, h('span', { className: 'dot', attrs: { 'data-kind': kind, 'aria-hidden': 'true' } }), h('span', { text }));
 }
 
@@ -89,7 +82,6 @@ export function listView(model: Model): VNode {
       h('h2', { text: t('list.title') }),
       rows.length === 0 ? empty(t('list.empty')) : h('ul', { className: 'list' }, ...rows.map(characterRowNode)),
     ),
-    model.state?.skua ? skuaLinkCard(model.state.skua) : null, // removed in Task 8
     noticesCard(notices, model.nowMs),
     model.installHint ? h('p', { className: 'note', text: model.installHint }) : null,
   );
@@ -103,15 +95,6 @@ function characterRowNode(r: CharacterRowView): VNode {
   ];
   // A Skua with nobody logged in has no character to open: the same row, as plain text.
   return h('li', {}, h(r.href ? 'a' : 'div', { className: 'row', attrs: r.href ? { href: r.href } : {} }, ...inner));
-}
-
-function skuaLinkCard(skua: SkuaState): VNode {
-  return h(
-    'section',
-    { className: 'card' },
-    h('h2', { text: t('skua.title') }),
-    h('a', { className: 'row', attrs: { href: '#/skua' } }, h('span', { className: 'name', text: skuaSummary(skua) })),
-  );
 }
 
 function noticesCard(notices: Notice[], nowMs: number): VNode {
@@ -138,146 +121,14 @@ function noticesCard(notices: Notice[], nowMs: number): VNode {
   );
 }
 
-function nowCard(skua: SkuaState, nowMs: number): VNode | null {
-  const now = skuaNow(skua, nowMs);
-  if (!now) return null;
-  return h(
-    'section',
-    { className: 'card now-card' },
-    h('h2', { text: t('skua.now.title') }),
-    now.loggedIn ? (now.character ? h('p', { className: 'now-name', text: now.character }) : null) : h('p', { className: 'skua-line', text: t('skua.notLoggedIn') }),
-    now.where ? h('p', { className: 'skua-line', text: now.where }) : null,
-    status(now.script.running ? 'live' : 'idle', now.script.text),
-    now.script.name ? h('p', { className: 'skua-line', text: now.script.name }) : null,
-  );
-}
-
-function questsCard(skua: SkuaState): VNode | null {
-  const quests = questRows(skua);
-  if (!quests) return null;
-  return h(
-    'section',
-    { className: 'card' },
-    h('h2', { text: plural('skua.quests.title', quests.length) }),
-    quests.length === 0
-      ? empty(t('skua.quests.none'))
-      : h('ul', { className: 'quests' }, ...quests.map((q) => h('li', {}, h('p', { className: 'name', text: q.name }), q.ready ? status('ready', t('skua.quests.ready')) : null))),
-  );
-}
-
-/** The one way a reputation list is drawn, on the Overview and (for a character SkuaLink does not know) on the Skua tab. */
-function reputationCard(factions: Pick<Faction, 'name' | 'rank' | 'max' | 'fraction' | 'toNext'>[], note: string | null = null): VNode {
+/** The Overview's Reputation card (whether it is live is said once, under the character's name). */
+function reputationCard(factions: Pick<Faction, 'name' | 'rank' | 'max' | 'fraction' | 'toNext'>[]): VNode {
   return h(
     'section',
     { className: 'card' },
     h('h2', { text: t('factions.title') }),
-    note ? h('p', { className: 'muted', text: note }) : null,
     factions.length === 0 ? empty(t('factions.empty')) : h('ul', { className: 'list' }, ...factions.map(factionRow)),
   );
-}
-
-/**
- * The Skua tab's reputation: a one-line link to the character's Overview when SkuaLink knows the character, else the full list
- * here. Hidden when the plugin does not report reputation.
- */
-function skuaReputation(skua: SkuaState, state: RemoteState | null): VNode | null {
-  const rows = factionRows(skua);
-  if (!rows) return null;
-  const home = reputationHome(state, skua);
-  if (home === null) return reputationCard(rows);
-  // What the Overview shows: the character's list, live or last known.
-  const sum = reputationSummary(factionRowsOf(findCharacter(state, home)?.factions ?? []));
-  return h(
-    'section',
-    { className: 'card' },
-    h('h2', { text: t('factions.title') }),
-    h(
-      'a',
-      { className: 'row', attrs: { href: characterHref(home) } },
-      h('span', { className: 'name', text: plural('factions.count', sum.count, { character: home }) }),
-      h(
-        'span',
-        { className: 'row-status' },
-        h('span', {
-          className: 'muted',
-          text: sum.closest ? t('factions.closest', { name: sum.closest.name, n: formatNumber(sum.closest.toNext) }) : t(sum.count ? 'factions.allMax' : 'factions.empty'),
-        }),
-      ),
-    ),
-  );
-}
-
-function filterRow(selected: LogFilter): VNode {
-  return h(
-    'div',
-    { className: 'filters', attrs: { role: 'group', 'aria-label': t('skua.filter.group') } },
-    ...LOG_FILTERS.map((filter) =>
-      h('button', {
-        className: 'filter-btn',
-        text: t(LOG_FILTER_LABELS[filter]),
-        attrs: { type: 'button', 'data-action': 'skua-filter', 'data-value': filter, 'aria-pressed': String(filter === selected) },
-      }),
-    ),
-  );
-}
-
-function logCard(skua: SkuaState, model: Model): VNode {
-  const filter = model.skuaFilter ?? 'all';
-  const rows = skuaLogRows(skua, model.nowMs, filter);
-  const emptyText = skuaEmptyText(skua, filter);
-  return h(
-    'section',
-    { className: 'card' },
-    h('h2', { text: t('skua.log.title') }),
-    filterRow(filter),
-    emptyText
-      ? empty(emptyText)
-      : h('ul', { className: 'skua-log' }, ...rows.map((r) => h('li', {}, h('p', { text: r.text }), r.when ? h('p', { className: 'muted', text: r.when }) : null))),
-  );
-}
-
-const MANY_INSTANCES = 5;
-
-function instanceLabel(i: SkuaInstance, selected: boolean, role: 'chip' | 'list'): VNode {
-  const st = instanceState(i);
-  const common = { 'data-action': 'skua-instance', 'data-value': i.instanceId, type: 'button' };
-  const inner = [
-    h('span', { className: 'chip-name', text: i.label }),
-    h('span', { className: 'chip-state' }, h('span', { className: 'dot', attrs: { 'data-kind': TONE_KIND[st.tone], 'aria-hidden': 'true' } }), h('span', { text: st.text })),
-  ];
-  const off = i.disconnected || i.connection === 'NotConnected';
-  if (role === 'list') {
-    return h('li', {}, h('button', { className: off ? ['inst-btn', 'off'].join(' ') : 'inst-btn', attrs: { ...common, 'aria-pressed': String(selected) } }, ...inner));
-  }
-  return h('button', { className: off ? ['chip', 'off'].join(' ') : 'chip', attrs: { ...common, role: 'tab', 'aria-selected': String(selected), tabindex: selected ? '0' : '-1' } }, ...inner);
-}
-
-/** Which Skua the tab shows: nothing for one, a chip row for two to five, a list of buttons above that. */
-function instanceSelector(instances: SkuaInstance[], selected: SkuaInstance): VNode | null {
-  if (instances.length < 2) return null;
-  if (instances.length > MANY_INSTANCES) {
-    return h('ul', { className: 'inst-list', attrs: { 'aria-label': t('skua.instances.label') } }, ...instances.map((i) => instanceLabel(i, i === selected, 'list')));
-  }
-  return h(
-    'div',
-    { className: 'chip-wrap' },
-    h('div', { className: 'chips', attrs: { role: 'tablist', 'aria-label': t('skua.instances.label') } }, ...instances.map((i) => instanceLabel(i, i === selected, 'chip'))),
-  );
-}
-
-export function skuaView(model: Model): VNode {
-  const instances = model.state?.skuaInstances ?? [];
-  const chosen = selectInstance(instances, model.skuaInstance ?? null, model.skuaInstanceId ?? null);
-  // An older app sends no list: the single Skua is shown as before, with no selector.
-  const skua: SkuaState | null = chosen ?? model.state?.skua ?? null;
-  const selector = chosen ? instanceSelector(instances, chosen) : null;
-  // A disconnected instance keeps its last status, which must not be shown as live.
-  const live = skua && chosen?.disconnected ? { ...skua, connection: 'NotConnected' as const } : skua;
-  if (!live || live.connection !== 'Connected') {
-    return h('div', {}, selector, h('section', { className: 'card' }, h('h2', { text: t('skua.title') }), empty(skuaEmptyText(live))));
-  }
-  const control = chosen && model.controlCard ? model.controlCard(chosen) : null;
-  return h('div', {}, selector, nowCard(live, model.nowMs), control, questsCard(live), skuaReputation(live, model.state), logCard(live, model));
 }
 
 /** One faction row (FactionRow; the capture's Faction carries the same fields). */
@@ -291,15 +142,23 @@ function factionRow(f: Pick<Faction, 'name' | 'rank' | 'max' | 'fraction' | 'toN
   );
 }
 
-export function characterView(model: Model, name: string): VNode {
+/** Overview and Bot: two links, the current one marked; each is a real page of its own. */
+function sectionSwitch(name: string, section: Section): VNode {
+  const link = (to: Section, key: 'character.overview' | 'character.bot') =>
+    h('a', { className: 'seg', text: t(key), attrs: to === section ? { href: characterHref(name, to), 'aria-current': 'page' } : { href: characterHref(name, to) } });
+  return h('nav', { className: 'segmented', attrs: { 'aria-label': t('character.sections') } }, link('overview', 'character.overview'), link('bot', 'character.bot'));
+}
+
+export function characterView(model: Model, name: string, section: Section = 'overview'): VNode {
   const c = findCharacter(model.state, name);
   if (!c?.hasCharacter) return h('div', {}, back(), h('section', { className: 'card' }, empty(t('character.notKnown'))));
+  return h('div', {}, back(), sectionSwitch(c.name, section), ...(section === 'bot' ? botCards(c, model) : overviewCards(c, model)));
+}
+
+function overviewCards(c: PhoneCharacter, model: Model): VNode[] {
   const p = c.profile;
   const seen = c.live ? t('character.live') : lastSeen(c, model.nowMs);
-  return h(
-    'div',
-    {},
-    back(),
+  return [
     h(
       'section',
       { className: 'card' },
@@ -308,20 +167,45 @@ export function characterView(model: Model, name: string): VNode {
       p ? h('dl', { className: 'figures' }, ...overviewFacts(p).flatMap((f) => [h('dt', { text: f.label }), h('dd', { text: f.value })])) : empty(t('character.noProfile')),
       p ? bar(t('character.expBar'), expFraction(p)) : null,
     ),
-    reputationCard(factionRowsOf(c.factions ?? []), c.factionsLive ? t('factions.fromSkua') : null),
+    reputationCard(factionRowsOf(c.factions ?? [])),
     hardFarmsCard(c, model),
+  ];
+}
+
+/** The Bot section: the bot views of the connected Skua (a loading card until their chunk is in), else the calm not-connected card. */
+function botCards(c: PhoneCharacter, model: Model): VNode[] {
+  const i = liveInstance(model.state, c);
+  if (!i) return [notConnectedCard(c, instanceOf(model.state, c), model.nowMs)];
+  const drawn = model.botSection?.(c, i);
+  if (!drawn) return [h('section', { className: 'card', attrs: { 'aria-busy': 'true' } }, empty(t('bot.loading')))];
+  // Flattened into the page's grid, so the cards keep its gap.
+  return drawn.tag === 'div' ? drawn.children : [drawn];
+}
+
+/** No connected Skua for the character: how old the data is and what the bot did last; nothing to press. */
+function notConnectedCard(c: PhoneCharacter, last: SkuaInstance | null, nowMs: number): VNode {
+  const when = ago(c.lastSeenUtc, nowMs);
+  const st = last?.status;
+  return h(
+    'section',
+    { className: 'card' },
+    h('h2', { text: t('bot.notConnectedTitle') }),
+    when ? h('p', { text: t('bot.notConnectedBody', { when }) }) : null,
+    st?.map ? h('p', { className: 'muted hint', text: t('bot.lastState', { script: (st.scriptRunning && st.script) || t('skua.noScript'), map: st.map }) }) : null,
   );
 }
 
 function hardFarmsCard(c: PhoneCharacter, model: Model): VNode {
   const hf = c.hardFarmsState === 'Ready' ? hardFarmsView(c.hardFarms, model.showAll) : null;
   const missingCount = hf ? hf.shown.length + hf.hidden : 0;
+  const inventoryAge = ago(c.inventoryAtUtc, model.nowMs);
   return h(
     'section',
     { className: 'card' },
     h('h2', { text: t('hardFarms.title') }),
+    // A Ready result whose numbers were damaged in transit says nothing rather than something untrue.
     hf === null
-      ? empty(t(c.hardFarmsState === 'NoList' ? 'hardFarms.notLoaded' : 'hardFarms.noInventory'))
+      ? c.hardFarmsState === 'Ready' ? null : empty(t(c.hardFarmsState === 'NoList' ? 'hardFarms.notLoaded' : 'hardFarms.noInventory'))
       : h(
           'div',
           {},
@@ -341,7 +225,7 @@ function hardFarmsCard(c: PhoneCharacter, model: Model): VNode {
               ),
           // The notes under the list: a gap above them (.hint), then they read as one block of footnotes.
           c.inventoryTruncated ? h('p', { className: 'hint', text: t('hardFarms.truncated') }) : null,
-          c.inventoryAtUtc ? h('p', { className: 'muted hint', text: t('hardFarms.inventoryAge', { when: relativeTime(c.inventoryAtUtc, model.nowMs) }) }) : null,
+          inventoryAge ? h('p', { className: 'muted hint', text: t('hardFarms.inventoryAge', { when: inventoryAge }) }) : null,
           h('p', { className: 'muted', text: t('hardFarms.bankHint') }),
         ),
     h('p', { className: 'muted', text: t('hardFarms.source') }),
@@ -403,14 +287,12 @@ export function themeFooter(model: Pick<Model, 'theme'>, tag = 'footer'): VNode 
 }
 
 /**
- * Plain links to the two pages, shown where the dock goes until its chunk has loaded (or when it cannot load): the page is never
- * left without a way to Skua and back. Null where the dock would be hidden too.
+ * A plain link to the one page, shown where the dock goes until its chunk has loaded (or when it cannot load): the page is never
+ * left without a way back to Characters. Null where the dock would be hidden too.
  */
 export function fallbackNav(route: Route, unpaired: boolean): VNode | null {
   if (unpaired || route.view === 'pair') return null;
-  const link = (href: string, key: MessageKey, current: boolean) => h('a', { className: 'back', text: t(key), attrs: current ? { href, 'aria-current': 'page' } : { href } });
-  const skua = route.view === 'skua';
-  return h('nav', { className: 'fallback-nav', attrs: { 'aria-label': t('dock.label') } }, link('#/', 'list.title', !skua), link('#/skua', 'skua.title', skua));
+  return h('nav', { className: 'fallback-nav', attrs: { 'aria-label': t('dock.label') } }, h('a', { className: 'back', text: t('list.title'), attrs: { href: '#/', 'aria-current': 'page' } }));
 }
 
 /** Puts the Appearance footer under a view, inside the same column and grid. */

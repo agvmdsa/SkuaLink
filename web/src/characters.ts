@@ -4,6 +4,7 @@ import { characterHref, formatCompact, formatNumber, relativeTime, type Section 
 import type { HardFarms, HardFarmsState, PhoneCharacter, RemoteState, SkuaFaction, SkuaInstance, SkuaProfile } from './types';
 
 const MAX_CHARACTERS = 40;
+const MAX_MISSING = 200;
 const HARD_FARMS_STATES: readonly HardFarmsState[] = ['Ready', 'NoList', 'NoInventory'];
 const FLAGS = ['hasCharacter', 'live', 'factionsLive', 'inventoryTruncated'] as const;
 const TEXTS = ['instanceId', 'lastSeenUtc', 'inventoryAtUtc'] as const;
@@ -29,7 +30,7 @@ function parseHardFarms(v: unknown): HardFarms | null {
   if (!isObject(v) || !Array.isArray(v.missing)) return null;
   const owned = count(v.owned), total = count(v.total);
   if (owned === null || total === null) return null;
-  const missing = (v.missing as unknown[]).filter((m): m is string => typeof m === 'string').map(cut);
+  const missing = (v.missing as unknown[]).filter((m): m is string => typeof m === 'string').slice(0, MAX_MISSING).map(cut);
   return { owned, total, missing };
 }
 
@@ -51,15 +52,33 @@ export function parseCharacters(v: unknown): PhoneCharacter[] | undefined {
   return out;
 }
 
-/** The character of that exact name, or null. */
+/** The character of that exact name, or null; a character wins over a Skua row without one that carries the same label. */
 export function findCharacter(state: RemoteState | null, name: string): PhoneCharacter | null {
-  return state?.characters?.find((c) => c.name === name) ?? null;
+  const named = state?.characters?.filter((c) => c.name === name) ?? [];
+  return named.find((c) => c.hasCharacter) ?? named[0] ?? null;
 }
 
 /** The Skua the character is (or was last) played in, if the PC still lists it. */
 export function instanceOf(state: RemoteState | null, c: PhoneCharacter): SkuaInstance | null {
   // An instance id is never null, so a character with none matches nothing.
   return state?.skuaInstances?.find((i) => i.instanceId === c.instanceId) ?? null;
+}
+
+/** The connected Skua the character is played in right now, or null. */
+export function liveInstance(state: RemoteState | null, c: PhoneCharacter): SkuaInstance | null {
+  const i = instanceOf(state, c);
+  return c.live && i && isLive(i) ? i : null;
+}
+
+/**
+ * Where an old #/skua link goes: the Bot section of the character played in the Skua last chosen on the old tab (by its label,
+ * ignoring case), else of the first character played right now, else Characters.
+ */
+export function skuaRedirect(state: RemoteState | null, savedLabel: string | null): string {
+  const live = (state?.characters ?? []).filter((c) => c.hasCharacter && liveInstance(state, c));
+  const saved = savedLabel?.toUpperCase();
+  const c = live.find((x) => liveInstance(state, x)!.label.toUpperCase() === saved) ?? live[0];
+  return c ? characterHref(c.name, 'bot') : '#/';
 }
 
 export type BadgeKind = 'live' | 'idle' | 'saved';
@@ -74,9 +93,13 @@ export function badge(c: PhoneCharacter, i: SkuaInstance | null): { text: string
   return { text: st.text, kind: TONE_KIND[st.tone] };
 }
 
+/** How long ago, or null when the time is unknown or does not parse. */
+export const ago = (iso: string | null, nowMs: number): string | null => (iso && relativeTime(iso, nowMs)) || null;
+
 /** "Last seen 1 h ago", or null when the time is unknown. */
 export function lastSeen(c: PhoneCharacter, nowMs: number): string | null {
-  return c.lastSeenUtc ? t('character.lastSeen', { when: relativeTime(c.lastSeenUtc, nowMs) }) : null;
+  const when = ago(c.lastSeenUtc, nowMs);
+  return when && t('character.lastSeen', { when });
 }
 
 export interface CharacterRowView {
