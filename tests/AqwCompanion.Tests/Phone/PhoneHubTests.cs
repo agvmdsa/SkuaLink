@@ -94,6 +94,61 @@ public class PhoneHubTests
         Assert.Equal(NoticeKind.RankUp, notice.Kind);
     }
 
+    private sealed class RecordingSink : INoticeSink
+    {
+        public List<Notice> Seen { get; } = [];
+        public Exception? Throws { get; init; }
+        public Action<Notice>? OnPublish { get; init; }
+
+        public void Publish(Notice notice)
+        {
+            Seen.Add(notice);
+            OnPublish?.Invoke(notice);
+            if (Throws is not null)
+            {
+                throw Throws;
+            }
+        }
+    }
+
+    [Fact]
+    public void A_published_notice_reaches_the_sink_after_the_log()
+    {
+        var clock = new Clock();
+        var source = new FakeFeedSource(Base());
+        PhoneHub? hub = null;
+        var loggedWhenSunk = false;
+        var sink = new RecordingSink { OnPublish = n => loggedWhenSunk = hub!.Current.Notices.Any(x => x.Id == n.Id) };
+        hub = new PhoneHub(source, new NoticeEngine(), new NoticeLog(50), () => clock.Now, null, null, null, null, sink);
+
+        clock.Now = T0.AddSeconds(5);
+        source.Current = Base(rank: 9);
+        source.Raise();
+
+        var notice = Assert.Single(sink.Seen);
+        Assert.Equal(NoticeKind.RankUp, notice.Kind);
+        Assert.True(loggedWhenSunk);
+        Assert.Equal(notice, Assert.Single(hub.Current.Notices));
+    }
+
+    [Fact]
+    public void A_throwing_sink_does_not_stop_the_state_message_and_is_reported()
+    {
+        var clock = new Clock();
+        var source = new FakeFeedSource(Base());
+        var errors = new List<Exception>();
+        var sink = new RecordingSink { Throws = new InvalidOperationException("sink") };
+        using var hub = new PhoneHub(source, new NoticeEngine(), new NoticeLog(50), () => clock.Now, errors.Add, null, null, null, sink);
+        using var sub = hub.Subscribe();
+
+        clock.Now = T0.AddSeconds(5);
+        source.Current = Base(rank: 9);
+        source.Raise();
+
+        Assert.Equal(["notice", "state"], Drain(sub).Select(m => m.Event));
+        Assert.Single(errors);
+    }
+
     [Fact]
     public void Tick_after_eleven_minutes_without_progress_publishes_one_notice_and_no_state()
     {
