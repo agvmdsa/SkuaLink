@@ -9,7 +9,12 @@ public static class SkuaLine
 {
     public static string ToLine(SkuaMessage message)
     {
-        var max = message is ResultMessage ? SkuaProtocol.MaxResultLineBytes : SkuaProtocol.MaxLineBytes;
+        var max = message switch
+        {
+            ResultMessage => SkuaProtocol.MaxResultLineBytes,
+            InventoryMessage => SkuaProtocol.MaxInventoryLineBytes,
+            _ => SkuaProtocol.MaxLineBytes,
+        };
         var line = Write(message, Limits.All);
         if (Fits(line, max))
         {
@@ -19,7 +24,8 @@ public static class SkuaLine
         // Texts are cut, but long lists of long names in escaped non-ASCII could still pass the line cap, and a line over the
         // cap is refused whole. For a status the last factions, then the last quests, are left out until the line fits. For a
         // result the last scripts are left out (the result says Truncated); a result that still does not fit becomes an error
-        // rather than losing option values or definitions, which would mislead the form built from them.
+        // rather than losing option values or definitions, which would mislead the form built from them. For an inventory the last
+        // items are left out (the inventory says Truncated).
         var limits = Limits.All;
         switch (message)
         {
@@ -39,6 +45,9 @@ public static class SkuaLine
                 }
 
                 break;
+            case InventoryMessage { Inventory: var inventory }:
+                line = Shrink(message, ref limits, max, inventory.Items.Count, (l, n) => l with { Items = n });
+                break;
         }
 
         return line;
@@ -55,9 +64,9 @@ public static class SkuaLine
     }
 
     /// <summary>How many entries of each list are written at most (on top of the protocol caps).</summary>
-    private readonly record struct Limits(int Quests, int Factions, int Scripts, int Defs, int Values)
+    private readonly record struct Limits(int Quests, int Factions, int Scripts, int Defs, int Values, int Items)
     {
-        public static readonly Limits All = new(int.MaxValue, int.MaxValue, int.MaxValue, int.MaxValue, int.MaxValue);
+        public static readonly Limits All = new(int.MaxValue, int.MaxValue, int.MaxValue, int.MaxValue, int.MaxValue, int.MaxValue);
     }
 
     private static bool Fits(string line, int max) => Encoding.UTF8.GetByteCount(line) <= max;
@@ -171,6 +180,14 @@ public static class SkuaLine
                         w.WriteBoolean("optionsStuck", true);
                     }
 
+                    if (s.Status.Profile is { } p)
+                    {
+                        WriteProfile(w, p);
+                    }
+
+                    break;
+                case InventoryMessage i:
+                    WriteInventory(w, i.Inventory, limits);
                     break;
                 case LogMessage l:
                     w.WriteString("type", "log");
@@ -218,6 +235,90 @@ public static class SkuaLine
         }
 
         return Encoding.UTF8.GetString(stream.ToArray());
+    }
+
+    private static void WriteProfile(Utf8JsonWriter w, SkuaProfile p)
+    {
+        w.WriteStartObject("profile");
+        w.WriteNumber("level", Math.Max(0, p.Level));
+        w.WriteNumber("xp", Math.Max(0, p.Xp));
+        w.WriteNumber("xpToLevel", Math.Max(0, p.XpToLevel));
+        w.WriteNumber("gold", Math.Max(0, p.Gold));
+        w.WriteNumber("coins", Math.Max(0, p.Coins));
+        w.WriteNumber("classRank", Math.Max(0, p.ClassRank));
+        w.WriteBoolean("isMember", p.IsMember);
+        WriteOptional(w, "className", p.ClassName, SkuaProtocol.MaxTextLength);
+        WriteCount(w, "classId", p.ClassId);
+        WriteCount(w, "classPoints", p.ClassPoints);
+        WriteOptional(w, "guild", p.Guild, SkuaProtocol.MaxTextLength);
+        WriteCount(w, "bagSlots", p.BagSlots);
+        WriteCount(w, "bankSlots", p.BankSlots);
+        WriteCount(w, "houseSlots", p.HouseSlots);
+        w.WriteEndObject();
+    }
+
+    /// <summary>A count is written only when reported and not negative; absent otherwise.</summary>
+    private static void WriteCount(Utf8JsonWriter w, string name, int? value)
+    {
+        if (value is { } n && n >= 0)
+        {
+            w.WriteNumber(name, n);
+        }
+    }
+
+    /// <summary>
+    /// Only known containers that were read are written, each item only in a read container, at most
+    /// <see cref="SkuaProtocol.MaxInventoryItems"/> per container and <see cref="Limits.Items"/> in all; a cut sets truncated.
+    /// </summary>
+    private static void WriteInventory(Utf8JsonWriter w, SkuaInventory inventory, Limits limits)
+    {
+        w.WriteString("type", "inventory");
+        if (inventory.Character is { } who && Cut(who) is { Length: > 0 } character)
+        {
+            w.WriteString("character", character);
+        }
+
+        var read = inventory.Read.Where(SkuaProtocol.InventoryContainers.Contains).Distinct(StringComparer.Ordinal).ToList();
+        w.WriteStartArray("read");
+        foreach (var container in read)
+        {
+            w.WriteStringValue(container);
+        }
+
+        w.WriteEndArray();
+        var cut = false;
+        var counts = new Dictionary<string, int>(StringComparer.Ordinal);
+        var written = 0;
+        w.WriteStartArray("items");
+        foreach (var item in inventory.Items)
+        {
+            var name = Cut(item.Name);
+            if (name.Length == 0 || !read.Contains(item.Where))
+            {
+                continue;
+            }
+
+            var n = counts.GetValueOrDefault(item.Where);
+            if (n >= SkuaProtocol.MaxInventoryItems || written >= limits.Items)
+            {
+                cut = true;
+                continue;
+            }
+
+            counts[item.Where] = n + 1;
+            written++;
+            w.WriteStartObject();
+            w.WriteString("name", name);
+            w.WriteNumber("qty", Math.Max(0, item.Quantity));
+            w.WriteString("where", item.Where);
+            w.WriteEndObject();
+        }
+
+        w.WriteEndArray();
+        if (inventory.Truncated || cut)
+        {
+            w.WriteBoolean("truncated", true);
+        }
     }
 
     private static void WriteResult(Utf8JsonWriter w, ResultMessage r, Limits limits)
@@ -318,7 +419,8 @@ public static class SkuaLine
             return null;
         }
 
-        // Only a result may be longer than MaxLineBytes; the type is known only after parsing, so the larger cap comes first.
+        // Only a result or an inventory may be longer than MaxLineBytes; the type is known only after parsing, so the larger cap
+        // comes first (MaxInventoryLineBytes is never above MaxResultLineBytes).
         var bytes = Encoding.UTF8.GetByteCount(line);
         if (bytes > SkuaProtocol.MaxResultLineBytes)
         {
@@ -345,7 +447,8 @@ public static class SkuaLine
             }
 
             var type = Str(root, "type");
-            if ((type != "result" && bytes > SkuaProtocol.MaxLineBytes)
+            if ((type is not ("result" or "inventory") && bytes > SkuaProtocol.MaxLineBytes)
+                || (type == "inventory" && bytes > SkuaProtocol.MaxInventoryLineBytes)
                 || (type is "listScripts" or "getOptions" or "setOptions" or "start" or "stop" && bytes > SkuaProtocol.MaxCommandLineBytes))
             {
                 return null;
@@ -366,6 +469,7 @@ public static class SkuaLine
                 "start" => NonEmpty(root, "reqId") is { } reqId && NonEmpty(root, "id") is { } id ? new StartCommand(reqId, id) : null,
                 "stop" => NonEmpty(root, "reqId") is { } reqId ? new StopCommand(reqId) : null,
                 "result" => ParseResult(root),
+                "inventory" => ParseInventory(root),
                 _ => null,
             };
         }
@@ -417,7 +521,93 @@ public static class SkuaLine
             running.GetBoolean(), since, ParseQuests(root), ParseFactions(root),
             control is not null && SkuaProtocol.ControlStates.Contains(control) ? control : null,
             Count(root, "settleSecondsLeft"),
-            IsTrue(root, "optionsStuck")));
+            IsTrue(root, "optionsStuck"),
+            Optional(() => ParseProfile(root))));
+    }
+
+    /// <summary>
+    /// The profile, or null when absent or damaged (a required number missing, negative or out of range, or no member flag):
+    /// only the profile is lost, never the status. An unusable optional part is read as not reported.
+    /// </summary>
+    private static SkuaProfile? ParseProfile(JsonElement root)
+    {
+        if (!root.TryGetProperty("profile", out var p) || p.ValueKind != JsonValueKind.Object
+            || Count(p, "level") is not { } level || Whole(p, "xp") is not { } xp || Whole(p, "xpToLevel") is not { } toLevel
+            || Whole(p, "gold") is not { } gold || Count(p, "coins") is not { } coins || Count(p, "classRank") is not { } rank
+            || !p.TryGetProperty("isMember", out var member) || member.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+        {
+            return null;
+        }
+
+        return new SkuaProfile(
+            level, xp, toLevel, gold, coins, rank, member.GetBoolean(),
+            OptionalText(p, "className", SkuaProtocol.MaxTextLength), Count(p, "classId"), Count(p, "classPoints"),
+            OptionalText(p, "guild", SkuaProtocol.MaxTextLength), Count(p, "bagSlots"), Count(p, "bankSlots"), Count(p, "houseSlots"));
+    }
+
+    /// <summary>A whole number from 0 to <see cref="long.MaxValue"/>, or null.</summary>
+    private static long? Whole(JsonElement entry, string name) =>
+        entry.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.Number && p.TryGetInt64(out var value) && value >= 0 ? value : null;
+
+    /// <summary>
+    /// The inventory, or null without a <c>read</c> and an <c>items</c> array. Unknown containers are dropped from the read list;
+    /// a damaged item, or one in a container not read, is dropped on its own; at most <see cref="SkuaProtocol.MaxInventoryItems"/>
+    /// per container are kept and a cut sets truncated.
+    /// </summary>
+    private static SkuaMessage? ParseInventory(JsonElement root)
+    {
+        if (!root.TryGetProperty("read", out var readArray) || readArray.ValueKind != JsonValueKind.Array
+            || !root.TryGetProperty("items", out var itemsArray) || itemsArray.ValueKind != JsonValueKind.Array)
+        {
+            return null;
+        }
+
+        var read = new List<string>();
+        foreach (var entry in readArray.EnumerateArray())
+        {
+            if (entry.ValueKind == JsonValueKind.String && Optional(() => entry.GetString()) is { } container
+                && SkuaProtocol.InventoryContainers.Contains(container) && !read.Contains(container))
+            {
+                read.Add(container);
+            }
+        }
+
+        var counts = new Dictionary<string, int>(StringComparer.Ordinal);
+        var items = new List<SkuaItem>();
+        var cut = false;
+        foreach (var entry in itemsArray.EnumerateArray())
+        {
+            if (ParseItem(entry) is not { } item || !read.Contains(item.Where))
+            {
+                continue;
+            }
+
+            var n = counts.GetValueOrDefault(item.Where);
+            if (n >= SkuaProtocol.MaxInventoryItems)
+            {
+                cut = true;
+                continue;
+            }
+
+            counts[item.Where] = n + 1;
+            items.Add(item);
+        }
+
+        return new InventoryMessage(new SkuaInventory(Optional(() => NonEmpty(root, "character")), read, items, cut || IsTrue(root, "truncated")));
+    }
+
+    private static SkuaItem? ParseItem(JsonElement entry)
+    {
+        try
+        {
+            return entry.ValueKind == JsonValueKind.Object && NonEmpty(entry, "name") is { } name && Count(entry, "qty") is { } qty && Str(entry, "where") is { } where
+                ? new SkuaItem(name, qty, where)
+                : null;
+        }
+        catch (InvalidOperationException)
+        {
+            return null; // an escaped lone surrogate in the name: only this item is lost
+        }
     }
 
     private static SkuaMessage? ParseResult(JsonElement root)

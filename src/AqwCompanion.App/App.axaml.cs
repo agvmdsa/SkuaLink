@@ -1,9 +1,10 @@
 using AqwCompanion.App.Feed;
-using AqwCompanion.App.GameData;
-using AqwCompanion.App.Infrastructure.Elevation;
+using AqwCompanion.App.Infrastructure;
 using AqwCompanion.App.Phone;
+using AqwCompanion.App.Settings;
 using AqwCompanion.App.Shell;
 using AqwCompanion.App.Skua;
+using AqwCompanion.Phone.Characters;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
@@ -25,7 +26,7 @@ public partial class CompanionApp : Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
-            var services = CompositionRoot.Build(AppPaths.ForCurrentUser(AppInfo.ExeName, StartupArguments.TryGetDataRoot(desktop.Args ?? [])));
+            var services = CompositionRoot.Build(AppPaths.ForCurrentUser(AppInfo.ExeName));
             var main = services.GetRequiredService<MainViewModel>();
             var window = new MainWindow { DataContext = main };
             // Started by the sign-in task, the app waits in the notification area; its window opens from the tray icon.
@@ -46,11 +47,10 @@ public partial class CompanionApp : Application
             main.Debug.Start();
             services.GetRequiredService<LocalFeedController>().Start();
             services.GetRequiredService<PhoneController>().Start();
+            services.GetRequiredService<CharacterBook>().Restore();
             services.GetRequiredService<SkuaBridgeHost>().Start();
             services.GetRequiredService<SkuaSettingsPresenter>().Start();
-            var capture = services.GetRequiredService<CaptureSession>();
-            _ = capture.RestoreAsync();
-            _ = capture.StartAsync();
+            _ = services.GetRequiredService<SettingsViewModel>().MigrateAutoStartAsync();
             desktop.Exit += (_, _) =>
             {
                 trayIcon.Dispose();

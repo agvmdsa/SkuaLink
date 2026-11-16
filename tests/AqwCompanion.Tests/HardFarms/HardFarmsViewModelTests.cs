@@ -1,13 +1,14 @@
 using System.ComponentModel;
+using AqwCompanion.App.Characters;
 using AqwCompanion.App.HardFarms;
 using AqwCompanion.App.Infrastructure.Formatting;
 using AqwCompanion.App.Inventory;
-using AqwCompanion.Core.Capture;
 using AqwCompanion.Core.Forgetting;
 using AqwCompanion.Core.Inventory;
 using AqwCompanion.Core.Wiki;
+using AqwCompanion.Phone.Characters;
+using AqwCompanion.Skua;
 using AqwCompanion.Tests.TestDoubles;
-using static AqwCompanion.Tests.Capture.GameCaptureBuilder;
 
 namespace AqwCompanion.Tests.HardFarms;
 
@@ -19,7 +20,7 @@ public class HardFarmsViewModelTests
     private readonly HardFarmStore _store;
     private readonly FakeHardFarmSync _sync = new();
     private readonly FakeActiveInventory _inventory = new();
-    private readonly CaptureRig _capture = new();
+    private readonly CharacterBook _book = new(new MemoryCharacterBookStore(), () => At);
     private IActiveInventory _active;
     private readonly FakeUrlLauncher _launcher = new();
 
@@ -1041,26 +1042,25 @@ public class HardFarmsViewModelTests
         Assert.Equal([Ownership.Unknown], vm.Rows.Select(r => r.Ownership));
     }
 
-    // A login whose captured inventory holds the given item names (all of type Sword).
-    private IEnumerable<TcpSegment> LoginOwning(params string[] names) =>
-        Connection(
-            includeInventory: false,
-            extraServerMessages: [EncodeBlob(LoadInventoryBig([], names.Select((name, i) => (object?)Item(name, "Sword", itemId: 100 + i)).ToList()))]).Server;
-
-    private async Task Capture(params string[] names)
+    // Skua reports an inventory holding the given item names for the one logged-in character.
+    private void RecordInventory(params string[] names)
     {
-        _capture.Source = CaptureRig.Feeding(LoginOwning(names));
-        await _capture.Session.StartAsync().WaitAsync(TimeSpan.FromSeconds(30));
+        _book.OnStatus(new SkuaStatus(true, "Fictional Hero", null, null, null, false, null));
+        _book.OnInventory(
+            "Fictional Hero",
+            new SkuaInventory("Fictional Hero", [SkuaProtocol.ContainerInventory], [.. names.Select(n => new SkuaItem(n, 1, SkuaProtocol.ContainerInventory))]));
     }
 
+    private ActiveInventory BookInventory() => new(_book, new CharacterSelection(_book, new FakeSkua()));
+
     [Fact]
-    public async Task The_captured_inventory_marks_entries_Owned_or_Missing()
+    public async Task The_recorded_inventory_marks_entries_Owned_or_Missing()
     {
-        _active = new ActiveInventory(_capture.CreateViewModel());
+        _active = BookInventory();
         var vm = await Loaded();
         Assert.All(vm.Rows, row => Assert.Equal(Ownership.Unknown, row.Ownership));
 
-        await Capture("Blade One", "Cape One");
+        RecordInventory("Blade One", "Cape One");
 
         Assert.Equal(Ownership.Owned, vm.Rows.Single(r => r.Slug == "blade-one").Ownership);
         Assert.Equal(Ownership.Owned, vm.Rows.First(r => r.Slug == "cape-one").Ownership);
@@ -1069,14 +1069,14 @@ public class HardFarmsViewModelTests
     }
 
     [Fact]
-    public async Task Forgetting_the_capture_makes_ownership_unknown_again()
+    public async Task Forgetting_the_characters_makes_ownership_unknown_again()
     {
-        _active = new ActiveInventory(_capture.CreateViewModel());
+        _active = BookInventory();
         var vm = await Loaded();
-        await Capture("Blade One");
+        RecordInventory("Blade One");
         Assert.Equal(Ownership.Owned, vm.Rows.Single(r => r.Slug == "blade-one").Ownership);
 
-        ((IForgettable)_capture.Session).Forget();
+        ((IForgettable)_book).Forget();
 
         Assert.All(vm.Rows, row => Assert.Equal(Ownership.Unknown, row.Ownership));
     }

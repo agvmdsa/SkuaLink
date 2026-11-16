@@ -1,10 +1,9 @@
-import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { effectiveFactions, factionRows, filterOf, formatDuration, LOG_FILTERS, parseLogFilter, parseSkua, questRows, skuaEmptyText, skuaLogRows, skuaNow, skuaSummary, type LogFilter } from '../src/skua';
-import { isUsableState, keepState, parseRoute, parseState, recallKept } from '../src/state';
-import { characterView, listView, skuaView, type Model, type VNode } from '../src/views';
-import { plural } from '../src/i18n';
-import type { Faction, RemoteState, SkuaState } from '../src/types';
+import { instanceStateText, loadInstance, parseSkua, parseSkuaInstances, SKUA_INSTANCE_KEY } from '../src/skua';
+import { isUsableState, keepState, noticeLine, parseRoute, parseState, recallKept } from '../src/state';
+import { characterView, type Model, type VNode } from '../src/views';
+import { factionRowsOf } from '../src/characters';
+import type { PhoneCharacter, RemoteState, SkuaFaction, SkuaInstance } from '../src/types';
 
 const NOW = Date.parse('2026-11-11T12:12:00Z');
 const wire = {
@@ -13,12 +12,6 @@ const wire = {
   status: { loggedIn: true, character: 'Hero', server: 'Artix', map: 'battleon', script: 'Farm.cs', scriptRunning: true, runningSince: '2026-11-11T12:00:00+00:00', quests: null, factions: null },
   log: [{ at: '2026-11-11T12:00:05+00:00', kind: 'Sold', text: 'Sold Blood Orb x50 for 2,500 gold' }],
 };
-const skua = (over: Partial<SkuaState> = {}): SkuaState => ({ ...parseSkua(wire)!, ...over });
-const model = (s: SkuaState | null | undefined, skuaFilter?: LogFilter): Model => ({
-  state: { snapshot: null, notices: [], skua: s }, nowMs: NOW, showAll: false, hfOpen: false, installHint: null, skuaFilter,
-});
-const withStatus = (over: object, s: Partial<SkuaState> = {}) => skua({ ...s, status: { ...wire.status, ...over } });
-const quest = (id: number, name: string, ready: boolean) => ({ id, name, ready });
 const faction = (id: number, name: string, rank: number, rep: number, requiredRep: number, totalRep = 0) => ({ id, name, rank, totalRep, rep, requiredRep });
 const all = (n: VNode): VNode[] => [n, ...n.children.flatMap(all)];
 const texts = (n: VNode) => all(n).map((x) => x.text).filter((t): t is string => t !== undefined);
@@ -142,12 +135,13 @@ describe('parseSkua factions', () => {
   });
 });
 
-describe('factionRows', () => {
-  const rows = (list: unknown[], over: Partial<SkuaState> = {}) => factionRows(withStatus({ factions: list }, over));
+// factionRows (the Skua tab's list) left with the tab; the same ordering and math are factionRowsOf, used by the Overview.
+describe('factionRowsOf', () => {
+  const rows = (list: SkuaFaction[]) => factionRowsOf(list);
 
   it('orders by what is missing for the next rank, max rank last, then by name ignoring case, like the capture list', () => {
     const list = [faction(1, 'zeta', 2, 100, 1000), faction(2, 'Good', 10, 0, 0), faction(3, 'alpha', 5, 950, 1000), faction(4, 'Beta', 3, 900, 1000), faction(5, 'Evil', 10, 0, 0), faction(6, 'gamma', 4, 50, 100)];
-    expect(rows(list)!.map((r) => r.name)).toEqual(['alpha', 'gamma', 'Beta', 'zeta', 'Evil', 'Good']);
+    expect(rows(list).map((r) => r.name)).toEqual(['alpha', 'gamma', 'Beta', 'zeta', 'Evil', 'Good']);
   });
   it('computes rank, the share of the rank, what is left and the rank text', () => {
     expect(rows([faction(1, 'Nation', 3, 300, 1200)])).toEqual([{ name: 'Nation', rank: 3, max: false, fraction: 0.25, toNext: 900 }]);
@@ -156,185 +150,48 @@ describe('factionRows', () => {
     expect(rows([faction(1, 'Good', 10, 0, 0)])).toEqual([{ name: 'Good', rank: 10, max: true, fraction: 1, toNext: 0 }]);
   });
   it('is the maximum rank at rank 10 or with a step of 0, and otherwise not', () => {
-    expect(rows([faction(1, 'Ten', 10, 40, 500)])![0]).toMatchObject({ max: true, fraction: 1, toNext: 0 });
-    expect(rows([faction(1, 'Zero', 4, 0, 0)])![0]).toMatchObject({ max: true, fraction: 1, toNext: 0 });
-    expect(rows([faction(1, 'Nine', 9, 40, 500)])![0]).toMatchObject({ max: false, toNext: 460 });
-    expect(rows([faction(1, 'Alpha', 9, 400, 500), faction(2, 'Ten', 10, 499, 500), faction(3, 'Beta', 1, 0, 0)])!.map((r) => r.name)).toEqual(['Alpha', 'Beta', 'Ten']);
+    expect(rows([faction(1, 'Ten', 10, 40, 500)])[0]).toMatchObject({ max: true, fraction: 1, toNext: 0 });
+    expect(rows([faction(1, 'Zero', 4, 0, 0)])[0]).toMatchObject({ max: true, fraction: 1, toNext: 0 });
+    expect(rows([faction(1, 'Nine', 9, 40, 500)])[0]).toMatchObject({ max: false, toNext: 460 });
+    expect(rows([faction(1, 'Alpha', 9, 400, 500), faction(2, 'Ten', 10, 499, 500), faction(3, 'Beta', 1, 0, 0)]).map((r) => r.name)).toEqual(['Alpha', 'Beta', 'Ten']);
   });
   it('clamps rep beyond the step to a full bar with nothing left', () => {
-    expect(rows([faction(1, 'Odd', 4, 1500, 1000)])![0]).toMatchObject({ max: false, fraction: 1, toNext: 0 });
-    expect(rows([faction(1, 'Zero', 1, 0, 1000)])![0]).toMatchObject({ fraction: 0, toNext: 1000 });
+    expect(rows([faction(1, 'Odd', 4, 1500, 1000)])[0]).toMatchObject({ max: false, fraction: 1, toNext: 0 });
+    expect(rows([faction(1, 'Zero', 1, 0, 1000)])[0]).toMatchObject({ fraction: 0, toNext: 1000 });
   });
   it('never gives a NaN fraction', () => {
     for (const f of [faction(1, 'a', 1, Number.NaN, 1000), faction(1, 'b', 1, 5, Number.NaN), faction(1, 'c', 1, Infinity, Infinity)]) {
-      const fraction = factionRows({ ...skua(), status: { ...skua().status!, factions: [f] } })![0]!.fraction;
+      const fraction = rows([f])[0]!.fraction;
       expect(Number.isFinite(fraction)).toBe(true);
       expect(fraction).toBeGreaterThanOrEqual(0);
       expect(fraction).toBeLessThanOrEqual(1);
     }
   });
-  it('is null when not reported, without a status or not connected, and empty when there are none', () => {
-    expect(rows(null as unknown as unknown[])).toBeNull();
-    expect(factionRows(skua({ status: null }))).toBeNull();
-    expect(rows([faction(1, 'N', 1, 1, 2)], { connection: 'VersionMismatch' })).toBeNull();
-    expect(rows([faction(1, 'N', 1, 1, 2)], { connection: 'NotConnected' })).toBeNull();
-    expect(rows([])).toEqual([]);
-  });
+  it('is empty when there are none', () => expect(rows([])).toEqual([]));
 });
 
-describe('effectiveFactions', () => {
-  const capture: Faction[] = [{ name: 'Captured', rank: 2, rep: 5, toNext: 95, fraction: 0.05, max: false }];
-  const remote = (skuaState: SkuaState | null | undefined, selected: string | null = 'Hero', factions: Faction[] = capture): RemoteState => ({
-    snapshot: { contract: 1, capture: { state: 'Listening.', listening: true }, selected, characters: [], factions, hardFarms: null },
-    notices: [],
-    skua: skuaState,
-  });
+describe('the character reputation', () => {
   const live = [faction(1, 'zeta', 2, 100, 1000, 5100), faction(2, 'Good', 10, 0, 0, 9000), faction(3, 'alpha', 5, 950, 1000, 4950)];
-  const connected = (over: object = {}, s: Partial<SkuaState> = {}) => withStatus({ character: 'Hero', factions: live, ...over }, s);
+  const hero = (factionsLive: boolean): PhoneCharacter => ({
+    name: 'Hero', hasCharacter: true, instanceId: null, live: factionsLive, lastSeenUtc: '2026-11-11T12:00:00Z', profile: null, factions: live, factionsLive,
+    hardFarmsState: 'NoList', hardFarms: null, inventoryAtUtc: null, inventoryTruncated: false,
+  });
+  const m = (c: PhoneCharacter): Model => ({ state: { snapshot: null, notices: [], characters: [c] }, nowMs: NOW, showAll: false, hfOpen: false, installHint: null });
 
-  it('uses the Skua list, mapped and ordered like the capture list, when connected for the selected character', () => {
-    const r = effectiveFactions(remote(connected()));
-    expect(r.source).toBe('skua');
-    expect(r.factions).toEqual([
-      { name: 'alpha', rank: 5, rep: 4950, toNext: 50, fraction: 0.95, max: false },
-      { name: 'zeta', rank: 2, rep: 5100, toNext: 900, fraction: 0.1, max: false },
-      { name: 'Good', rank: 10, rep: 9000, toNext: 0, fraction: 1, max: true },
+  it('orders the rows like the Skua list: closest to the next rank first, the maximum rank last', () => {
+    expect(factionRowsOf(live)).toEqual([
+      { name: 'alpha', rank: 5, toNext: 50, fraction: 0.95, max: false },
+      { name: 'zeta', rank: 2, toNext: 900, fraction: 0.1, max: false },
+      { name: 'Good', rank: 10, toNext: 0, fraction: 1, max: true },
     ]);
   });
-  it.each([
-    ['not connected', () => connected({}, { connection: 'NotConnected' })],
-    ['a version mismatch', () => connected({}, { connection: 'VersionMismatch' })],
-    ['factions not reported', () => connected({ factions: null })],
-    ['an empty Skua list (a transient empty read must not blank the page)', () => connected({ factions: [] })],
-    ['another character in Skua', () => connected({ character: 'Other' })],
-    ['no Skua character', () => connected({ character: null })],
-    ['no status', () => skua({ status: null })],
-    ['no Skua state', () => null],
-    ['Skua absent', () => undefined],
-  ])('uses the capture list for %s', (_n, make) => {
-    const r = effectiveFactions(remote(make()));
-    expect(r).toEqual({ factions: capture, source: 'capture' });
-  });
-  it('matches the Skua character ignoring letter case', () => {
-    expect(effectiveFactions(remote(connected({ character: 'hero' }))).source).toBe('skua');
-    expect(effectiveFactions(remote(connected({ character: 'HERO' }), 'hErO')).source).toBe('skua');
-  });
-  it('uses the capture list when no character is selected', () => {
-    expect(effectiveFactions(remote(connected(), null)).source).toBe('capture');
-  });
-  it('uses the capture list when there is no snapshot', () => {
-    expect(effectiveFactions({ snapshot: null, notices: [], skua: connected() })).toEqual({ factions: [], source: 'capture' });
-  });
-  it('shows the note under the heading only for Skua, in the character view', () => {
-    const m = (st: RemoteState): Model => ({ state: st, nowMs: NOW, showAll: false, hfOpen: false, installHint: null });
-    const hero = { name: 'Hero', level: 1, live: true, savedAtUtc: '2026-11-11T12:00:00Z', lastLiveUpdateUtc: null, liveUpdates: 0, figures: { gold: 0, exp: 0, expToLevel: 1, ac: 0, classPoints: 0, daysPlayed: 0 }, lastKill: null };
-    const withHero = (st: RemoteState): RemoteState => ({ ...st, snapshot: { ...st.snapshot!, characters: [hero] } });
-    const fromSkua = texts(characterView(m(withHero(remote(connected()))), 'Hero'));
-    expect(fromSkua).toContain('Live from Skua');
-    expect(fromSkua).toContain('alpha');
-    expect(fromSkua).not.toContain('Captured');
-    const fromCapture = texts(characterView(m(withHero(remote(connected({ factions: [] })))), 'Hero'));
-    expect(fromCapture).not.toContain('Live from Skua');
-    expect(fromCapture).toContain('Captured');
-  });
-});
-
-describe('formatDuration', () => {
-  it.each([[0, 'just now'], [59_000, 'just now'], [180_000, '3 min'], [3_900_000, '1 h 5 min'], [7_200_000, '2 h'], [90_000_000, '1 d 1 h'], [Number.NaN, 'just now'], [-5000, 'just now'], [Infinity, 'just now']])('%s -> %s', (ms, text) =>
-    expect(formatDuration(ms)).toBe(text));
-});
-
-describe('skua view model', () => {
-  it('has the Now lines for a running script', () => {
-    expect(skuaNow(skua(), NOW)).toEqual({
-      loggedIn: true, character: 'Hero', where: 'Artix · battleon', script: { running: true, text: 'Running for 12 min', name: 'Farm.cs' },
-    });
-  });
-  it('says no script running, and is null when not connected or without a status', () => {
-    expect(skuaNow(withStatus({ scriptRunning: false }), NOW)!.script).toEqual({ running: false, text: 'No script running', name: null });
-    expect(skuaNow(skua({ connection: 'NotConnected' }), NOW)).toBeNull();
-    expect(skuaNow(skua({ status: null }), NOW)).toBeNull();
-  });
-  it('leaves missing parts out of Server · Map and falls back when the start time is unknown', () => {
-    expect(skuaNow(withStatus({ server: null }), NOW)!.where).toBe('battleon');
-    expect(skuaNow(withStatus({ server: null, map: '' }), NOW)!.where).toBeNull();
-    expect(skuaNow(withStatus({ runningSince: null }), NOW)!.script.text).toBe('Running Farm.cs');
-    expect(skuaNow(withStatus({ runningSince: null, script: null }), NOW)!.script.text).toBe('Running a script');
-  });
-  it('shows no character or place while not logged in', () => {
-    expect(skuaNow(withStatus({ loggedIn: false }), NOW)).toMatchObject({ loggedIn: false, character: null, where: null });
-  });
-  it('keeps log order and words the time like a notice', () => {
-    const s = skua({ log: [{ at: '2026-11-11T12:10:00Z', kind: 'a', text: 'new' }, { at: '2026-11-11T12:00:00Z', kind: 'a', text: 'old' }] });
-    expect(skuaLogRows(s, NOW)).toEqual([{ when: '2 min ago', text: 'new' }, { when: '12 min ago', text: 'old' }]);
-  });
-  it('has the calm texts', () => {
-    expect(skuaEmptyText(null)).toBe('Skua is not connected.');
-    expect(skuaEmptyText(skua({ connection: 'NotConnected' }))).toBe('Skua is not connected.');
-    expect(skuaEmptyText(skua({ log: [] }))).toBe('Nothing to show yet.');
-    expect(skuaEmptyText(skua({ connection: 'VersionMismatch' }))).toBe('Update the Skua plugin and SkuaLink to the same release.');
-    expect(skuaEmptyText(skua())).toBe('');
-    expect(skuaSummary(skua())).toBe('Skua connected.');
-  });
-});
-
-describe('log filters', () => {
-  it.each([
-    ['Bought', 'shop'], ['Sold', 'shop'], ['Dropped', 'drops'], ['MapChanged', 'maps'], ['ScriptStarted', 'script'], ['ScriptStopped', 'script'],
-    ['ScriptError', 'script'], ['Died', 'session'], ['LoggedOut', 'session'], ['Relogin', 'session'],
-    ['QuestAccepted', null], ['QuestTurnedIn', null], ['Mystery', null], ['', null], ['constructor', null], ['__proto__', null],
-  ])('%s -> %s', (kind, filter) => expect(filterOf(kind)).toBe(filter));
-
-  it('places every log kind SkuaLink knows (the shared C# fixture), so a new kind cannot fall under Everything unnoticed', () => {
-    const kinds = JSON.parse(readFileSync(new URL('../../tests/AqwCompanion.Tests/Skua/fixtures/log-kinds.json', import.meta.url), 'utf8')) as string[];
-    const onlyUnderEverything = ['QuestAccepted', 'QuestTurnedIn'];
-    expect(kinds.length).toBeGreaterThan(0);
-    for (const kind of kinds) {
-      if (onlyUnderEverything.includes(kind)) expect(filterOf(kind), kind).toBeNull();
-      else expect(filterOf(kind), kind).not.toBeNull();
-    }
-  });
-
-  it('lists the filters in order, parsing anything else as Everything', () => {
-    expect(LOG_FILTERS).toEqual(['all', 'shop', 'drops', 'maps', 'script', 'session']);
-    for (const f of LOG_FILTERS) expect(parseLogFilter(f)).toBe(f);
-    for (const bad of [null, '', 'x', 'ALL', 'constructor']) expect(parseLogFilter(bad)).toBe('all');
-  });
-
-  const kinds = ['Sold', 'Bought', 'Dropped', 'MapChanged', 'ScriptStarted', 'Died', 'QuestAccepted', 'QuestTurnedIn', 'Mystery'];
-  const log = kinds.map((kind, i) => ({ at: '2026-11-11T12:00:00Z', kind, text: `${kind} ${i}` }));
-  const rows = (f: LogFilter) => skuaLogRows(skua({ log }), NOW, f).map((r) => r.text);
-
-  it('shows everything, including quest and unknown kinds, only under Everything', () => {
-    expect(rows('all')).toHaveLength(9);
-    expect(skuaLogRows(skua({ log }), NOW)).toHaveLength(9);
-    expect(rows('shop')).toEqual(['Sold 0', 'Bought 1']);
-    expect(rows('drops')).toEqual(['Dropped 2']);
-    expect(rows('maps')).toEqual(['MapChanged 3']);
-    expect(rows('script')).toEqual(['ScriptStarted 4']);
-    expect(rows('session')).toEqual(['Died 5']);
-    const named = new Set(LOG_FILTERS.filter((f) => f !== 'all').flatMap(rows));
-    expect([...named].some((x) => /Quest|Mystery/.test(x))).toBe(false);
-  });
-  it('says Nothing here yet. for an empty filter, Nothing to show yet. for an empty log', () => {
-    const only = skua({ log: [log[0]!] });
-    expect(skuaEmptyText(only, 'drops')).toBe('Nothing here yet.');
-    expect(skuaEmptyText(only, 'shop')).toBe('');
-    expect(skuaEmptyText(only)).toBe('');
-    expect(skuaEmptyText(skua({ log: [] }), 'drops')).toBe('Nothing to show yet.');
-  });
-});
-
-describe('questRows', () => {
-  const list = [quest(1, 'A', false), quest(2, 'B', true), quest(3, 'C', false), quest(4, 'D', true)];
-  it('puts ready quests first and keeps the game order otherwise', () => {
-    expect(questRows(withStatus({ quests: list }))!.map((q) => q.name)).toEqual(['B', 'D', 'A', 'C']);
-  });
-  it('is null when not reported or not connected, and empty when none are active', () => {
-    expect(questRows(withStatus({ quests: null }))).toBeNull();
-    expect(questRows(skua({ status: null }))).toBeNull();
-    expect(questRows(withStatus({ quests: list }, { connection: 'VersionMismatch' }))).toBeNull();
-    expect(questRows(withStatus({ quests: [] }))).toEqual([]);
+  it('says Live from Skua once, and only for a live character', () => {
+    const fromSkua = texts(characterView(m(hero(true)), 'Hero'));
+    expect(fromSkua).toEqual(expect.arrayContaining(['Live from Skua', 'alpha']));
+    expect(fromSkua.filter((x) => x === 'Live from Skua')).toHaveLength(1);
+    const stored = texts(characterView(m(hero(false)), 'Hero'));
+    expect(stored).toContain('alpha');
+    expect(stored).not.toContain('Live from Skua');
   });
 });
 
@@ -362,142 +219,91 @@ describe('state, route and storage', () => {
   });
 });
 
-describe('views', () => {
-  it('shows the Skua card on the list only when skua is not null, linking to #/skua', () => {
-    expect(all(listView(model(null))).some((n) => n.attrs?.href === '#/skua')).toBe(false);
-    expect(all(listView(model(undefined))).some((n) => n.attrs?.href === '#/skua')).toBe(false);
-    const view = listView(model(skua()));
-    expect(all(view).some((n) => n.attrs?.href === '#/skua')).toBe(true);
-    expect(texts(view)).toContain('Skua connected.');
-  });
-  const sections = (v: VNode) => all(v).filter((n) => n.tag === 'section');
-  const headings = (v: VNode) => all(v).filter((n) => n.tag === 'h2').map((n) => n.text);
-  const buttons = (v: VNode) => all(v).filter((n) => n.tag === 'button');
+// Moved from instances.test.ts (deleted with the instance selector): the instance list parsing, the state words, the Skua notices
+// and the remembered label (still read for the #/skua redirect).
+const status = (over: object = {}) => ({
+  loggedIn: true, character: 'Hero', server: 'Artix', map: 'battleon', script: 'Farm.cs', scriptRunning: false, runningSince: null, quests: null, factions: null,
+  control: 'idle', settleSecondsLeft: null, optionsStuck: false, ...over,
+});
+const wireInstance = (label: string, over: Record<string, unknown> = {}, st: object = {}) => ({
+  instanceId: `id-${label}`, label, connection: 'Connected', disconnected: false, hello: { pluginVersion: '0.2.0', skuaVersion: '1.4.5.0', instanceId: `id-${label}` },
+  status: status({ character: label, ...st }), log: [{ at: '2026-11-11T12:00:05+00:00', kind: 'Sold', text: `Sold by ${label}` }], ...over,
+});
+const inst = (label: string, over: Record<string, unknown> = {}, st: object = {}): SkuaInstance => parseSkuaInstances([wireInstance(label, over, st)])![0]!;
 
-  it('shows the Now, Active quests and Log cards in that order, with no back link (the dock leads home)', () => {
-    const view = skuaView(model(withStatus({ quests: [quest(1, 'Slay the Beast', true), quest(2, 'Gather Bones', false)] })));
-    expect(headings(view)).toEqual(['Now', 'Active quests · 2', 'Log']);
-    expect(view.children[0]!.className).toBe('card now-card');
-    expect(all(view).some((n) => n.className === 'back')).toBe(false);
-    expect(texts(view)).toEqual(expect.arrayContaining(['Hero', 'Artix · battleon', 'Running for 12 min', 'Farm.cs', 'Sold Blood Orb x50 for 2,500 gold', '11 min ago']));
+describe('parseSkuaInstances', () => {
+  it('reads the server shape', () => {
+    const [i] = parseSkuaInstances([wireInstance('Hero', {}, { control: 'settling', settleSecondsLeft: 7 })])!;
+    expect(i).toMatchObject({ instanceId: 'id-Hero', label: 'Hero', connection: 'Connected', disconnected: false });
+    expect(i!.status).toMatchObject({ control: 'settling', settleSecondsLeft: 7 });
+    expect(i!.status!.optionsStuck).toBeFalsy();
+    expect(i!.log).toHaveLength(1);
   });
-  it('writes the quest count with plural() and lists the quests, ready first, with a shape and words', () => {
-    expect(plural('skua.quests.title', 1)).toBe('Active quests · 1');
-    expect(plural('skua.quests.title', 3)).toBe('Active quests · 3');
-    expect(plural('skua.quests.title', 30)).toBe('Active quests · 30');
-    const view = skuaView(model(withStatus({ quests: [quest(1, 'Gather Bones', false), quest(2, 'Slay the Beast', true)] })));
-    const card = sections(view)[1]!;
-    const items = all(card).filter((n) => n.tag === 'li');
-    expect(items.map((li) => texts(li)[0])).toEqual(['Slay the Beast', 'Gather Bones']);
-    expect(texts(items[0]!)).toContain('Ready to turn in');
-    expect(all(items[0]!).some((n) => n.attrs?.['data-kind'] === 'ready' && n.attrs['aria-hidden'] === 'true')).toBe(true);
-    expect(texts(items[1]!)).not.toContain('Ready to turn in');
-    expect(all(card).some((n) => n.tag === 'ul')).toBe(true);
+  it.each([[null], [undefined], ['x'], [{}]])('is undefined for %j (an older app, or no Skua feed)', (v) => expect(parseSkuaInstances(v)).toBeUndefined());
+  it('keeps an empty list as empty', () => expect(parseSkuaInstances([])).toEqual([]));
+  it('drops damaged entries on their own and keeps order', () => {
+    const r = parseSkuaInstances([wireInstance('A'), { label: 'no id' }, 7, wireInstance('B', { connection: 'Maybe' }), wireInstance('C')])!;
+    expect(r.map((i) => i.label)).toEqual(['A', 'C']);
   });
-  it('says No active quests. for an empty list and shows no quests card when not reported', () => {
-    const none = skuaView(model(withStatus({ quests: [] })));
-    expect(headings(none)).toEqual(['Now', 'Active quests · 0', 'Log']);
-    expect(texts(none)).toContain('No active quests.');
-    const old = skuaView(model(withStatus({ quests: null })));
-    expect(headings(old)).toEqual(['Now', 'Log']);
+  it('caps at 8 instances and cuts long labels', () => {
+    expect(parseSkuaInstances(Array.from({ length: 12 }, (_, i) => wireInstance(`H${i}`)))).toHaveLength(8);
+    expect(parseSkuaInstances([wireInstance('x'.repeat(1000))])![0]!.label.length).toBeLessThanOrEqual(300);
   });
-  it('shows the Reputation card after Active quests and before Log, one row per faction with rank, bar and what is left', () => {
-    const view = skuaView(model(withStatus({ quests: [quest(1, 'Q', false)], factions: [faction(20, 'Good', 10, 0, 0), faction(1, 'Nation', 3, 300, 1200)] })));
-    expect(headings(view)).toEqual(['Now', 'Active quests · 1', 'Reputation', 'Log']);
-    const card = sections(view)[2]!;
-    const items = all(card).filter((n) => n.tag === 'li');
-    expect(items.map((li) => texts(li))).toEqual([['Nation', 'Rank 3', '900 to next rank'], ['Good', 'Max rank']]);
-    const bars = all(card).filter((n) => n.attrs?.role === 'progressbar');
-    expect(bars.map((b) => [b.attrs!['aria-label'], b.attrs!['aria-valuenow']])).toEqual([['Nation', '25'], ['Good', '100']]);
-    expect(bars.map((b) => b.children[0]!.fraction)).toEqual([0.25, 1]);
-    expect(card.className?.split(' ')).toContain('card');
+  it('ignores an unknown control value and a bad settle count', () => {
+    const s = inst('A', {}, { control: 'dancing', settleSecondsLeft: -3, optionsStuck: 'yes' }).status!;
+    expect(s.control).toBeUndefined();
+    expect(s.settleSecondsLeft).toBeUndefined();
+    expect(s.optionsStuck).toBeFalsy();
   });
-  it('says No factions read yet. for an empty list and shows no Reputation card when not reported', () => {
-    const none = skuaView(model(withStatus({ quests: [], factions: [] })));
-    expect(headings(none)).toEqual(['Now', 'Active quests · 0', 'Reputation', 'Log']);
-    expect(texts(none)).toContain('No factions read yet.');
-    expect(headings(skuaView(model(withStatus({ quests: [], factions: null }))))).toEqual(['Now', 'Active quests · 0', 'Log']);
+  it('is read by parseState next to the old skua field', () => {
+    const s = parseState(JSON.stringify({ snapshot: null, notices: [], skua: wireInstance('Hero'), skuaInstances: [wireInstance('Hero'), wireInstance('Mule')] }))!;
+    expect(s.skuaInstances?.map((i) => i.label)).toEqual(['Hero', 'Mule']);
+    expect(s.skua?.connection).toBe('Connected');
+    expect(parseState('{"snapshot":null,"notices":[]}')!.skuaInstances).toBeUndefined();
   });
-  it('shows the Reputation card even when quests are not reported', () => {
-    expect(headings(skuaView(model(withStatus({ quests: null, factions: [faction(1, 'N', 1, 1, 2)] }))))).toEqual(['Now', 'Reputation', 'Log']);
+});
+
+describe('the remembered Skua label', () => {
+  const mem = (initial?: string) => ({ getItem: (k: string) => (k === SKUA_INSTANCE_KEY && initial !== undefined ? initial : null), setItem: () => undefined });
+  it('uses the key sl-skua-instance', () => expect(SKUA_INSTANCE_KEY).toBe('sl-skua-instance'));
+  it('reads the stored label', () => expect(loadInstance(mem('Hero2'))).toBe('Hero2'));
+  it('survives blocked storage and a missing store', () => {
+    const blocked = { getItem: () => { throw new Error('x'); }, setItem: () => { throw new Error('x'); } };
+    expect(loadInstance(blocked)).toBeNull();
+    expect(loadInstance(null)).toBeNull();
   });
-  it('shows faction names as text only', () => {
-    const view = skuaView(model(withStatus({ factions: [faction(1, '<img onerror=x>', 1, 1, 2)] })));
-    expect(texts(view)).toContain('<img onerror=x>');
-    for (const n of all(view)) for (const name of Object.keys(n.attrs ?? {})) expect(name === 'style' || name.startsWith('on')).toBe(false);
+  it('ignores an oversized stored value', () => expect(loadInstance(mem('x'.repeat(5000)))).toBeNull());
+});
+
+describe('instanceStateText', () => {
+  it.each([
+    ['Running', {}, { control: 'running', scriptRunning: true }],
+    ['Idle', {}, {}],
+    ['Stopping', {}, { control: 'stopping' }],
+    ['Settling 7 s', {}, { control: 'settling', settleSecondsLeft: 7 }],
+    ['Settling', {}, { control: 'settling', settleSecondsLeft: null }],
+    ['Waiting for you', {}, { control: 'awaitingOptions' }],
+    ['Waiting for you', {}, { optionsStuck: true }],
+    ['Not logged in', {}, { loggedIn: false }],
+    ['Disconnected', { disconnected: true, connection: 'NotConnected' }, {}],
+    ['Disconnected', { disconnected: true }, { control: 'running' }],
+  ])('says %s', (text, over, st) => expect(instanceStateText(inst('A', over, st))).toBe(text));
+  it('falls back to scriptRunning for an older plugin without control', () => {
+    expect(instanceStateText(inst('A', {}, { control: undefined, scriptRunning: true }))).toBe('Running');
   });
-  it('builds the filter row: a labelled group of pressed-state buttons, Everything pressed by default', () => {
-    const view = skuaView(model(skua()));
-    const group = all(view).find((n) => n.attrs?.role === 'group')!;
-    expect(group.attrs!['aria-label']).toBe('Filter the log');
-    expect(group.className).toBe('filters');
-    const logCard = sections(view)[1]!;
-    expect(logCard.children[0]!.text).toBe('Log');
-    expect(logCard.children[1]).toBe(group);
-    const bs = buttons(group);
-    expect(bs.map((b) => b.text)).toEqual(['Everything', 'Shop', 'Drops', 'Maps', 'Script', 'Session']);
-    expect(bs.map((b) => b.attrs!['data-value'])).toEqual([...LOG_FILTERS]);
-    for (const b of bs) {
-      expect(b.attrs!['data-action']).toBe('skua-filter');
-      expect(b.attrs!.type).toBe('button');
-      expect(b.className).toBe('filter-btn');
-    }
-    expect(bs.map((b) => b.attrs!['aria-pressed'])).toEqual(['true', 'false', 'false', 'false', 'false', 'false']);
+  it('says Not logged in when there is no status yet', () => expect(instanceStateText(inst('A', { status: null }))).toBe('Not logged in'));
+  it('says Update needed on a version mismatch', () => expect(instanceStateText(inst('A', { connection: 'VersionMismatch' }))).toBe('Update needed'));
+});
+
+describe('the Skua notice kinds', () => {
+  const n = (kind: string, character: string | null) => ({ id: '1', kind, character, title: 'server title', body: 'server body', atUtc: new Date(NOW - 120_000).toISOString() }) as never;
+  it('render with catalog texts and the label', () => {
+    expect(noticeLine(n('SkuaDisconnected', 'Hero'), NOW)).toMatchObject({ title: 'Skua disconnected', body: 'Hero: Skua closed or the link was lost.' });
+    expect(noticeLine(n('SkuaReconnected', 'Hero'), NOW)).toMatchObject({ title: 'Skua is back', body: 'Hero: Skua is connected again.' });
+    expect(noticeLine(n('SkuaOptionsWaiting', 'Hero'), NOW)).toMatchObject({ title: 'Waiting for you on the PC', body: "Hero: close the script's options window on the computer." });
   });
-  it('presses the chosen filter, narrows only the log and never hides the other cards', () => {
-    const s = withStatus({ quests: [quest(1, 'Q', true)] }, { log: [{ at: '2026-11-11T12:00:00Z', kind: 'Sold', text: 'sold it' }, { at: '2026-11-11T12:00:00Z', kind: 'Died', text: 'died' }] });
-    const view = skuaView(model(s, 'session'));
-    expect(buttons(view).map((b) => b.attrs!['aria-pressed'])).toEqual(['false', 'false', 'false', 'false', 'false', 'true']);
-    expect(texts(view)).toContain('died');
-    expect(texts(view)).not.toContain('sold it');
-    expect(headings(view)).toEqual(['Now', 'Active quests · 1', 'Log']);
-    expect(texts(skuaView(model(s, 'drops')))).toContain('Nothing here yet.');
-    expect(headings(skuaView(model(s, 'drops')))).toEqual(['Now', 'Active quests · 1', 'Log']);
-  });
-  it('gives all three cards the card class', () => {
-    const view = skuaView(model(withStatus({ quests: [] })));
-    const cards = all(view).filter((n) => n.tag === 'section');
-    expect(cards).toHaveLength(3);
-    for (const c of cards) expect(c.className?.split(' ')).toContain('card');
-  });
-  it('is stable across redraws: the same data gives the same tree', () => {
-    expect(JSON.stringify(skuaView(model(skua())))).toBe(JSON.stringify(skuaView(model(skua()))));
-  });
-  it('says so in the Now card when connected without a character', () => {
-    const view = skuaView(model(withStatus({ loggedIn: false, character: null, server: null, map: null, scriptRunning: false, script: null, runningSince: null, quests: [] })));
-    expect(texts(view)).toEqual(expect.arrayContaining(['Not logged in to a character.', 'No script running']));
-    expect(texts(view)).not.toContain('Hero');
-  });
-  it('shows no Now card and no quests card when connected without a status', () => {
-    const view = skuaView(model(skua({ status: null })));
-    expect(headings(view)).toEqual(['Log']);
-  });
-  it('shows no empty time line for an unreadable time', () => {
-    const s = skua({ log: [{ at: 'not a date', kind: 'x', text: 'odd' }] });
-    const view = skuaView(model(s));
-    expect(texts(view)).toContain('odd');
-    expect(all(view).some((n) => n.className === 'muted')).toBe(false);
-  });
-  it('shows only the calm explanation when not connected or on a version mismatch', () => {
-    for (const s of [null, skua({ connection: 'NotConnected' }), withStatus({ quests: [quest(1, 'Q', true)], factions: [faction(1, 'N', 1, 1, 2)] }, { connection: 'VersionMismatch' })]) {
-      const view = skuaView(model(s));
-      expect(sections(view)).toHaveLength(1);
-      expect(buttons(view)).toHaveLength(0);
-      expect(headings(view)).toEqual(['Skua']);
-    }
-    expect(texts(skuaView(model(null)))).toContain('Skua is not connected.');
-    expect(texts(skuaView(model(skua({ connection: 'VersionMismatch' }))))).toContain('Update the Skua plugin and SkuaLink to the same release.');
-  });
-  it('shows Nothing to show yet. for a connected empty log', () => {
-    expect(texts(skuaView(model(skua({ log: [] }))))).toContain('Nothing to show yet.');
-  });
-  it('uses no style or on* attributes', () => {
-    const s = skua({ log: [{ at: '2026-11-11T12:00:00Z', kind: 'x', text: '<b>hi</b>' }] });
-    for (const view of [skuaView(model(s)), listView(model(s))]) {
-      for (const n of all(view)) for (const name of Object.keys(n.attrs ?? {})) expect(name === 'style' || name.startsWith('on')).toBe(false);
-    }
-    expect(texts(skuaView(model(s)))).toContain('<b>hi</b>');
-    const hostile = withStatus({ character: '<img onerror=x>', quests: [quest(1, '<script>', true)] });
-    expect(texts(skuaView(model(hostile)))).toEqual(expect.arrayContaining(['<img onerror=x>', '<script>']));
+  it('keep the server text for older kinds and when no label is known', () => {
+    expect(noticeLine(n('RankUp', 'Hero'), NOW).title).toBe('server title');
+    expect(noticeLine(n('SkuaDisconnected', null), NOW).title).toBe('server title');
   });
 });

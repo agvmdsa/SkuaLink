@@ -1,4 +1,4 @@
-/* The Control card and the script sheets: only on the Skua tab, so these rules come with the control chunk (controlViews.ts adds
+/* The Control card and the script sheets: only in a Bot section, so these rules come with the control chunk (controlViews.ts adds
    them to the page's stylesheet when it loads), not with the first load. Colours come only from tokens.css. */
 .btn-danger { color: var(--on-danger); background: var(--danger); border-color: var(--danger); }
 .btn-quiet { color: var(--text); background: var(--bg); }

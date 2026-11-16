@@ -15,8 +15,8 @@ public partial class SettingsViewModel : ObservableObject
 {
     public const string TitleText = "Settings";
     public const string AutoStartTitleText = "Start with Windows";
-    public const string AutoStartDescriptionText = "Opens the app in the notification area when you sign in to the PC, so the capture is already listening when you start the game.";
-    public const string AutoStartFailedText = "Windows did not accept the change. Run the app as administrator and try again.";
+    public const string AutoStartDescriptionText = "Opens the app in the notification area when you sign in to the PC, so your phone and the Skua plugin find it running.";
+    public const string AutoStartFailedText = "Windows did not accept the change. Try again; if it keeps failing, delete the SkuaLink task in Task Scheduler and turn this on again.";
     public const string FeedTitleText = "Let other programs on this PC read my characters";
     public const string FeedDescriptionText = "Opens a read-only feed on this computer only (127.0.0.1) with your characters' numbers, factions and Hard Farms. A program needs the secret in the file below to read it. Nothing is sent to the game.";
     public const string FeedNewSecretText = "New secret";
@@ -26,7 +26,7 @@ public partial class SettingsViewModel : ObservableObject
     public const string PairPhoneText = "Pair a phone...";
     public const string PhoneCopyLinkText = "Copy local pairing link";
     public const string SkuaTitleText = "Skua";
-    public const string SkuaDescriptionText = "Shows what each Skua is doing in the Skua tab of the phone page, and lets you start and stop its scripts and set their options from the phone. The plugin and SkuaLink must come from the same release.";
+    public const string SkuaDescriptionText = "Everything SkuaLink shows comes from this plugin: each character's numbers, reputation and Hard Farms, and, in the Bot section of each character on the phone page, what its Skua is doing, with its scripts started, stopped and set up from the phone. The plugin and SkuaLink must come from the same release.";
     public const string SkuaStepsText = "1. Download SkuaLink.SkuaBridge.dll from the release page. 2. Copy it into Skua's plugins folder. 3. Close and reopen Skua.";
     public const string OpenSkuaPluginsFolderText = "Open Skua's plugins folder";
     public const string OpenReleasePageText = "Open the release page";
@@ -34,25 +34,26 @@ public partial class SettingsViewModel : ObservableObject
     public const string SkuaFolderFailedText = "Could not open Skua's plugins folder.";
     public const string ReleasePageFailedText = "Could not open the release page.";
     public const string DebugTitleText = "Debug mode";
-    public const string DebugDescriptionText = "Shows the capture and packet details in their own window. It also opens with Ctrl+Shift+D and from the tray icon menu.";
+    public const string DebugDescriptionText = "Shows the Hard Farms entries without a match and the diagnostics export in their own window. It also opens with Ctrl+Shift+D and from the tray icon menu.";
     public const string PrivacyTitleText = "Privacy";
     public const string ForgetText = "Forget my data";
-    public const string ForgetPromptText = "Remove everything the app saved on this computer? Your game data and the Hard Farms list are cleared until the next login.";
+    public const string ForgetPromptText = "Remove everything the app saved on this computer? Your saved characters, Skua logs and the Hard Farms list are cleared, and so is the game data saved by versions before 0.6.";
     public const string ForgetCompleteText = "Everything the app saved was removed from this computer.";
     public const string ForgetFailedText = "Could not remove the stored data. Close other copies of the app and try again.";
     public const string CreditsTitleText = "Credits";
 
     public const string PrivacyText =
-        "SkuaLink reads, on this computer only, the data the game sends your own computer when you log in, and a few of your own events while you play: " +
-        "character name and level, gold, experience, AC, class points, days played, membership days, faction reputation, and your items. " +
-        "It never reads or keeps your e-mail address, IP address, password, user or character ids, or anything about other players. " +
-        "It never sends anything to the game and never acts for you. Only two things go beyond this computer, and only when you ask for them: the AQW Wiki is contacted when you ask for the Hard Farms list, " +
-        "and with Phone access on the app serves the character numbers it already shows to the phones you paired, over your own Tailscale network. " +
+        "SkuaLink reads, on this computer only, what the SkuaLink plugin inside Skua reports: each character's name, level, experience, gold, AC, class and class rank, class points, " +
+        "membership, guild and slot counts, faction reputation, the names and quantities of the items in the inventory, the house and the bank (once opened in Skua), " +
+        "and what Skua is doing (server, map, script, active quests, a short log). " +
+        "It never reads or keeps your e-mail address, IP address, password, user or character ids, or anything about other players, and it never sends anything to the game. " +
+        "Only two things go beyond this computer, and only when you ask for them: the AQW Wiki is contacted when you ask for the Hard Farms list, " +
+        "and with Phone access on the app serves what it shows to the phones you paired, over your own Tailscale network. " +
         "The data is saved locally so the app opens with it, and Forget my data removes it.";
 
     public const string CreditsText =
         "Unofficial fan project, not made by, endorsed by or connected to Artix Entertainment. AdventureQuest Worlds belongs to its owners. " +
-        "Reputation ranks and the Hard Farms list come from the AQW Wiki (CC BY-SA 3.0). Packet capture uses Npcap and SharpPcap.";
+        "Reputation ranks and the Hard Farms list come from the AQW Wiki (CC BY-SA 3.0).";
 
     private readonly IAppSettingsStore _store;
     private readonly ForgetCoordinator _forgetting;
@@ -278,6 +279,30 @@ public partial class SettingsViewModel : ObservableObject
         OnPropertyChanged(nameof(StartWithWindows));
         OnPropertyChanged(nameof(CanAutoStart));
         PhoneRefreshRequested?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>
+    /// Once per install: an existing start-at-sign-in task of a version before 0.6 runs with the highest privileges; it is created
+    /// again without them. When Windows refuses (the old task may need rights this process lacks) it is tried again at the next
+    /// start; the old task still starts the app (elevated), and that start can recreate it.
+    /// </summary>
+    public async Task MigrateAutoStartAsync()
+    {
+        if (_settings.AutoStartMigrated)
+        {
+            return;
+        }
+
+        var autoStart = _autoStart;
+        var done = await Task.Run(() => !autoStart.IsSupported || !autoStart.IsEnabled() || autoStart.TrySet(true)).ConfigureAwait(true);
+        if (!done)
+        {
+            Log.Warning("Start with Windows: the sign-in task could not be recreated; trying again at the next start");
+            return;
+        }
+
+        _settings = _settings with { AutoStartMigrated = true };
+        _store.Save(_settings);
     }
 
     [ObservableProperty]

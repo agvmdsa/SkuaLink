@@ -2,46 +2,34 @@ namespace AqwCompanion.Tests.Architecture;
 
 /// <summary>
 /// The installer cannot be built or run here (Inno Setup is Windows-only and runs in the release workflow), so these tests guard
-/// the rules it must keep: Npcap is never bundled, the page for it exists, and the files it names are in the repository.
+/// the rules it must keep: Npcap is never mentioned, the app starts as the signed-in user after setup, and the files it names are
+/// in the repository.
 /// </summary>
 public class InstallerScriptTests
 {
     private static string Script() => File.ReadAllText(Path.Combine(RepositoryRoot(), "installer", "SkuaLink.iss"));
 
     [Fact]
-    public void The_installer_links_to_the_official_npcap_page_and_never_names_an_npcap_file_to_ship()
+    public void The_installer_never_mentions_npcap_and_has_no_custom_page()
     {
         var script = Script();
-
-        Assert.Contains("https://npcap.com/", script);
-        // Only [Files] lines can ship something; none of them may mention Npcap.
-        var files = script.Split("[Files]")[1].Split("\n[")[0];
-        Assert.DoesNotContain("npcap", files, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("npcap", script, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("CreateCustomPage", script);
     }
 
     [Fact]
-    public void The_installer_has_a_page_that_checks_for_npcap_the_way_the_app_does()
-    {
-        var script = Script();
-
-        Assert.Contains("CreateCustomPage", script);
-        Assert.Contains(@"{sys}\Npcap\wpcap.dll", script);
-        Assert.Contains(@"{sys}\wpcap.dll", script);
-    }
-
-    [Fact]
-    public void The_installer_asks_for_administrator_rights_like_the_app()
+    public void The_installer_asks_for_administrator_rights_to_install_into_program_files()
     {
         Assert.Contains("PrivilegesRequired=admin", Script());
     }
 
     [Fact]
-    public void The_start_after_install_entry_uses_shellexec_so_the_administrator_prompt_can_show()
+    public void The_start_after_install_entry_runs_as_the_signed_in_user()
     {
         var launch = Script().Split('\n').Single(line => line.Contains("Description: \"Start ", StringComparison.Ordinal));
-
-        Assert.Contains("shellexec", launch);
         Assert.Contains("postinstall", launch);
+        Assert.Contains("runasoriginaluser", launch);
+        Assert.DoesNotContain("shellexec", launch);
     }
 
     [Fact]

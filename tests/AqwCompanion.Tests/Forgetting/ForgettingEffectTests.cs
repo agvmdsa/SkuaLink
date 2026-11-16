@@ -1,14 +1,13 @@
 using AqwCompanion.App;
-using AqwCompanion.App.GameData;
+using AqwCompanion.App.Characters;
 using AqwCompanion.App.HardFarms;
 using AqwCompanion.App.Infrastructure.Persistence;
 using AqwCompanion.App.Inventory;
-using AqwCompanion.Capture;
-using AqwCompanion.Core.Capture;
 using AqwCompanion.Core.Forgetting;
 using AqwCompanion.Core.Persistence;
-using AqwCompanion.Core.Reputation;
 using AqwCompanion.Core.Wiki;
+using AqwCompanion.Phone.Characters;
+using AqwCompanion.Skua;
 using AqwCompanion.Tests.TestDoubles;
 
 namespace AqwCompanion.Tests.Forgetting;
@@ -42,17 +41,14 @@ public sealed class ForgettingEffectTests : IDisposable
         Assert.Equal(["exports/y.zip", "logs/x.txt"], FilesUnderRoot());
         Assert.Empty(world.HardFarms.Rows);
         Assert.True(world.HardFarms.ShowEmptyState);
-        Assert.Empty(world.Session.Characters);
-        Assert.Equal(CaptureState.Idle, world.Session.State);
-        Assert.Equal(default, world.Session.Counters);
-        Assert.Equal(CaptureState.Done, world.StateWhenStoredDataWasRemoved);
-        Assert.True(world.SourceToken.IsCancellationRequested);
+        Assert.Empty(world.Book.All);
     }
 
     [Fact]
     public async Task A_failed_stored_data_removal_leaves_every_file_in_place()
     {
-        var world = await BuildWorldAsync(new LiteDbStoredDataStore(_paths.DatabasePath), gateFails: true);
+        var store = new LiteDbStoredDataStore(_paths.DatabasePath);
+        var world = await BuildWorldAsync(store, gateFails: true);
         var before = SnapshotFiles();
 
         var result = world.Coordinator.Forget();
@@ -66,7 +62,8 @@ public sealed class ForgettingEffectTests : IDisposable
 
         Assert.Single(world.HardFarms.Rows);
         Assert.False(world.HardFarms.ShowEmptyState);
-        Assert.Equal("Fictional Hero", Assert.Single(world.Session.Characters).Profile.Name);
+        Assert.Equal("Fictional Hero", Assert.Single(world.Book.All).Name);
+        Assert.NotNull(store.Load<string>(StoredKeys.LegacyCaptureRecord, 1));
     }
 
     private async Task<World> BuildWorldAsync(LiteDbStoredDataStore store, bool gateFails)
@@ -88,43 +85,21 @@ public sealed class ForgettingEffectTests : IDisposable
         var hardFarms = new HardFarmsViewModel(
             hardFarmStore, new FakeHardFarmSync(), ActiveInventoryBuilder.Empty(), new FakeUrlLauncher());
 
-        var gameDataStore = new GameDataStore(new StoredData(store, StoredKeys.Obsolete));
-        var profile = new CharacterProfile("Fictional Hero", 60, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, true, 11, 12, 13, 14, 15);
-        gameDataStore.Save([new CharacterSnapshot(profile, [new FactionStanding(5, "Fictional Order", 3, 5000, 6400, 1400)], [], [], ReadAt)]);
-        var sourceStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var sourceToken = CancellationToken.None;
-        var session = new CaptureSession(
-            () => new FakePacketSource(async (_, token) =>
-            {
-                sourceToken = token;
-                sourceStarted.SetResult();
-                try
-                {
-                    await new TaskCompletionSource().Task.WaitAsync(token);
-                }
-                catch (OperationCanceledException)
-                {
-                }
-            }),
-            new FakeProcessElevation(), () => NpcapStatus.Available, () => true, gameDataStore,
-            new FakeDelay(), TimeProvider.System, new FakeApplicationExit(), _paths);
-        await session.RestoreAsync();
-        _ = session.StartAsync();
-        await sourceStarted.Task.WaitAsync(TimeSpan.FromSeconds(30));
-        Assert.Equal(CaptureState.Listening, session.State);
+        // The record the removed capture of versions before 0.6 left in the database: never read, deleted with the file.
+        store.Save(StoredKeys.LegacyCaptureRecord, 1, "old capture data", ReadAt);
+        new StoredCharacterBookStore(new StoredData(store, StoredKeys.Obsolete)).Save(
+            [new CharacterRecord("Fictional Hero", ReadAt, Factions: [new SkuaFaction(5, "Fictional Order", 3, 5000, 1400, 6400)], FactionsAtUtc: ReadAt)]);
+        var book = new CharacterBook(new StoredCharacterBookStore(new StoredData(store, StoredKeys.Obsolete)), () => ReadAt);
+        book.Restore();
+        Assert.Single(book.All);
 
-        var stateWhenRemoved = CaptureState.Idle;
         var coordinator = new ForgetCoordinator(
-            () =>
-            {
-                stateWhenRemoved = session.State;
-                return !gateFails && storedData.Clear();
-            },
-            () => [hardFarms, new LegacyReputationFolder(_paths), session]);
+            () => !gateFails && storedData.Clear(),
+            () => [hardFarms, new LegacyReputationFolder(_paths), book]);
 
         await hardFarms.RestoreAsync();
         Assert.Single(hardFarms.Rows);
-        return new World(hardFarms, coordinator, session, () => stateWhenRemoved, () => sourceToken);
+        return new World(hardFarms, coordinator, book);
     }
 
     private List<string> FilesUnderRoot() =>
@@ -136,15 +111,5 @@ public sealed class ForgettingEffectTests : IDisposable
     private Dictionary<string, byte[]> SnapshotFiles() =>
         FilesUnderRoot().ToDictionary(f => f, f => File.ReadAllBytes(Path.Combine(_paths.Root, f)));
 
-    private sealed record World(
-        HardFarmsViewModel HardFarms,
-        ForgetCoordinator Coordinator,
-        CaptureSession Session,
-        Func<CaptureState> StateAtRemoval,
-        Func<CancellationToken> Token)
-    {
-        public CaptureState StateWhenStoredDataWasRemoved => StateAtRemoval();
-
-        public CancellationToken SourceToken => Token();
-    }
+    private sealed record World(HardFarmsViewModel HardFarms, ForgetCoordinator Coordinator, CharacterBook Book);
 }

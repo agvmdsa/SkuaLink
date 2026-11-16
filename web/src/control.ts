@@ -1,6 +1,7 @@
 import type { CallResult, ControlApi } from './api';
 import { t, type MessageKey } from './i18n';
-import { formatDuration, instanceState, isLive, type InstanceState } from './skua';
+import { formatDuration } from './bot';
+import { instanceState, isLive, type InstanceState } from './skua';
 import type { Banner } from './state';
 import type { SkuaInstance } from './types';
 

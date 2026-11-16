@@ -41,6 +41,15 @@ describe('isUsableState', () => {
 });
 
 describe('parseState with bad shapes', () => {
+  it('reads the characters, dropping a damaged one, and reads a missing or odd list as absent', () => {
+    const c = { name: 'Alpha', hasCharacter: true, instanceId: null, live: false, lastSeenUtc: null, profile: null, factions: null, factionsLive: false, hardFarmsState: 'NoList', hardFarms: null, inventoryAtUtc: null, inventoryTruncated: false };
+    const parsed = parseState(json({ snapshot: null, notices: [], characters: [c, { name: 1 }, null] }));
+    expect(parsed?.characters).toEqual([c]);
+    expect(parseState(json({ snapshot: null, notices: [] }))?.characters).toBeUndefined();
+    expect(parseState(json({ snapshot: null, notices: [], characters: {} }))?.characters).toBeUndefined();
+    const kept = parseState(json({ snapshot: null, notices: [], characters: [c] }))!;
+    expect(recallKept(keepState(kept, 1), 2)?.state.characters).toEqual([c]);
+  });
   it('rejects a state whose snapshot is unusable', () => {
     expect(parseState(json({ snapshot: { ...snapshot, characters: [{ name: 'x' }] } }))).toBeNull();
     expect(parseState(json({ snapshot: { contract: 1 } }))).toBeNull();
@@ -68,8 +77,8 @@ describe('parseNotice', () => {
 describe('characterHref with a lone surrogate', () => {
   it('does not throw and still gives a character route', () => {
     const href = characterHref('Bad\uD800Name');
-    expect(href).toBe('#/c/Bad%EF%BF%BDName');
-    expect(parseRoute(href)).toEqual({ view: 'character', name: 'Bad\uFFFDName' });
+    expect(href).toBe('#/character/Bad%EF%BF%BDName');
+    expect(parseRoute(href)).toEqual({ view: 'character', name: 'Bad\uFFFDName', section: 'overview' });
   });
 });
 
@@ -100,7 +109,7 @@ describe('no regex lookbehind', () => {
 });
 
 describe('the kept state', () => {
-  it('is stored under its own versioned key', () => expect(KEPT_KEY).toBe('qkp-last-state-v1'));
+  it('is stored under its own versioned key', () => expect(KEPT_KEY).toBe('qkp-last-state-v2'));
   const NOW = Date.parse('2026-11-09T12:00:00Z');
   const state = asState(snapshot);
   it('comes back with the time it was received', () => {

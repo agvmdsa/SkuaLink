@@ -1,10 +1,10 @@
 using System.Diagnostics;
+using AqwCompanion.App.Characters;
 using AqwCompanion.App.Dashboard;
-using AqwCompanion.App.GameData;
 using AqwCompanion.App.HardFarms;
 using AqwCompanion.App.Shell;
-using AqwCompanion.Capture;
-using AqwCompanion.Core.Capture;
+using AqwCompanion.Phone.Skua;
+using AqwCompanion.Skua;
 using AqwCompanion.Tests.TestDoubles;
 using Avalonia.Automation;
 using Avalonia.Controls;
@@ -12,7 +12,6 @@ using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
-using static AqwCompanion.Tests.Capture.GameCaptureBuilder;
 
 namespace AqwCompanion.Tests.Dashboard;
 
@@ -28,24 +27,9 @@ public class DashboardViewTests
             Window.GetVisualDescendants().OfType<TextBlock>().Where(t => t.Name == name).Select(t => t.Text);
     }
 
-    private static Host Build(IEnumerable<IEnumerable<TcpSegment>>? connections = null, int height = 720)
+    private static Host Build(int height = 720)
     {
-        var rig = new CaptureRig();
-        if (connections is not null)
-        {
-            var all = connections.SelectMany(c => c).ToList();
-            rig.Source = new FakePacketSource((onSegment, _) =>
-            {
-                foreach (var segment in all)
-                {
-                    onSegment(segment);
-                }
-
-                return Task.CompletedTask;
-            });
-        }
-
-        var built = MainViewModelBuilder.Create(rig, action =>
+        var built = MainViewModelBuilder.Create(action =>
         {
             if (Dispatcher.UIThread.CheckAccess())
             {
@@ -63,12 +47,38 @@ public class DashboardViewTests
         return new Host(built, window);
     }
 
-    private static Host Captured(params IEnumerable<TcpSegment>[] connections)
+    private static readonly SkuaProfile HeroProfile =
+        new(60, 123_456, 654_321, 9_876_543_210, 777, 10, true, "Void Highlord", 31, 302_500, "Heroes", 140, 300, 50);
+
+    private static readonly SkuaFaction[] HeroFactions =
+    [
+        new(1, "Fictional Order", 3, 5000, 1400, 6400),
+        new(2, "Other Order", 10, 302500, 0, 0),
+        new(3, "Fresh Order", 1, 0, 0, 900),
+    ];
+
+    private static SkuaStatus Status(string name, SkuaProfile? profile, params SkuaFaction[] factions) =>
+        new(true, name, null, null, null, false, null, [], factions, null, null, false, profile);
+
+    // The characters Skua reported (in this order), then the window settles on the last one or the one it selects.
+    private static Host Reported(params string[] names)
     {
-        var h = Build(connections);
-        h.Main.GameData.StartCommand.Execute(null);
-        SettleUntil(h.Window, () => h.Main.GameData.HasCharacters, "the captured Character");
+        var h = Build();
+        foreach (var name in names)
+        {
+            h.Built.Book.OnStatus(Status(name, HeroProfile, HeroFactions));
+        }
+
+        SettleUntil(h.Window, () => h.Main.Characters.HasCharacters, "the reported character");
         return h;
+    }
+
+    private static void GoLive(Host h, string name, SkuaProfile? profile = null)
+    {
+        var status = Status(name, profile ?? HeroProfile, HeroFactions);
+        h.Built.Skua.Current = new SkuaHubView([FakeSkua.Instance("a", name, status: status)]);
+        h.Built.Book.OnStatus(status);
+        h.Built.Skua.Raise();
     }
 
     private static void SettleUntil(Window window, Func<bool> condition, string what)
@@ -88,9 +98,6 @@ public class DashboardViewTests
             Thread.Sleep(5);
         }
     }
-
-    private static byte[] GoldExp(int gold, int exp) =>
-        PlainJson(Envelope("addGoldExp", new Dictionary<string, object?> { ["intGold"] = gold, ["intExp"] = exp, ["typ"] = "m", ["id"] = 4 }));
 
     // The top edge of a control in the window's coordinates, summed up the visual parents (nothing here is transformed).
     private static double TopOf(Control control, Avalonia.Visual root)
@@ -114,31 +121,33 @@ public class DashboardViewTests
     }
 
     [AvaloniaFact]
-    public void Before_any_login_the_dashboard_says_it_is_waiting_and_hides_the_character_strip()
+    public void Before_any_character_the_dashboard_asks_for_skua_and_hides_the_character_strip()
     {
         var h = Build();
 
         var empty = h.Named<TextBlock>("DashboardEmptyState");
         Assert.True(empty.IsEffectivelyVisible);
-        Assert.Equal(GameDataViewModel.EmptyText, empty.Text);
+        Assert.Equal(CharactersViewModel.EmptyText, empty.Text);
         Assert.False(h.Named<Border>("DashboardProfileCard").IsEffectivelyVisible);
         Assert.True(h.Named<TextBlock>("DashboardFactionsEmpty").IsEffectivelyVisible);
-        Assert.Equal(GameDataViewModel.IdleText, h.Named<TextBlock>("FooterText").Text);
+        Assert.Equal("Skua not connected.", h.Named<TextBlock>("FooterText").Text);
+        Assert.False(h.Named<TextBlock>("FooterCaptured").IsEffectivelyVisible);
     }
 
     [AvaloniaFact]
-    public void A_captured_login_fills_the_character_strip_and_orders_the_factions_by_what_is_missing()
+    public void A_reported_character_fills_the_character_strip_and_orders_the_factions_by_what_is_missing()
     {
-        var h = Captured(Connection().Server);
+        var h = Reported("Fictional Hero");
 
         Assert.False(h.Named<Border>("DashboardEmptyCard").IsEffectivelyVisible);
-        Assert.Equal("Fictional Hero · Lv 60", h.Named<TextBlock>("DashboardProfileHeadline").Text);
+        Assert.Equal("Fictional Hero · Level 60 · Void Highlord rank 10", h.Named<TextBlock>("DashboardProfileHeadline").Text);
         var figures = h.Named<ItemsControl>("DashboardFigures");
         SettleUntil(h.Window, () => figures.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == "9,876,543,210"), "the figures");
         var texts = figures.GetVisualDescendants().OfType<TextBlock>().Select(t => t.Text).ToList();
         Assert.Contains("Gold", texts);
         Assert.Contains("123,456 / 654,321", texts);
-        Assert.StartsWith("Captured ", h.Named<TextBlock>("DashboardCapturedText").Text);
+        Assert.Contains("140 bag, 300 bank, 50 house", texts);
+        Assert.StartsWith("Last seen ", h.Named<TextBlock>("DashboardCapturedText").Text);
 
         SettleUntil(h.Window, () => h.Texts("DashboardFactionName").Count() == 3, "the faction rows");
         Assert.Equal(["Fresh Order", "Fictional Order", "Other Order"], h.Texts("DashboardFactionName"));
@@ -146,39 +155,28 @@ public class DashboardViewTests
     }
 
     [AvaloniaFact]
-    public void Live_gold_and_the_last_kill_show_without_pressing_anything()
+    public void A_live_character_follows_skua_without_pressing_anything()
     {
-        var traffic = Connection();
-        traffic.Server.Add(ServerData(traffic.NextServerSequence, [.. GoldExp(40, 15), 0, .. GoldExp(1200, 340), 0]));
-        var h = Captured(traffic.Server);
+        var h = Reported("Fictional Hero");
 
-        var gain = h.Named<TextBlock>("DashboardLastGain");
-        SettleUntil(h.Window, () => gain.IsEffectivelyVisible, "the last kill line");
+        GoLive(h, "Fictional Hero", HeroProfile with { Gold = 9_876_544_450 });
 
-        Assert.Equal("Last kill: +1,200 gold, +340 exp", gain.Text);
-        Assert.Equal(gain.Text, AutomationProperties.GetName(gain));
         SettleUntil(
             h.Window,
             () => h.Named<ItemsControl>("DashboardFigures").GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == "9,876,544,450"),
-            "the gold to follow the live events");
+            "the gold to follow Skua");
+        Assert.Equal(CharactersViewModel.LiveText, h.Named<TextBlock>("DashboardCapturedText").Text);
+        Assert.DoesNotContain(h.Window.GetVisualDescendants().OfType<TextBlock>(), t => t.Name == "DashboardLastGain");
     }
 
     [AvaloniaFact]
-    public void The_last_kill_line_is_hidden_without_live_updates()
-    {
-        var h = Captured(Connection().Server);
-
-        Assert.False(h.Named<TextBlock>("DashboardLastGain").IsEffectivelyVisible);
-    }
-
-    [AvaloniaFact]
-    public void The_character_chip_waits_for_a_login_then_names_the_character()
+    public void The_character_chip_waits_for_a_character_then_names_it()
     {
         var empty = Build();
-        Assert.Equal(GameDataViewModel.NoCharacterText, empty.Named<TextBlock>("CharacterChipText").Text);
+        Assert.Equal(CharactersViewModel.NoCharacterText, empty.Named<TextBlock>("CharacterChipText").Text);
         Assert.Equal("?", empty.Named<TextBlock>("CharacterInitial").Text);
 
-        var one = Captured(Connection().Server);
+        var one = Reported("Fictional Hero");
         SettleUntil(one.Window, () => one.Named<TextBlock>("CharacterChipText").Text == "Fictional Hero", "the chip to name the character");
         Assert.Equal("F", one.Named<TextBlock>("CharacterInitial").Text);
         var chip = one.Named<Button>("CharacterChip");
@@ -189,8 +187,8 @@ public class DashboardViewTests
     [AvaloniaFact]
     public void Several_characters_are_listed_in_the_chip_flyout_and_picking_one_switches_the_dashboard()
     {
-        var two = Captured(Connection(clientPort: 50000, name: "First Hero").Server, Connection(clientPort: 50001, name: "Second Hero").Server);
-        SettleUntil(two.Window, () => two.Main.GameData.HasSeveralCharacters, "both characters");
+        var two = Reported("First Hero", "Second Hero");
+        SettleUntil(two.Window, () => two.Main.Characters.CharacterNames.Count == 2, "both characters");
         var chip = two.Named<Button>("CharacterChip");
 
         chip.Flyout!.ShowAt(chip);
@@ -198,22 +196,30 @@ public class DashboardViewTests
         var list = Assert.IsType<ListBox>(((StackPanel)((Flyout)chip.Flyout).Content!).Children.OfType<ListBox>().Single());
         Assert.Equal(2, list.ItemCount);
 
-        var other = two.Main.GameData.SelectedCharacter == "First Hero" ? "Second Hero" : "First Hero";
-        two.Main.GameData.SelectedCharacter = other;
+        var other = two.Main.Characters.SelectedCharacter == "First Hero" ? "Second Hero" : "First Hero";
+        list.SelectedItem = other;
 
-        SettleUntil(two.Window, () => two.Named<TextBlock>("DashboardProfileHeadline").Text == other + " · Lv 60", "the other Character's headline");
+        SettleUntil(two.Window, () => two.Named<TextBlock>("DashboardProfileHeadline").Text?.StartsWith(other + " · Level 60") == true, "the other character's headline");
         Assert.Equal(other, two.Named<TextBlock>("CharacterChipText").Text);
+        Assert.Equal(other, list.SelectedItem);
     }
 
     [AvaloniaFact]
-    public void The_footer_follows_the_capture_and_says_whether_the_data_is_live_or_saved()
+    public void The_footer_follows_skua_and_says_whether_the_character_is_live_or_remembered()
     {
-        var h = Captured(Connection().Server);
-
-        Assert.Equal(h.Main.GameData.FooterText, h.Named<TextBlock>("FooterText").Text);
+        var h = Reported("Fictional Hero");
         var captured = h.Named<TextBlock>("FooterCaptured");
+        Assert.Equal("Skua not connected.", h.Named<TextBlock>("FooterText").Text);
         Assert.True(captured.IsEffectivelyVisible);
-        Assert.StartsWith("Captured ", captured.Text);
+        Assert.StartsWith("Last seen ", captured.Text);
+        Assert.DoesNotContain("live", h.Named<TextBlock>("FooterDot").Classes);
+
+        GoLive(h, "Fictional Hero");
+
+        SettleUntil(h.Window, () => h.Named<TextBlock>("FooterText").Text == "1 Skua connected.", "the footer to see Skua");
+        Assert.Equal(CharactersViewModel.LiveText, captured.Text);
+        Assert.Equal(captured.Text, AutomationProperties.GetName(captured));
+        Assert.Contains("live", h.Named<TextBlock>("FooterDot").Classes);
     }
 
     [AvaloniaFact]
@@ -243,7 +249,7 @@ public class DashboardViewTests
     [AvaloniaFact]
     public void The_cards_stay_inside_the_window_at_the_smallest_height()
     {
-        var h = Captured(Connection().Server);
+        var h = Reported("Fictional Hero");
         h.Window.Height = 600;
         SettleUntil(h.Window, () => h.Window.Bounds.Height <= 600.5, "the window to shrink");
         h.Window.UpdateLayout();

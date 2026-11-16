@@ -408,7 +408,7 @@ public sealed class SkuaApiTests : IDisposable
             "{\"instances\":[{\"instanceId\":\"a1\",\"label\":\"Hero\",\"connection\":\"Connected\",\"disconnected\":false,\"hello\":null,"
             + "\"status\":{\"loggedIn\":true,\"character\":\"Hero\",\"server\":null,\"map\":\"battleon\",\"script\":\"Farm.cs\",\"scriptRunning\":true,"
             + "\"runningSince\":null,\"quests\":null,\"factions\":[{\"id\":1,\"name\":\"Nation\",\"rank\":3,\"totalRep\":5000,\"rep\":300,\"requiredRep\":1200}],"
-            + "\"control\":\"settling\",\"settleSecondsLeft\":7,\"optionsStuck\":true},"
+            + "\"control\":\"settling\",\"settleSecondsLeft\":7,\"optionsStuck\":true,\"profile\":null},"
             + "\"log\":[{\"at\":\"2026-11-13T12:00:00+00:00\",\"kind\":\"Sold\",\"text\":\"Sold 0\",\"item\":null,\"count\":1},",
             json);
         Assert.EndsWith(
@@ -851,7 +851,7 @@ public sealed class SkuaApiTests : IDisposable
     [Fact]
     public void A_state_without_a_skua_feed_has_no_instances()
     {
-        Assert.Contains("\"skua\":null,\"skuaInstances\":null}", _hub.CurrentJson);
+        Assert.Contains("\"skua\":null,\"skuaInstances\":null,\"characters\":null}", _hub.CurrentJson);
     }
 
     [Fact]

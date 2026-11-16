@@ -59,6 +59,18 @@ public sealed class JsonAppSettingsStoreTests : IDisposable
     }
 
     [Fact]
+    public void The_auto_start_migration_is_saved_and_an_older_file_without_it_means_not_done()
+    {
+        new JsonAppSettingsStore(_paths.SettingsPath).Save(new AppSettings(AutoStartMigrated: true));
+        Assert.True(new JsonAppSettingsStore(_paths.SettingsPath).Load().AutoStartMigrated);
+
+        File.WriteAllText(_paths.SettingsPath, """{"debugMode":true,"localFeed":true,"phoneAccess":true}""");
+        var older = new JsonAppSettingsStore(_paths.SettingsPath).Load();
+        Assert.True(older.PhoneAccess);
+        Assert.False(older.AutoStartMigrated);
+    }
+
+    [Fact]
     public void Turning_debug_mode_on_after_phone_access_keeps_both_through_the_store()
     {
         var store = new JsonAppSettingsStore(_paths.SettingsPath);

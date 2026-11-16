@@ -2,23 +2,16 @@ using System.Xml.Linq;
 
 namespace AqwCompanion.Tests.Architecture;
 
-/// <summary>
-/// The Game data capture opens network devices and starts by itself when the app opens, so the executable must ask Windows for
-/// administrator rights in its manifest. Losing that line would silently turn the capture into "needs administrator".
-/// </summary>
+/// <summary>Since 0.6.0 nothing needs administrator rights (the capture is gone): the app must start as the user who opened it.</summary>
 public class AppManifestTests
 {
     private static readonly XNamespace V3 = "urn:schemas-microsoft-com:asm.v3";
 
     [Fact]
-    public void The_manifest_asks_for_administrator_rights()
+    public void The_manifest_runs_the_app_as_the_invoking_user()
     {
-        var level = Manifest()
-            .Descendants(V3 + "requestedExecutionLevel")
-            .Select(e => (string?)e.Attribute("level"))
-            .SingleOrDefault();
-
-        Assert.Equal("requireAdministrator", level);
+        var level = Manifest().Descendants(V3 + "requestedExecutionLevel").Select(e => (string?)e.Attribute("level")).SingleOrDefault();
+        Assert.Equal("asInvoker", level);
     }
 
     [Fact]

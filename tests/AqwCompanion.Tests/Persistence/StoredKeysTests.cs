@@ -67,7 +67,15 @@ public sealed class StoredKeysTests
     public void The_key_names_are_the_ones_older_databases_already_hold()
     {
         Assert.Equal(
-            ["hardfarms.list", "hardfarms.indexes", "gamedata.characters"],
+            ["hardfarms.list", "hardfarms.indexes", "skua.characters"],
             StoredKeys.All.Select(k => k.Name));
+    }
+
+    [Fact]
+    public void The_record_of_the_removed_capture_is_neither_read_nor_removed_on_save()
+    {
+        Assert.Equal("gamedata.characters", StoredKeys.LegacyCaptureRecord);
+        Assert.DoesNotContain(StoredKeys.LegacyCaptureRecord, StoredKeys.All.Select(k => k.Name));
+        Assert.DoesNotContain(StoredKeys.LegacyCaptureRecord, StoredKeys.Obsolete);
     }
 }

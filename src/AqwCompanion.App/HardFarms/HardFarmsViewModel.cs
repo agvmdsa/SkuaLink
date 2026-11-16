@@ -53,6 +53,7 @@ public partial class HardFarmsViewModel : ObservableObject, IForgettable
     private WikiTypeTable _types = WikiTypeTable.Empty;
     private DateTimeOffset? _listReadAt;
     private IReadOnlyList<Candidate> _candidates = [];
+    private IReadOnlyList<HardFarmEntry> _entries = [];
     private CancellationTokenSource? _updateCts;
     private IReadOnlyList<string> _pending = [];
     private bool _everRead;
@@ -346,6 +347,8 @@ public partial class HardFarmsViewModel : ObservableObject, IForgettable
         _pending = [];
         _everRead = false;
         _candidates = [];
+        Volatile.Write(ref _entries, []);
+        EntriesChanged?.Invoke(this, EventArgs.Empty);
         _all = [];
         GroupOptions = [AllGroups];
         TypeFilter = AllTypes;
@@ -434,6 +437,8 @@ public partial class HardFarmsViewModel : ObservableObject, IForgettable
                 var row = types.Find(entry.Slug);
                 return new Candidate(entry.Slug, row?.Name ?? Prettify(entry.Slug), row?.Type ?? WikiType.Other, entry.Group, WikiUrls.Page(entry.Slug));
             }).ToList();
+        Volatile.Write(ref _entries, [.. _candidates.Select(c => new HardFarmEntry(c.Slug, c.Name, _types.Find(c.Slug)?.Name))]);
+        EntriesChanged?.Invoke(this, EventArgs.Empty);
         RebuildRows();
         Refilter();
     }
@@ -471,18 +476,16 @@ public partial class HardFarmsViewModel : ObservableObject, IForgettable
     /// </summary>
     public HardFarmsSummary? Summary { get; private set; }
 
-    private HardFarmsSummary? BuildSummary()
-    {
-        if (_all.Count == 0 || _all.Any(row => row.Ownership == Ownership.Unknown))
-        {
-            return null;
-        }
+    /// <summary>
+    /// The whole list as the ownership matching needs it (slug, display name, wiki name), for matching any character's
+    /// inventory. Replaced, never changed in place; safe to read from any thread.
+    /// </summary>
+    public IReadOnlyList<HardFarmEntry> Entries => Volatile.Read(ref _entries);
 
-        return new HardFarmsSummary(
-            _all.Count(row => row.Ownership == Ownership.Owned),
-            _all.Count,
-            [.. _all.Where(row => row.Ownership == Ownership.Missing).Select(row => row.Name)]);
-    }
+    /// <summary>Raised when the list or the type table is applied or forgotten (<see cref="Entries"/> was replaced).</summary>
+    public event EventHandler? EntriesChanged;
+
+    private HardFarmsSummary? BuildSummary() => HardFarmsOwnership.Summarize(Entries, _inventory.Current);
 
     private string BuildMissingReport()
     {

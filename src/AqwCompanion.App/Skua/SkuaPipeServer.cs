@@ -216,11 +216,16 @@ public sealed class SkuaPipeServer(string pipeName, SkuaHub hub, Action<Exceptio
     /// <summary>
     /// Windows: an explicit security descriptor (see <see cref="CreateUserOnlySecurity"/>) instead of
     /// <see cref="PipeOptions.CurrentUserOnly"/>, because .NET builds that one from the token's default owner, which for an
-    /// elevated administrator (SkuaLink always runs elevated for capture) is BUILTIN\Administrators: a normal Skua holds
-    /// that group deny-only and would be refused, and the plugin's own CurrentUserOnly owner check would fail.
+    /// elevated administrator token is BUILTIN\Administrators instead of the user. Since 0.6.0 SkuaLink runs as the normal
+    /// user, but it can still be started elevated (Run as administrator), and the user-SID descriptor is right for any token.
+    /// The ACL admits the user's own processes at either integrity level and no other account. That is only the server side:
+    /// the plugin opens the pipe with its own CurrentUserOnly check, which compares the pipe owner with the plugin's token's
+    /// default owner, so it additionally refuses a Skua started as administrator (its default owner is
+    /// BUILTIN\Administrators, not the user SID). Run Skua without administrator rights.
     /// Elsewhere (tests on macOS/Linux): CurrentUserOnly as before.
-    /// UNVERIFIED on Windows: a real elevated SkuaLink with a non-elevated Skua (the owner's checklist), including
-    /// whether the pipe's default integrity label lets a medium-integrity client read from and write to it.
+    /// UNVERIFIED on Windows (the owner's checklist): SkuaLink and Skua both running as the normal user (pipe owner and the
+    /// plugin's token owner are both the user SID: expected to connect); and Skua started as administrator with a normal
+    /// SkuaLink (expected to be refused by the plugin, as above).
     /// </summary>
     private static NamedPipeServerStream CreatePipe(string name) =>
         OperatingSystem.IsWindows()
@@ -229,7 +234,8 @@ public sealed class SkuaPipeServer(string pipeName, SkuaHub hub, Action<Exceptio
             : new NamedPipeServerStream(name, Direction, MaxPipes, PipeTransmissionMode.Byte, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
 
     /// <summary>
-    /// Owner and only grantee are the user's own SID (not the Administrators group an elevated token uses as owner), and
+    /// Owner and only grantee are the user's own SID (not the Administrators group an elevated token uses as owner, so the rule
+    /// holds whether SkuaLink runs normal or elevated), and
     /// inherited entries are blocked, so no other account, other users included, has any access. The right is FullControl
     /// for that one SID, exactly what .NET's CurrentUserOnly grants, only to the user instead of the token owner: the client
     /// opens with GENERIC_READ | GENERIC_WRITE (or GENERIC_WRITE alone in its send-only fallback), which for a pipe includes

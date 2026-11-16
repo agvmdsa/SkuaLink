@@ -1,7 +1,6 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:dbg="using:AqwCompanion.App.Debug"
-        xmlns:gd="using:AqwCompanion.App.GameData"
         xmlns:diagnostics="using:AqwCompanion.App.Diagnostics"
         x:Class="AqwCompanion.App.Debug.DebugWindow"
         x:DataType="dbg:DebugViewModel"
@@ -10,7 +9,6 @@
         Width="860" Height="620" MinWidth="560" MinHeight="360">
   <ScrollViewer x:Name="DebugScroll" HorizontalScrollBarVisibility="Disabled">
     <StackPanel Margin="16" Spacing="12">
-      <gd:CaptureDebugView x:Name="DebugCapture" DataContext="{Binding GameData}" />
       <!-- The Hard Farms entries the name matching found nothing for, with the keys it tried. -->
       <Expander x:Name="DebugHardFarmsReport" Header="Hard Farms without a match" IsExpanded="False" HorizontalAlignment="Stretch"
                 DataContext="{Binding HardFarms}" AutomationProperties.Name="Hard Farms without a match">

@@ -1,5 +1,6 @@
 using System.IO.Compression;
 using AqwCompanion.App;
+using AqwCompanion.App.Characters;
 using AqwCompanion.App.Debug;
 using AqwCompanion.App.Diagnostics;
 using AqwCompanion.App.HardFarms;
@@ -10,6 +11,7 @@ using AqwCompanion.Core.Wiki;
 using AqwCompanion.Core.Diagnostics;
 using AqwCompanion.Core.Forgetting;
 using AqwCompanion.Core.Ingestion;
+using AqwCompanion.Phone.Characters;
 using AqwCompanion.Tests.TestDoubles;
 
 namespace AqwCompanion.Tests.Shell;
@@ -99,7 +101,7 @@ public sealed class ViewModelTests : IDisposable
         await hardFarms.RestoreAsync();
         var main = new MainViewModel(
             new DiagnosticsViewModel(_paths, new DiagnosticsExporter(new SnapshotRedactor())), hardFarms,
-            new CaptureRig().CreateViewModel(), new SettingsViewModel(new FakeAppSettingsStore(), coordinator), new FakeSettingsDialog(),
+            NoCharacters(), new SettingsViewModel(new FakeAppSettingsStore(), coordinator), new FakeSettingsDialog(),
             NoDebug());
         Assert.Single(main.HardFarms.Rows);
 
@@ -108,6 +110,13 @@ public sealed class ViewModelTests : IDisposable
 
         Assert.Equal(confirms, main.HardFarms.Rows.Count == 0);
         Assert.Equal(confirms, main.HardFarms.ShowEmptyState);
+    }
+
+    private static CharactersViewModel NoCharacters()
+    {
+        var book = new CharacterBook(new MemoryCharacterBookStore(), () => DateTimeOffset.UtcNow);
+        var skua = new FakeSkua();
+        return new CharactersViewModel(book, skua, new CharacterSelection(book, skua));
     }
 
     private static DebugModeController NoDebug() =>
@@ -134,7 +143,7 @@ public sealed class ViewModelTests : IDisposable
             new DiagnosticsViewModel(_paths, new DiagnosticsExporter(new SnapshotRedactor())),
             new HardFarmsViewModel(
                 new HardFarmStore(new InMemoryStoredDataStore().Module()), new FakeHardFarmSync(), ActiveInventoryBuilder.Empty(), new FakeUrlLauncher()),
-            new CaptureRig().CreateViewModel(), settings, dialog, NoDebug());
+            NoCharacters(), settings, dialog, NoDebug());
 
         main.ShowSettingsCommand.Execute(null);
 

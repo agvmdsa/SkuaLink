@@ -1,10 +1,9 @@
 using AqwCompanion.App;
-using AqwCompanion.App.GameData;
+using AqwCompanion.App.Characters;
 using AqwCompanion.App.HardFarms;
 using AqwCompanion.App.Feed;
 using AqwCompanion.App.Infrastructure;
 using AqwCompanion.App.Infrastructure.AutoStart;
-using AqwCompanion.App.Infrastructure.Elevation;
 using AqwCompanion.App.Infrastructure.Persistence;
 using AqwCompanion.App.Inventory;
 using AqwCompanion.App.Phone;
@@ -15,6 +14,7 @@ using AqwCompanion.Core.Forgetting;
 using AqwCompanion.Core.Inventory;
 using AqwCompanion.Core.Persistence;
 using AqwCompanion.Core.Wiki;
+using AqwCompanion.Phone.Characters;
 using AqwCompanion.Phone.Devices;
 using AqwCompanion.Phone.Hub;
 using AqwCompanion.Phone.Skua;
@@ -36,7 +36,7 @@ public class CompositionRootTests
         var main = services.GetRequiredService<MainViewModel>();
         Assert.Equal(AppInfo.ProductName, main.Title);
         Assert.NotNull(main.Diagnostics);
-        Assert.NotNull(main.GameData);
+        Assert.NotNull(main.Characters);
     }
 
     [Fact]
@@ -53,7 +53,7 @@ public class CompositionRootTests
     }
 
     [Fact]
-    public void Container_resolves_the_active_inventory_over_the_game_data()
+    public void Container_resolves_the_active_inventory_over_the_character_book()
     {
         var paths = new AppPaths(Path.Combine(Path.GetTempPath(), "aqw-tests", Guid.NewGuid().ToString("N")));
 
@@ -62,6 +62,17 @@ public class CompositionRootTests
         var inventory = services.GetRequiredService<IActiveInventory>();
         Assert.IsType<ActiveInventory>(inventory);
         Assert.Null(inventory.Current);
+    }
+
+    [Fact]
+    public void Container_resolves_the_character_selection_and_one_hard_farms_check()
+    {
+        var paths = new AppPaths(Path.Combine(Path.GetTempPath(), "aqw-tests", Guid.NewGuid().ToString("N")));
+
+        using var services = CompositionRoot.Build(paths);
+
+        Assert.Null(services.GetRequiredService<CharacterSelection>().Selected);
+        Assert.Same(services.GetRequiredService<HardFarmsCheck>(), services.GetRequiredService<HardFarmsCheck>());
     }
 
     [Fact]
@@ -87,7 +98,7 @@ public class CompositionRootTests
 
         Assert.IsType<HttpListenerFeedHost>(services.GetRequiredService<ILocalFeedHost>());
         Assert.False(services.GetRequiredService<ILocalFeedHost>().IsRunning);
-        Assert.IsType<SessionFeedSource>(services.GetRequiredService<AqwCompanion.Core.Feed.IFeedSource>());
+        Assert.IsType<CharacterFeedSource>(services.GetRequiredService<AqwCompanion.Core.Feed.IFeedSource>());
         Assert.Equal(paths.FeedTokenPath, services.GetRequiredService<FeedSecretStore>().Path);
         Assert.Equal(paths.FeedTokenPath, services.GetRequiredService<SettingsViewModel>().FeedSecretPath);
         Assert.Equal("Off", services.GetRequiredService<LocalFeedController>().ListeningText is null ? "" : services.GetRequiredService<SettingsViewModel>().FeedStatusText);
@@ -140,10 +151,24 @@ public class CompositionRootTests
         Assert.True(participants.Count > 1);
         Assert.Same(services.GetRequiredService<PhoneController>(), participants[^1]);
         Assert.Single(participants, p => p is PhoneController);
+        var book = participants.FindIndex(p => ReferenceEquals(p, services.GetRequiredService<CharacterBook>()));
+        Assert.InRange(book, 0, participants.Count - 2);
     }
 
     [Fact]
-    public void The_skua_hub_is_shared_with_the_feed_and_the_command_channel_and_forgets_before_the_phone_controller()
+    public void Container_resolves_the_character_book_over_the_stored_data()
+    {
+        var paths = new AppPaths(Path.Combine(Path.GetTempPath(), "aqw-tests", Guid.NewGuid().ToString("N")));
+
+        using var services = CompositionRoot.Build(paths);
+
+        Assert.IsType<StoredCharacterBookStore>(services.GetRequiredService<ICharacterBookStore>());
+        Assert.Empty(services.GetRequiredService<CharacterBook>().All);
+        Assert.False(Directory.Exists(paths.Root));
+    }
+
+    [Fact]
+    public void The_skua_hub_is_shared_with_the_feed_and_the_command_channel_and_forgets_after_the_book_and_before_the_phone_controller()
     {
         var paths = new AppPaths(Path.Combine(Path.GetTempPath(), "aqw-tests", Guid.NewGuid().ToString("N")));
 
@@ -157,6 +182,10 @@ public class CompositionRootTests
         var bridgeIndex = participants.FindIndex(p => ReferenceEquals(p, bridge));
         Assert.True(bridgeIndex >= 0);
         Assert.True(bridgeIndex < participants.FindIndex(p => p is PhoneController));
+        // The book forgets first: a re-report arriving between the two would otherwise be dropped by the still-quiesced book,
+        // and the plugin sends again only on a change.
+        var bookIndex = participants.FindIndex(p => ReferenceEquals(p, services.GetRequiredService<CharacterBook>()));
+        Assert.InRange(bookIndex, 0, bridgeIndex - 1);
         Assert.False(Directory.Exists(paths.Root));
     }
 
@@ -200,23 +229,18 @@ public class CompositionRootTests
     }
 
     [Fact]
-    public void Container_resolves_the_capture_session_and_its_parts()
+    public void Container_resolves_the_application_exit()
     {
         var paths = new AppPaths(Path.Combine(Path.GetTempPath(), "aqw-tests", Guid.NewGuid().ToString("N")));
 
         using var services = CompositionRoot.Build(paths);
 
-        var session = services.GetRequiredService<CaptureSession>();
-        Assert.Same(session, services.GetRequiredService<CaptureSession>());
-        Assert.Equal(CaptureState.Idle, session.State);
-        Assert.IsType<GameDataStore>(services.GetRequiredService<IGameDataStore>());
-        Assert.IsType<WindowsProcessElevation>(services.GetRequiredService<IProcessElevation>());
         Assert.IsType<AvaloniaApplicationExit>(services.GetRequiredService<IApplicationExit>());
         Assert.False(Directory.Exists(paths.Root));
     }
 
     [Fact]
-    public void Container_resolves_the_tray_controller_over_the_session_and_the_window_host()
+    public void Container_resolves_the_tray_controller_over_the_window_host()
     {
         var paths = new AppPaths(Path.Combine(Path.GetTempPath(), "aqw-tests", Guid.NewGuid().ToString("N")));
 
@@ -226,28 +250,27 @@ public class CompositionRootTests
         Assert.Same(controller, services.GetRequiredService<TrayController>());
         Assert.IsType<AvaloniaMainWindowHost>(services.GetRequiredService<IMainWindowHost>());
         Assert.Same(services.GetRequiredService<IMainWindowHost>(), services.GetRequiredService<AvaloniaMainWindowHost>());
-        Assert.Equal("SkuaLink - not capturing", controller.ToolTip);
+        Assert.Equal("SkuaLink - Skua not connected", controller.ToolTip);
         Assert.False(controller.IsExiting);
     }
 
     [Fact]
-    public async Task The_capture_session_resolved_from_the_container_takes_part_in_forgetting()
+    public void The_character_book_resolved_from_the_container_takes_part_in_forgetting()
     {
         var paths = new AppPaths(Path.Combine(Path.GetTempPath(), "aqw-tests", Guid.NewGuid().ToString("N")));
         try
         {
             using var services = CompositionRoot.Build(paths);
-            var profile = new AqwCompanion.Core.Capture.CharacterProfile("Fictional Hero", 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, false, 0, 0, 0, 0, 0);
-            services.GetRequiredService<IGameDataStore>().Save([new AqwCompanion.Core.Capture.CharacterSnapshot(profile, [], [], [], DateTimeOffset.UnixEpoch)]);
-            var session = services.GetRequiredService<CaptureSession>();
-            await session.RestoreAsync();
-            Assert.Single(session.Characters);
+            services.GetRequiredService<ICharacterBookStore>().Save([new CharacterRecord("Fictional Hero", DateTimeOffset.UnixEpoch)]);
+            var book = services.GetRequiredService<CharacterBook>();
+            book.Restore();
+            Assert.Single(book.All);
 
             var result = services.GetRequiredService<ForgetCoordinator>().Forget();
 
             Assert.True(result.IsComplete);
-            Assert.Empty(session.Characters);
-            Assert.Empty(services.GetRequiredService<IGameDataStore>().Load());
+            Assert.Empty(book.All);
+            Assert.Empty(services.GetRequiredService<ICharacterBookStore>().Load());
         }
         finally
         {

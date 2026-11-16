@@ -1,26 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
-  characterHref, characterRow, characterRows, deviceName, expFraction, formatCompact, formatNumber,
-  hardFarmsView, iosInstallHint, linkAfterFreshData, linkBanner, noticeLine, parseRoute, parseState, relativeTime,
+  characterHref, deviceName, expFraction, formatCompact, formatNumber,
+  hardFarmsView, iosInstallHint, KEPT_KEY, linkAfterFreshData, linkBanner, noticeLine, parseRoute, parseState, relativeTime,
 } from '../src/state';
-import type { Character, RemoteState } from '../src/types';
 
 const NOW = Date.parse('2026-11-09T12:00:00Z');
 const ago = (seconds: number) => new Date(NOW - seconds * 1000).toISOString();
-
-function hero(over: Partial<Character> = {}): Character {
-  return {
-    name: 'Alpha', level: 60, live: false, savedAtUtc: ago(3 * 3600), lastLiveUpdateUtc: null, liveUpdates: 0,
-    figures: { gold: 93643759, exp: 1609986, expToLevel: 5590000, ac: 200, classPoints: 9, daysPlayed: 8 }, lastKill: null, ...over,
-  };
-}
-
-function stateWith(characters: Character[]): RemoteState {
-  return {
-    snapshot: { contract: 1, capture: { state: 'x', listening: true }, selected: null, characters, factions: [], hardFarms: null },
-    notices: [],
-  };
-}
 
 describe('parseState', () => {
   it('parses a state and defaults missing notices', () => {
@@ -36,9 +21,9 @@ describe('numbers', () => {
     [999, '999'], [1250, '1.3K'], [1000000, '1M'], [93643759, '93.6M'], [2100000000, '2.1B'], [999999, '1M'], [999499, '999.5K'],
   ])('formatCompact(%d)', (n, s) => expect(formatCompact(n)).toBe(s));
   it('expFraction', () => {
-    expect(expFraction({ ...hero().figures, exp: 1609986, expToLevel: 5590000 })).toBeCloseTo(0.288, 3);
-    expect(expFraction({ ...hero().figures, exp: 5, expToLevel: 0 })).toBe(0);
-    expect(expFraction({ ...hero().figures, exp: 9, expToLevel: 3 })).toBe(1);
+    expect(expFraction({ xp: 1609986, xpToLevel: 5590000 })).toBeCloseTo(0.288, 3);
+    expect(expFraction({ xp: 5, xpToLevel: 0 })).toBe(0);
+    expect(expFraction({ xp: 9, xpToLevel: 3 })).toBe(1);
   });
 });
 
@@ -146,23 +131,6 @@ describe('iosInstallHint', () => {
   ])('says nothing on %s', (_name, ua) => expect(iosInstallHint(ua, false)).toBeNull());
 });
 
-describe('character rows', () => {
-  it('a live character with recent activity is live', () => {
-    const row = characterRow(hero({ live: true, lastLiveUpdateUtc: ago(5) }), NOW);
-    expect(row).toMatchObject({ kind: 'live', status: 'Live - activity just now', gold: '93.6M' });
-  });
-  it('a live character quiet for two minutes or more is idle', () => {
-    expect(characterRow(hero({ live: true, lastLiveUpdateUtc: ago(12 * 60) }), NOW)).toMatchObject({ kind: 'idle', status: 'Idle - last activity 12 min ago' });
-  });
-  it('a character that is not live is saved', () => {
-    expect(characterRow(hero(), NOW)).toMatchObject({ kind: 'saved', status: 'Saved 3 h ago' });
-  });
-  it('keeps the snapshot order and handles no state', () => {
-    expect(characterRows(stateWith([hero({ name: 'B' }), hero({ name: 'A' })]), NOW).map((r) => r.name)).toEqual(['B', 'A']);
-    expect(characterRows(null, NOW)).toEqual([]);
-  });
-});
-
 describe('hardFarmsView', () => {
   const missing = Array.from({ length: 30 }, (_, i) => `Item ${i}`);
   it('is null without data', () => expect(hardFarmsView(null, false)).toBeNull());
@@ -186,11 +154,23 @@ describe('notices, routes and device names', () => {
   it('routes', () => {
     expect(parseRoute('')).toEqual({ view: 'list' });
     expect(parseRoute('#/')).toEqual({ view: 'list' });
-    expect(parseRoute('#/c/Alpha%20Hero')).toEqual({ view: 'character', name: 'Alpha Hero' });
+    expect(parseRoute('#/c/Alpha%20Hero')).toEqual({ view: 'character', name: 'Alpha Hero', section: 'overview' });
     expect(parseRoute('#/c/%E0%A4%A')).toEqual({ view: 'list' });
     expect(parseRoute('#t=abc_DEF-1')).toEqual({ view: 'pair', token: 'abc_DEF-1' });
-    expect(characterHref('Alpha Hero')).toBe('#/c/Alpha%20Hero');
+    expect(characterHref('Alpha Hero')).toBe('#/character/Alpha%20Hero');
   });
+  it.each([
+    ['#/character/Hero', { view: 'character', name: 'Hero', section: 'overview' }],
+    ['#/character/Hero%2Fx/bot', { view: 'character', name: 'Hero/x', section: 'bot' }],
+    ['#/c/Old%20Link', { view: 'character', name: 'Old Link', section: 'overview' }],
+    ['#/character/%E0%A4%A', { view: 'list' }],
+    ['#/skua', { view: 'skua' }],
+  ])('parses %s', (hash, route) => expect(parseRoute(hash)).toEqual(route));
+  it('builds character links for both sections', () => {
+    expect(characterHref('A B')).toBe('#/character/A%20B');
+    expect(characterHref('A B', 'bot')).toBe('#/character/A%20B/bot');
+  });
+  it('keeps the state under a new key, since its shape changed', () => expect(KEPT_KEY).toBe('qkp-last-state-v2'));
   it.each([
     ['Mozilla/5.0 (iPhone; CPU iPhone OS 17_0)', 'iPhone'], ['Mozilla/5.0 (iPad; CPU OS 17_0)', 'iPad'],
     ['Mozilla/5.0 (Linux; Android 14; Pixel 7)', 'Android phone'], ['Mozilla/5.0 (Windows NT 10.0)', 'Browser'], ['', 'Browser'],

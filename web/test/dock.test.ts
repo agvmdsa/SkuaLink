@@ -12,12 +12,12 @@ const texts = (n: VNode) => all(n).map((x) => x.text).filter((t): t is string =>
 const links = (n: VNode) => all(n).filter((x) => x.tag === 'a');
 
 describe('dock items', () => {
-  it('are Characters, Skua and Settings, in that order, with catalog labels', () => {
-    expect(DOCK_ITEMS.map((i) => i.id)).toEqual(['characters', 'skua', 'settings']);
-    expect(DOCK_ITEMS.map((i) => en[i.label])).toEqual(['Characters', 'Skua', 'Settings']);
+  it('are Characters and Settings, in that order, with catalog labels', () => {
+    expect(DOCK_ITEMS.map((i) => i.id)).toEqual(['characters', 'settings']);
+    expect(DOCK_ITEMS.map((i) => en[i.label])).toEqual(['Characters', 'Settings']);
   });
-  it('link the two pages by their hash routes; Settings is a button, not a page', () => {
-    expect(DOCK_ITEMS.map((i) => i.href)).toEqual(['#/', '#/skua', null]);
+  it('link the page by its hash route; Settings is a button, not a page', () => {
+    expect(DOCK_ITEMS.map((i) => i.href)).toEqual(['#/', null]);
   });
   it('each carry one stroke icon path', () => {
     for (const i of DOCK_ITEMS) expect(i.icon).toMatch(/^M[\d .,a-zA-Z-]+$/);
@@ -29,7 +29,9 @@ describe('current item', () => {
     ['', 'characters'],
     ['#/', 'characters'],
     ['#/c/Hero', 'characters'],
-    ['#/skua', 'skua'],
+    ['#/skua', 'characters'],
+    ['#/character/Hero', 'characters'],
+    ['#/character/Hero/bot', 'characters'],
     ['#/nowhere', 'characters'],
     ['#t=token', null],
   ] as const)('for %j is %s', (hash, want) => expect(currentDockItem(parseRoute(hash))).toBe(want));
@@ -41,6 +43,7 @@ describe('visibility', () => {
     expect(dockVisible(false, parseRoute('#t=abc'))).toBe(false);
     expect(dockVisible(false, parseRoute('#/skua'))).toBe(true);
     expect(dockVisible(false, parseRoute('#/c/Hero'))).toBe(true);
+    expect(dockVisible(false, parseRoute('#/character/Hero/bot'))).toBe(true);
   });
 });
 
@@ -112,21 +115,21 @@ describe('dock view', () => {
   });
   it('has real links for the pages and a button for Settings', () => {
     const v = view('characters');
-    expect(links(v).map((a) => a.attrs!.href)).toEqual(['#/', '#/skua']);
+    expect(links(v).map((a) => a.attrs!.href)).toEqual(['#/']);
     const settings = all(v).find((n) => n.attrs?.['data-action'] === 'settings')!;
     expect(settings.tag).toBe('button');
     expect(settings.attrs).toMatchObject({ type: 'button', 'aria-expanded': 'false' });
   });
-  it.each([['characters', '#/'], ['skua', '#/skua']] as const)('marks %s as the current page, and only it', (current, href) => {
+  it.each([['characters', '#/']] as const)('marks %s as the current page, and only it', (current, href) => {
     const marked = all(view(current)).filter((n) => n.attrs?.['aria-current'] === 'page');
     expect(marked.map((n) => n.attrs!.href)).toEqual([href]);
   });
   it('marks nothing on a page that is not in the dock', () => expect(all(view(null)).some((n) => n.attrs?.['aria-current'])).toBe(false));
   it('names every item with its catalog label as text, the icon hidden from screen readers', () => {
-    const v = view('skua');
-    expect(texts(v)).toEqual(expect.arrayContaining(['Characters', 'Skua', 'Settings']));
+    const v = view('characters');
+    expect(texts(v)).toEqual(expect.arrayContaining(['Characters', 'Settings']));
     const icons = all(v).filter((n) => n.tag === 'svg');
-    expect(icons.length).toBe(4);
+    expect(icons.length).toBe(3);
     for (const i of icons) expect(i.attrs).toMatchObject({ 'aria-hidden': 'true', focusable: 'false', viewBox: '0 0 24 24' });
   });
   it('has a menu toggle with one name that says whether the menu is open through aria-expanded', () => {
@@ -139,7 +142,7 @@ describe('dock view', () => {
     expect(all(view('characters')).find((n) => n.attrs?.id === 'dock-items')).toBeTruthy();
   });
   it('uses no inline style or event attribute', () => {
-    for (const n of all(view('skua', true))) for (const k of Object.keys(n.attrs ?? {})) expect(k === 'style' || k.startsWith('on')).toBe(false);
+    for (const n of all(view('characters', true))) for (const k of Object.keys(n.attrs ?? {})) expect(k === 'style' || k.startsWith('on')).toBe(false);
   });
 });
 
@@ -158,7 +161,7 @@ describe('settings panel', () => {
     expect(themes.filter((b) => b.attrs!['aria-pressed'] === 'true').map((b) => b.attrs!['data-value'])).toEqual(['dark']);
     expect(all(v).find((n) => n.attrs?.['data-action'] === 'settings')!.attrs!['aria-expanded']).toBe('true');
   });
-  it('comes before the items, so it sits above them in reading order too', () => expect(dockView('skua', false, 'system').children[0]!.attrs!.id).toBe('dock-settings'));
+  it('comes before the items, so it sits above them in reading order too', () => expect(dockView('characters', false, 'system').children[0]!.attrs!.id).toBe('dock-settings'));
 });
 
 describe('dock styles', () => {

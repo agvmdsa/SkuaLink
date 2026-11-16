@@ -47,7 +47,7 @@ export interface Snapshot {
   hardFarms: HardFarms | null;
 }
 
-export type NoticeKind = 'RankUp' | 'HardFarmDrop' | 'ActivityStopped' | 'CaptureLost' | 'CaptureBack' | 'NewLogin' | 'SkuaDisconnected' | 'SkuaReconnected' | 'SkuaOptionsWaiting';
+export type NoticeKind = 'RankUp' | 'HardFarmDrop' | 'ActivityStopped' | 'NewLogin' | 'SkuaDisconnected' | 'SkuaReconnected' | 'SkuaOptionsWaiting';
 
 export interface Notice {
   id: string;
@@ -128,4 +128,44 @@ export interface RemoteState {
   skua?: SkuaState | null;
   /** Every Skua the PC knows, in order of arrival; an older app sends none (absent). */
   skuaInstances?: SkuaInstance[];
+  /** Every character SkuaLink knows, live or last known; an older app sends none (absent). */
+  characters?: PhoneCharacter[];
+}
+
+/** A character's numbers as the Skua plugin reads them; the nullable ones may be unknown (not read yet, or an older plugin). */
+export interface SkuaProfile {
+  level: number;
+  xp: number;
+  xpToLevel: number;
+  gold: number;
+  coins: number;
+  classRank: number;
+  isMember: boolean;
+  className: string | null;
+  classId: number | null;
+  classPoints: number | null;
+  guild: string | null;
+  bagSlots: number | null;
+  bankSlots: number | null;
+  houseSlots: number | null;
+}
+
+/** Ready: hardFarms holds the result; NoList: the list is not imported; NoInventory: the plugin reported no inventory. */
+export type HardFarmsState = 'Ready' | 'NoList' | 'NoInventory';
+
+/** One row of the Characters list: a character live in a Skua or remembered, or a connected Skua with nobody logged in. */
+export interface PhoneCharacter {
+  /** The character name; the Skua label when hasCharacter is false. */
+  name: string;
+  hasCharacter: boolean;
+  instanceId: string | null;
+  live: boolean;
+  lastSeenUtc: string | null;
+  profile: SkuaProfile | null;
+  factions: SkuaFaction[] | null;
+  factionsLive: boolean;
+  hardFarmsState: HardFarmsState;
+  hardFarms: HardFarms | null;
+  inventoryAtUtc: string | null;
+  inventoryTruncated: boolean;
 }

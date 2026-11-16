@@ -1,5 +1,6 @@
 using System.Threading.Channels;
 using AqwCompanion.Core.Feed;
+using AqwCompanion.Phone.Characters;
 using AqwCompanion.Phone.Notices;
 using AqwCompanion.Phone.Skua;
 
@@ -35,13 +36,16 @@ public sealed class PhoneHub : IDisposable
     private readonly Func<DateTimeOffset> _now;
     private readonly Action<Exception>? _onError;
     private readonly ISkuaFeed? _skua;
+    private readonly CharacterBook? _characters;
+    private readonly IHardFarmsCheck? _hardFarms;
     private readonly object _lock = new();
     private readonly List<HubSubscription> _subscribers = [];
     private FeedSnapshot _snapshot;
     private string _snapshotJson;
 
     public PhoneHub(
-        IFeedSource source, NoticeEngine engine, NoticeLog log, Func<DateTimeOffset> now, Action<Exception>? onError = null, ISkuaFeed? skua = null)
+        IFeedSource source, NoticeEngine engine, NoticeLog log, Func<DateTimeOffset> now, Action<Exception>? onError = null, ISkuaFeed? skua = null,
+        CharacterBook? characters = null, IHardFarmsCheck? hardFarms = null)
     {
         _source = source;
         _engine = engine;
@@ -49,9 +53,21 @@ public sealed class PhoneHub : IDisposable
         _now = now;
         _onError = onError;
         _skua = skua;
+        _characters = characters;
+        _hardFarms = hardFarms;
         if (skua is not null)
         {
             skua.Changed += OnSkuaChanged;   // before any read of Current: a change in between is not lost
+        }
+
+        if (characters is not null)
+        {
+            characters.Changed += OnCharactersChanged;
+        }
+
+        if (hardFarms is not null)
+        {
+            hardFarms.Changed += OnCharactersChanged;
         }
 
         source.Changed += OnSourceChanged;   // before the read: a change in between is not lost, an equal one is skipped
@@ -145,6 +161,16 @@ public sealed class PhoneHub : IDisposable
             _skua.Changed -= OnSkuaChanged;
         }
 
+        if (_characters is not null)
+        {
+            _characters.Changed -= OnCharactersChanged;
+        }
+
+        if (_hardFarms is not null)
+        {
+            _hardFarms.Changed -= OnCharactersChanged;
+        }
+
         lock (_lock)
         {
             foreach (var subscriber in _subscribers.ToList())
@@ -164,7 +190,7 @@ public sealed class PhoneHub : IDisposable
 
     private void OnSourceChanged(object? sender, EventArgs e)
     {
-        // Runs on the raiser's thread (capture session, UI): nothing may escape.
+        // Runs on the raiser's thread (Skua pipe, UI): nothing may escape.
         try
         {
             lock (_lock)
@@ -207,6 +233,22 @@ public sealed class PhoneHub : IDisposable
         }
     }
 
+    private void OnCharactersChanged(object? sender, EventArgs e)
+    {
+        // The character book or the Hard Farms list changed (any thread): nothing may escape.
+        try
+        {
+            lock (_lock)
+            {
+                PublishState();
+            }
+        }
+        catch (Exception ex)
+        {
+            Report(ex);
+        }
+    }
+
     private void Report(Exception ex)
     {
         try
@@ -234,7 +276,9 @@ public sealed class PhoneHub : IDisposable
 
     /// <summary>Under the lock.</summary>
     private PhoneState State(SkuaHubView? skua) =>
-        new(_snapshot, _log.Recent, skua?.Primary, skua is null ? null : SkuaInstanceState.From(skua));
+        new(
+            _snapshot, _log.Recent, skua?.Primary, skua is null ? null : SkuaInstanceState.From(skua),
+            _characters is null ? null : PhoneCharacters.Build(_characters.All, skua ?? SkuaHubView.Empty, _hardFarms));
 
     /// <summary>Under the lock: the Skua instances as they are now raise no notice (a Skua already disconnected is not announced).</summary>
     private void SkuaBaseline()

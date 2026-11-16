@@ -18,7 +18,6 @@
    transformed item painted otherwise. Opening takes it off and lays the list out before data-open flips. */
 .dock[data-open="true"] li { visibility: visible; opacity: 1; pointer-events: auto; transform: none; transition: transform 200ms cubic-bezier(0.25, 1, 0.5, 1); }
 .dock[data-open="true"] li:nth-last-child(2) { transition-delay: 40ms; }
-.dock[data-open="true"] li:nth-last-child(3) { transition-delay: 80ms; }
 .dock-label { position: absolute; top: 50%; right: calc(100% + 0.5rem); transform: translateY(-50%); padding: 0 0.5rem; font-weight: 600; white-space: nowrap; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 0.5rem; }
 /* The Settings panel is a card (text on the paper surface, the gold edge) floating above the dock. */
 #dock-settings { width: 18rem; pointer-events: auto; }

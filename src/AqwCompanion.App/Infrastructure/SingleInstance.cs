@@ -4,6 +4,8 @@ namespace AqwCompanion.App.Infrastructure;
 /// Lets one process own the app: a named mutex says who is first, a named event lets a second launch wake the first.
 /// Both names live in the "Local\" namespace (this user session). Where named mutexes or events are not supported the guard
 /// degrades instead of throwing: without a mutex every process counts as primary, without an event a signal does nothing.
+/// A mutex that exists but cannot be opened (access denied: it belongs to an instance with more rights, such as an older
+/// SkuaLink started as administrator) means another instance runs.
 /// </summary>
 public sealed class SingleInstance : IDisposable
 {
@@ -11,6 +13,7 @@ public sealed class SingleInstance : IDisposable
 
     private readonly string _mutexName;
     private readonly bool _supported;
+    private readonly Func<string, Mutex> _openMutex;
     private readonly EventWaitHandle? _signal;
     private readonly ManualResetEventSlim _release = new(false);
     private readonly ManualResetEvent _stopListening = new(false);
@@ -23,9 +26,16 @@ public sealed class SingleInstance : IDisposable
     /// <param name="name">Names the mutex and the event: "Local\" plus this name.</param>
     /// <param name="supported">False turns the guard off: every process is primary and signals do nothing.</param>
     public SingleInstance(string name, bool supported = true)
+        : this(name, supported, mutexName => new Mutex(false, mutexName))
+    {
+    }
+
+    /// <param name="openMutex">Opens or creates the named mutex; a seam for tests.</param>
+    internal SingleInstance(string name, bool supported, Func<string, Mutex> openMutex)
     {
         _mutexName = "Local\\" + name;
         _supported = supported;
+        _openMutex = openMutex;
         if (!supported)
         {
             return;
@@ -141,7 +151,7 @@ public sealed class SingleInstance : IDisposable
         var owned = false;
         try
         {
-            mutex = new Mutex(false, _mutexName);
+            mutex = _openMutex(_mutexName);
             try
             {
                 owned = mutex.WaitOne(wait);
@@ -151,6 +161,14 @@ public sealed class SingleInstance : IDisposable
                 // The previous owner ended without releasing it; the mutex is ours now.
                 owned = true;
             }
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // The mutex exists and belongs to an instance with more rights (an older SkuaLink started as administrator):
+            // another instance runs.
+            mutex?.Dispose();
+            owned = false;
+            mutex = null;
         }
         catch (Exception)
         {

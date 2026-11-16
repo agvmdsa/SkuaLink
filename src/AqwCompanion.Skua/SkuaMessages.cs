@@ -26,17 +26,51 @@ public sealed record SkuaQuest(int Id, string Name, bool Ready);
 public sealed record SkuaFaction(int Id, string Name, int Rank, int TotalRep, int Rep, int RequiredRep);
 
 /// <summary>
+/// The character's numbers as the plugin reads them from Skua (the status' <c>profile</c>; absent from an older plugin).
+/// <paramref name="ClassName"/>, <paramref name="ClassId"/> and <paramref name="ClassPoints"/> come from the equipped class item of
+/// the plugin's last inventory read (Skua has no class points property); null parts are not reported.
+/// </summary>
+public sealed record SkuaProfile(
+    int Level, long Xp, long XpToLevel, long Gold, int Coins, int ClassRank, bool IsMember,
+    string? ClassName = null, int? ClassId = null, int? ClassPoints = null, string? Guild = null,
+    int? BagSlots = null, int? BankSlots = null, int? HouseSlots = null);
+
+/// <summary>One owned item: its name, quantity and container (<see cref="SkuaProtocol.InventoryContainers"/>).</summary>
+public sealed record SkuaItem(string Name, int Quantity, string Where);
+
+/// <summary>
+/// A full inventory snapshot. <paramref name="Read"/> lists the containers the plugin actually read: the receiver replaces only
+/// those and keeps what it knew of the others (the bank is known only once it was opened in Skua). Equal by content.
+/// </summary>
+public sealed record SkuaInventory(string? Character, IReadOnlyList<string> Read, IReadOnlyList<SkuaItem> Items, bool Truncated = false)
+{
+    public bool Equals(SkuaInventory? other) =>
+        other is not null && Character == other.Character && SkuaLists.Same(Read, other.Read) && SkuaLists.Same(Items, other.Items) && Truncated == other.Truncated;
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(Character);
+        SkuaLists.Add(ref hash, Read);
+        SkuaLists.Add(ref hash, Items);
+        hash.Add(Truncated);
+        return hash.ToHashCode();
+    }
+}
+
+/// <summary>
 /// What Skua is doing. <paramref name="Quests"/> null means "this plugin does not report quests" (an older plugin);
 /// an empty list means "no active quests". <paramref name="Factions"/> follows the same rule for the reputation. Two
 /// statuses are equal when their quest lists and their faction lists hold the same entries in the same order.
 /// <paramref name="Control"/> is one of <see cref="SkuaProtocol.ControlStates"/>, or null when not reported (an older
 /// plugin); <paramref name="SettleSecondsLeft"/> is the settle countdown, only while settling; <paramref name="OptionsStuck"/>
-/// says the plugin could not close a script's options window on the PC.
+/// says the plugin could not close a script's options window on the PC. <paramref name="Profile"/> is the character's
+/// numbers, null when not reported.
 /// </summary>
 public sealed record SkuaStatus(
     bool LoggedIn, string? Character, string? Server, string? Map, string? Script, bool ScriptRunning, DateTimeOffset? RunningSince,
     IReadOnlyList<SkuaQuest>? Quests = null, IReadOnlyList<SkuaFaction>? Factions = null,
-    string? Control = null, int? SettleSecondsLeft = null, bool OptionsStuck = false)
+    string? Control = null, int? SettleSecondsLeft = null, bool OptionsStuck = false, SkuaProfile? Profile = null)
 {
     public bool Equals(SkuaStatus? other) =>
         other is not null
@@ -51,7 +85,8 @@ public sealed record SkuaStatus(
         && SkuaLists.Same(Factions, other.Factions)
         && Control == other.Control
         && SettleSecondsLeft == other.SettleSecondsLeft
-        && OptionsStuck == other.OptionsStuck;
+        && OptionsStuck == other.OptionsStuck
+        && Profile == other.Profile;
 
     public override int GetHashCode()
     {
@@ -68,6 +103,7 @@ public sealed record SkuaStatus(
         hash.Add(Control);
         hash.Add(SettleSecondsLeft);
         hash.Add(OptionsStuck);
+        hash.Add(Profile);
         return hash.ToHashCode();
     }
 }
@@ -86,6 +122,8 @@ public sealed record HelloMessage(SkuaHello Hello) : SkuaMessage;
 public sealed record StatusMessage(SkuaStatus Status) : SkuaMessage;
 
 public sealed record LogMessage(SkuaLogEntry Entry) : SkuaMessage;
+
+public sealed record InventoryMessage(SkuaInventory Inventory) : SkuaMessage;
 
 /// <summary>A well-formed line of another protocol version; the receiver tells the user to update.</summary>
 public sealed record UnsupportedVersionMessage(int Version) : SkuaMessage;

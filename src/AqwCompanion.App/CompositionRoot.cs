@@ -1,24 +1,23 @@
 using System.Globalization;
 using System.Net;
+using AqwCompanion.App.Characters;
 using AqwCompanion.App.Debug;
 using AqwCompanion.App.Diagnostics;
 using AqwCompanion.App.Feed;
-using AqwCompanion.App.GameData;
 using AqwCompanion.App.HardFarms;
 using AqwCompanion.App.Infrastructure;
 using AqwCompanion.App.Infrastructure.AutoStart;
-using AqwCompanion.App.Infrastructure.Elevation;
 using AqwCompanion.App.Infrastructure.Persistence;
 using AqwCompanion.App.Phone;
 using AqwCompanion.App.Inventory;
 using AqwCompanion.App.Settings;
 using AqwCompanion.App.Skua;
 using AqwCompanion.App.Shell;
-using AqwCompanion.Capture;
 using AqwCompanion.Core.Diagnostics;
 using AqwCompanion.Core.Feed;
 using AqwCompanion.Core.Forgetting;
 using AqwCompanion.Core.Persistence;
+using AqwCompanion.Phone.Characters;
 using AqwCompanion.Phone.Devices;
 using AqwCompanion.Phone.Hub;
 using AqwCompanion.Phone.Notices;
@@ -68,28 +67,21 @@ public static class CompositionRoot
             sp.GetRequiredService<IActiveInventory>(),
             sp.GetRequiredService<IUrlLauncher>(),
             OnUiThread));
-        services.AddSingleton<IGameDataStore, GameDataStore>();
-        services.AddSingleton<IProcessElevation, WindowsProcessElevation>();
         services.AddSingleton<IApplicationExit, AvaloniaApplicationExit>();
-        services.AddSingleton(sp => new CaptureSession(
-            () => OperatingSystem.IsWindows() ? new LivePacketSource() : new NullPacketSource(),
-            sp.GetRequiredService<IProcessElevation>(),
-            NpcapAvailability.Check,
-            OperatingSystem.IsWindows,
-            sp.GetRequiredService<IGameDataStore>(),
-            sp.GetRequiredService<IDelay>(),
-            sp.GetRequiredService<TimeProvider>(),
-            sp.GetRequiredService<IApplicationExit>(),
-            sp.GetRequiredService<AppPaths>()));
         services.AddSingleton<AvaloniaMainWindowHost>();
         services.AddSingleton<IMainWindowHost>(sp => sp.GetRequiredService<AvaloniaMainWindowHost>());
         services.AddSingleton(sp => new TrayController(
-            sp.GetRequiredService<CaptureSession>(),
             sp.GetRequiredService<IMainWindowHost>(),
             sp.GetRequiredService<IApplicationExit>(),
-            debug: sp.GetRequiredService<DebugModeController>()));
-        services.AddSingleton<IActiveInventory, ActiveInventory>();
-        services.AddSingleton(sp => new GameDataViewModel(sp.GetRequiredService<CaptureSession>(), OnUiThread));
+            debug: sp.GetRequiredService<DebugModeController>(),
+            skua: sp.GetRequiredService<ISkuaFeed>()));
+        services.AddSingleton(sp => new CharacterSelection(sp.GetRequiredService<CharacterBook>(), sp.GetRequiredService<ISkuaFeed>()));
+        services.AddSingleton<IActiveInventory>(sp => new ActiveInventory(
+            sp.GetRequiredService<CharacterBook>(), sp.GetRequiredService<CharacterSelection>(), OnUiThread));
+        services.AddSingleton<HardFarmsCheck>();
+        services.AddSingleton<IHardFarmsCheck>(sp => sp.GetRequiredService<HardFarmsCheck>());
+        services.AddSingleton(sp => new CharactersViewModel(
+            sp.GetRequiredService<CharacterBook>(), sp.GetRequiredService<ISkuaFeed>(), sp.GetRequiredService<CharacterSelection>(), OnUiThread));
         services.AddSingleton<IAppSettingsStore>(sp => new JsonAppSettingsStore(sp.GetRequiredService<AppPaths>().SettingsPath));
         services.AddSingleton<IProcessRunner, ProcessRunner>();
         services.AddSingleton<IAutoStart>(sp => new ScheduledTaskAutoStart(
@@ -98,8 +90,9 @@ public static class CompositionRoot
         services.AddSingleton(sp => new SettingsViewModel(
             sp.GetRequiredService<IAppSettingsStore>(), sp.GetRequiredService<ForgetCoordinator>(), sp.GetRequiredService<IAutoStart>(),
             sp.GetRequiredService<FeedSecretStore>(), sp.GetRequiredService<PhoneRegistry>(), CopyToClipboardAsync, () => FindClipboard() is not null));
-        services.AddSingleton<IFeedSource>(sp => new SessionFeedSource(
-            sp.GetRequiredService<CaptureSession>(), sp.GetRequiredService<GameDataViewModel>(), sp.GetRequiredService<HardFarmsViewModel>()));
+        services.AddSingleton<IFeedSource>(sp => new CharacterFeedSource(
+            sp.GetRequiredService<CharacterBook>(), sp.GetRequiredService<ISkuaFeed>(), sp.GetRequiredService<CharacterSelection>(),
+            sp.GetRequiredService<HardFarmsViewModel>()));
         services.AddSingleton<ILocalFeedHost>(sp => new HttpListenerFeedHost(
             new FeedHandler(
                 sp.GetRequiredService<FeedSecretStore>().GetOrCreateBytes,
@@ -113,7 +106,9 @@ public static class CompositionRoot
         services.AddSingleton(sp => new PhoneHub(
             sp.GetRequiredService<IFeedSource>(), new NoticeEngine(), new NoticeLog(50), () => DateTimeOffset.UtcNow,
             ex => Log.Warning("Phone hub failed: {ExceptionType}", ex.GetType().Name),
-            skua: sp.GetRequiredService<ISkuaFeed>()));
+            skua: sp.GetRequiredService<ISkuaFeed>(),
+            characters: sp.GetRequiredService<CharacterBook>(),
+            hardFarms: sp.GetRequiredService<IHardFarmsCheck>()));
         services.AddSingleton(sp => new SkuaScriptPrefs(
             new SkuaScriptFile(sp.GetRequiredService<AppPaths>().SkuaScriptPrefsPath), () => DateTimeOffset.UtcNow));
         services.AddSingleton(sp => new SkuaOptionCache(
@@ -122,7 +117,10 @@ public static class CompositionRoot
             sp.GetRequiredService<ISkuaFeed>(), sp.GetRequiredService<ISkuaCommandChannel>(), sp.GetRequiredService<SkuaScriptPrefs>(),
             sp.GetRequiredService<SkuaOptionCache>(), CultureInfo.CurrentCulture));
         services.AddSingleton<ISkuaLogStores>(sp => new SkuaLogStores(sp.GetRequiredService<AppPaths>().Root));
-        services.AddSingleton(sp => new SkuaHub(sp.GetRequiredService<ISkuaLogStores>(), () => DateTimeOffset.UtcNow));
+        services.AddSingleton<ICharacterBookStore>(sp => new StoredCharacterBookStore(sp.GetRequiredService<StoredData>()));
+        services.AddSingleton(sp => new CharacterBook(sp.GetRequiredService<ICharacterBookStore>(), () => DateTimeOffset.UtcNow));
+        services.AddSingleton(sp => new SkuaHub(
+            sp.GetRequiredService<ISkuaLogStores>(), () => DateTimeOffset.UtcNow, characters: sp.GetRequiredService<CharacterBook>()));
         services.AddSingleton<ISkuaFeed>(sp => sp.GetRequiredService<SkuaHub>());
         services.AddSingleton<ISkuaCommandChannel>(sp => sp.GetRequiredService<SkuaHub>());
         services.AddSingleton(sp => new SkuaBridgeHost(
@@ -168,7 +166,9 @@ public static class CompositionRoot
     [
         sp.GetRequiredService<HardFarmsViewModel>(),
         new LegacyReputationFolder(sp.GetRequiredService<AppPaths>()),
-        sp.GetRequiredService<CaptureSession>(),
+        // The book forgets before the hub: a re-report arriving between the two is then kept by the book (resumed already)
+        // instead of dropped by a still-quiesced one; the plugin reports again only on a change.
+        sp.GetRequiredService<CharacterBook>(),
         sp.GetRequiredService<SkuaHub>(),
         sp.GetRequiredService<SkuaScriptPrefs>(),
         sp.GetRequiredService<SkuaOptionCache>(),

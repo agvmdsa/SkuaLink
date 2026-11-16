@@ -13,7 +13,7 @@ export { addRules };
 const icon = (d: string): VNode => h('svg', { className: 'dock-icon', attrs: { viewBox: '0 0 24 24', 'aria-hidden': 'true', focusable: 'false' } }, h('path', { attrs: { d } }));
 
 /**
- * The floating dock: links to the two pages, a Settings button, and the button that opens them on a phone. With a theme, the
+ * The floating dock: links to the page, a Settings button, and the button that opens them on a phone. With a theme, the
  * Settings panel (the Appearance choice) is open above the dock; Settings opens and closes it like a disclosure.
  */
 export function dockView(current: DockId | null, open: boolean, settings: ThemeChoice | null = null): VNode {

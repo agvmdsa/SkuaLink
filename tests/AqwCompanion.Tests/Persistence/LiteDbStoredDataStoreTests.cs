@@ -97,6 +97,18 @@ public sealed class LiteDbStoredDataStoreTests : IDisposable
     }
 
     [Fact]
+    public void Remove_after_clear_does_not_create_the_database_file_again()
+    {
+        var store = Build();
+        store.Save("summary", 1, new StoredSample(1, "A", "B", 1), ReadAt);
+        Assert.True(store.Clear());
+
+        store.Remove("summary");
+
+        Assert.False(File.Exists(DatabaseFile));
+    }
+
+    [Fact]
     public void Unreadable_payload_is_treated_as_absent()
     {
         var store = Build();

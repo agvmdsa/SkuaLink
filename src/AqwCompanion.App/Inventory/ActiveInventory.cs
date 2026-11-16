@@ -1,48 +1,52 @@
-using AqwCompanion.App.GameData;
-using AqwCompanion.Core.Capture;
+using AqwCompanion.App.Characters;
 using AqwCompanion.Core.Inventory;
+using AqwCompanion.Phone.Characters;
 
 namespace AqwCompanion.App.Inventory;
 
 /// <summary>
-/// The inventory the rest of the app reads: the selected Character's captured inventory, or null while there is no
-/// Capture data. Raises <see cref="Changed"/> on the UI thread.
+/// The inventory the rest of the app reads: the last known inventory Skua reported for the selected character, or null while
+/// there is none. Raises <see cref="Changed"/> through <c>onUiThread</c> (inline without it), only when <see cref="Current"/>
+/// becomes a different instance.
 /// </summary>
 public sealed class ActiveInventory : IActiveInventory
 {
-    private readonly GameDataViewModel _gameData;
+    private readonly CharacterBook _book;
+    private readonly CharacterSelection _selection;
+    private readonly Action<Action> _onUiThread;
+    private readonly object _lock = new();
+    private CharacterInventory? _reported;
 
-    // The conversion of the last snapshot seen, so Current stays the same object while the snapshot does.
-    private CharacterSnapshot? _convertedFrom;
-    private CharacterInventory? _converted;
-
-    public ActiveInventory(GameDataViewModel gameData)
+    public ActiveInventory(CharacterBook book, CharacterSelection selection, Action<Action>? onUiThread = null)
     {
-        _gameData = gameData;
-        gameData.ActiveSnapshotChanged += (_, _) => Changed?.Invoke(this, EventArgs.Empty);
+        _book = book;
+        _selection = selection;
+        _onUiThread = onUiThread ?? (action => action());
+        _reported = Current;
+        book.Changed += (_, _) => Update();
+        selection.Changed += (_, _) => Update();
     }
 
-    /// <summary>Raised when the selected Character's snapshot changes.</summary>
+    /// <summary>Raised on the UI thread when the selected character's inventory changed.</summary>
     public event EventHandler? Changed;
 
-    /// <summary>The captured inventory of the selected Character, or null when it has no snapshot.</summary>
-    public CharacterInventory? Current
+    /// <summary>The last known inventory of the selected character (bag, house and bank together), or null.</summary>
+    public CharacterInventory? Current =>
+        _book.Find(_selection.Selected)?.Inventory is { } inventory ? CharacterInventories.For(inventory) : null;
+
+    private void Update()
     {
-        get
+        var now = Current;
+        lock (_lock)
         {
-            var snapshot = _gameData.ActiveSnapshot;
-            if (snapshot is null)
+            if (ReferenceEquals(now, _reported))
             {
-                return null;
+                return;
             }
 
-            if (!ReferenceEquals(snapshot, _convertedFrom))
-            {
-                _converted = SnapshotInventory.ToCharacterInventory(snapshot);
-                _convertedFrom = snapshot;
-            }
-
-            return _converted;
+            _reported = now;
         }
+
+        _onUiThread(() => Changed?.Invoke(this, EventArgs.Empty));
     }
 }

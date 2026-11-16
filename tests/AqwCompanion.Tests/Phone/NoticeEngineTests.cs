@@ -96,17 +96,12 @@ public class NoticeEngineTests
     }
 
     [Fact]
-    public void Capture_going_down_and_up_is_reported_both_ways()
+    public void A_change_of_the_skua_connection_in_the_feed_raises_no_capture_notice()
     {
         var engine = new NoticeEngine();
         engine.Process(Snap(listening: true), T0);
 
-        var lost = Assert.Single(engine.Process(Snap(listening: false), T0.AddSeconds(5)));
-        var back = Assert.Single(engine.Process(Snap(listening: true), T0.AddSeconds(10)));
-
-        Assert.Equal(NoticeKind.CaptureLost, lost.Kind);
-        Assert.Equal(NoticeKind.CaptureBack, back.Kind);
-        Assert.Equal("Alpha", lost.Character);
+        Assert.Empty(engine.Process(Snap(listening: false), T0.AddSeconds(5)));
     }
 
     [Fact]

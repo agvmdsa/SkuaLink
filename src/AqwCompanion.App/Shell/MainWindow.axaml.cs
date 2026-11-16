@@ -7,7 +7,7 @@ public partial class MainWindow : Window
     public MainWindow() => InitializeComponent();
 
     /// <summary>
-    /// Lets the tray decide about closing: the close button hides the window instead (the capture keeps running), while an
+    /// Lets the tray decide about closing: the close button hides the window instead (the app keeps running), while an
     /// application or OS shutdown closes it.
     /// </summary>
     public void KeepInTray(TrayController controller) =>

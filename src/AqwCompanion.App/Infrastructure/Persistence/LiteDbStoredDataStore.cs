@@ -43,8 +43,16 @@ public sealed class LiteDbStoredDataStore(string filePath) : IStoredDataStore
             Payload = JsonSerializer.Serialize(value, StoredJson.Options),
         }));
 
-    public void Remove(string key) =>
+    /// <summary>Nothing to remove without a database file, and opening one would create it again (after Forget my data, for example).</summary>
+    public void Remove(string key)
+    {
+        if (!File.Exists(filePath))
+        {
+            return;
+        }
+
         Run(db => db.GetCollection<StoredRecord>(CollectionName).Delete(key));
+    }
 
     public bool Clear()
     {

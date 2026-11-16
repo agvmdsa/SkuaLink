@@ -12,12 +12,13 @@ internal static class BridgeMessages
     /// <summary>
     /// The status line. Character, server and map are only reported while logged in (Skua keeps the last values after a
     /// logout); the active quests and the factions are always empty while logged out. The control state
-    /// (<see cref="SkuaControlState"/>) is reported whether logged in or not.
+    /// (<see cref="SkuaControlState"/>) is reported whether logged in or not. The character's numbers (<paramref name="profile"/>)
+    /// are only reported while logged in.
     /// </summary>
     public static SkuaStatus Status(
         bool loggedIn, string? username, string? server, string? map, string? loadedScriptPath, bool running, DateTimeOffset? runningSince,
         IReadOnlyList<SkuaQuest>? quests, IReadOnlyList<SkuaFaction>? factions,
-        string? control = null, int? settleSecondsLeft = null, bool optionsStuck = false) =>
+        string? control = null, int? settleSecondsLeft = null, bool optionsStuck = false, SkuaProfile? profile = null) =>
         new(
             loggedIn,
             loggedIn ? Blank(username) : null,
@@ -30,7 +31,8 @@ internal static class BridgeMessages
             loggedIn ? factions : [],
             control,
             control == "settling" ? settleSecondsLeft : null,
-            optionsStuck);
+            optionsStuck,
+            loggedIn ? profile : null);
 
     /// <summary>
     /// How many were bought: the quantity now minus the quantity in the snapshot taken before, when positive; otherwise

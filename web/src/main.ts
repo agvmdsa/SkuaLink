@@ -7,12 +7,14 @@ import type { Control } from './control';
 import {
   afterStreamCheck, deviceName, focusKey, iosInstallHint, keepState, KEPT_KEY, linkAfterFreshData, linkBanner, pairFailureText, pairingStep, parseNotice, parsePairingInput, parseRoute,
   parseState,
-  recallKept, reconnectDelay, retryImport, streamErrorStep, takePairingToken, UNREACHABLE_AFTER_MS, type PairProbe,
+  recallKept, reconnectDelay, retryImport, streamErrorStep, takePairingToken, UNREACHABLE_AFTER_MS, type PairProbe, type Section,
 } from './state';
-import { followSelection, loadInstance, neighbourId, parseLogFilter, saveInstance, type LogFilter } from './skua';
+import { loadInstance } from './skua';
+import type { LogFilter } from './bot';
+import { controlTarget, skuaRedirect } from './characters';
 import { detectLocale, setLocale, t } from './i18n';
 import type { Notice, RemoteState, SkuaInstance } from './types';
-import { characterView, drawFailedView, fallbackNav, listView, mount, pairNeededView, skuaView, withFooter, type Model, type VNode } from './views';
+import { characterView, drawFailedView, fallbackNav, listView, mount, pairNeededView, withFooter, type Model, type VNode } from './views';
 
 // First thing: CSP forbids an inline script, so the page may flash the system theme until this runs.
 function storage(): Storage | null {
@@ -36,7 +38,7 @@ const dockHost = document.createElement('div');
 dockHost.className = 'dock-host';
 app.after(dockHost);
 // What an earlier page on this address may have left: removed, never read.
-const OLD_KEYS = ['qkr-last-state', 'qkr-last-state-v1'];
+const OLD_KEYS = ['qkr-last-state', 'qkr-last-state-v1', 'qkp-last-state-v1'];
 const standalone = (navigator as Navigator & { standalone?: boolean }).standalone === true || matchMedia('(display-mode: standalone)').matches;
 // iPadOS 13 and later report a Mac; the touch points tell an iPad apart.
 const installHint = iosInstallHint(navigator.userAgent, standalone, navigator.maxTouchPoints ?? 0);
@@ -55,11 +57,9 @@ let showAll = false;
 let hfOpen = false;
 // The Skua log filter lives in memory only: a reload starts at Everything.
 let skuaFilter: LogFilter = 'all';
-// The Skua last chosen, by its label; remembered across visits.
-let skuaInstance: string | null = loadInstance(storage());
-// The Skua chosen in this session, by id: it stays chosen when its label changes (Skua N to the character's name).
-let skuaInstanceId: string | null = null;
-// Starting and stopping Skua scripts: loaded with the Skua tab (a chunk of its own); every change redraws the page and the open sheet.
+// The section last opened per character, in memory only: a reload starts every character at its Overview.
+const sections = new Map<string, Section>();
+// Starting and stopping Skua scripts: loaded with a Bot section (a chunk of its own); every change redraws the page and the open sheet.
 type ControlUi = typeof import('./controlViews');
 let ui: ControlUi | null = null;
 let control: Control | null = null;
@@ -76,12 +76,33 @@ function loadControl(): void {
         draw();
         drawSheet();
       }, () => becomeUnpaired());
-      syncSelection();
+      control.track(routeInstance());
       draw();
     })
     .catch(() => {
-      // Offline with nothing cached: the Skua tab shows no Control card; the next visit to the tab tries again.
+      // Offline with nothing cached: the Bot section shows no Control card; the next visit to a Bot section tries again.
       loadingControl = false;
+    });
+}
+
+// The Bot section's views: a chunk of their own, loaded when a Bot section is opened (three tries, then again on the next page
+// change or when the device is back online); until then the section shows a loading card.
+let bot: typeof import('./botViews') | null = null;
+let botLoading = false;
+let botFailed = false;
+
+function loadBot(): void {
+  if (bot || botLoading) return;
+  botLoading = true;
+  retryImport(() => import('./botViews'))
+    .then((loaded) => {
+      bot = loaded;
+      draw();
+    })
+    .catch(() => {
+      botLoading = false;
+      botFailed = true;
+      draw();
     });
 }
 // The floating dock, once its chunk has loaded.
@@ -189,15 +210,32 @@ function tree(): VNode {
   const nowMs = Date.now();
   const shown = ui && control ? { draw: ui.controlCard, control } : null;
   const controlCard = shown ? (i: SkuaInstance) => shown.draw(i, shown.control, nowMs) : undefined;
-  const model: Model = { state: state && { ...state, notices }, nowMs, showAll, hfOpen, installHint, theme, skuaFilter, skuaInstance, skuaInstanceId, controlCard };
+  const loaded = bot;
+  const model: Model = {
+    state: state && { ...state, notices }, nowMs, showAll, hfOpen, installHint, theme,
+    sectionOf: (n) => sections.get(n) ?? 'overview', botFailed,
+    botSection: loaded ? (_c, i) => loaded.botSection(i, { nowMs, skuaFilter, controlCard }) : undefined,
+  };
   // The Appearance choice lives in the dock's Settings panel; the Not paired screen has no dock, so it keeps it as a footer.
   if (unpaired) return withFooter(pairNeededView(pairReason, installHint), model);
   const route = parseRoute(location.hash);
-  if (route.view === 'skua') {
+  // An old #/skua link draws the list until the state is in; redirectLegacy() then sends it on.
+  if (route.view !== 'character') return listView(model);
+  sections.set(route.name, route.section);
+  if (route.section === 'bot') {
+    // After three failed tries it waits for the next page change or for the device to be back online.
+    if (!botFailed) loadBot();
     loadControl();
-    return skuaView(model);
   }
-  return route.view === 'character' ? characterView(model, route.name) : listView(model);
+  return characterView(model, route.name, route.section);
+}
+
+/** The connected Skua of the Bot section on screen (its controls act on it), or null. */
+const routeInstance = (): SkuaInstance | null => controlTarget(state, parseRoute(location.hash));
+
+/** The old Skua tab is gone: its link opens the Bot section of the Skua last chosen there, else of the first live character. */
+function redirectLegacy(): void {
+  if (parseRoute(location.hash).view === 'skua' && state) location.replace(skuaRedirect(state, loadInstance(storage())));
 }
 
 function keyOf(el: HTMLElement): string | null {
@@ -241,7 +279,6 @@ function draw(): boolean {
   const signature = JSON.stringify(next);
   if (signature === lastTree) return ok;
   const key = focusedKey();
-  const chipScroll = app.querySelector('.chips')?.scrollLeft ?? 0;
   try {
     app.replaceChildren(mount(next));
     lastTree = signature;
@@ -251,55 +288,14 @@ function draw(): boolean {
     lastTree = '';
   }
   restoreFocus(key);
-  keepChipVisible(chipScroll);
   return ok;
 }
-
-let shownChip: string | null = null;
-
-/** A redraw makes a new chip row: it gets its scroll position back, and a newly chosen chip is scrolled into view. */
-function keepChipVisible(scrollLeft: number): void {
-  const row = app.querySelector<HTMLElement>('.chips');
-  const chip = row?.querySelector<HTMLElement>('[aria-selected="true"]');
-  if (!row || !chip) {
-    shownChip = null;
-    return;
-  }
-  row.scrollLeft = scrollLeft;
-  markOverflow();
-  const value = chip.getAttribute('data-value');
-  if (value !== shownChip && typeof chip.scrollIntoView === 'function') chip.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-  shownChip = value;
-}
-
-/** The right fade of the chip row shows only while there are chips hidden on the right. */
-function markOverflow(): void {
-  const row = app.querySelector<HTMLElement>('.chips');
-  if (!row) return;
-  const more = row.scrollWidth - row.clientWidth - row.scrollLeft > 1;
-  row.parentElement?.setAttribute('data-overflow', String(more));
-}
-
-/** The Skua the tab shows; the selection follows the chosen instance and remembers its current label. */
-function syncSelection(): void {
-  const list = state?.skuaInstances;
-  if (!list) return;
-  const next = followSelection(list, { label: skuaInstance, id: skuaInstanceId });
-  skuaInstanceId = next.id;
-  if (next.label !== null && next.label !== skuaInstance) {
-    skuaInstance = next.label;
-    saveInstance(storage(), next.label);
-  }
-  control?.track(next.instance);
-}
-
-const currentInstance = () => followSelection(state?.skuaInstances ?? [], { label: skuaInstance, id: skuaInstanceId }).instance;
 
 function setState(text: string): void {
   const parsed = parseState(text);
   if (!parsed) return;
   state = parsed;
-  syncSelection();
+  control?.track(routeInstance());
   notices = parsed.notices;
   lastUpdateMs = Date.now();
   ({ downSinceMs, requestFailed } = linkAfterFreshData(sseOpen, { downSinceMs, requestFailed }, lastUpdateMs));
@@ -307,6 +303,7 @@ function setState(text: string): void {
   // Kept only once it has been drawn, so data that breaks the page is never stored and replayed on the next load.
   if (draw()) remember(parsed, lastUpdateMs);
   drawSheet();
+  redirectLegacy();
 }
 
 function addNotice(text: string): void {
@@ -466,6 +463,7 @@ async function start(): Promise<void> {
     notices = kept.state.notices;
     lastUpdateMs = kept.receivedAtMs;
     draw();
+    redirectLegacy();
   }
   armUnreachableTimer();
   try {
@@ -488,13 +486,8 @@ function chooseTheme(event: Event): boolean {
 
 app.addEventListener('click', (event) => {
   if (chooseTheme(event)) return;
-  const instanceButton = (event.target as HTMLElement).closest('[data-action="skua-instance"]');
-  if (instanceButton) {
-    chooseInstance(instanceButton.getAttribute('data-value'));
-    return;
-  }
   const controlButton = (event.target as HTMLElement).closest<HTMLElement>('[data-action="control-start"], [data-action="control-stop"]');
-  const chosen = currentInstance();
+  const chosen = routeInstance();
   if (controlButton && chosen && control) {
     opener = keyOf(controlButton);
     if (controlButton.getAttribute('data-action') === 'control-stop') control.openStop(chosen);
@@ -503,7 +496,8 @@ app.addEventListener('click', (event) => {
   }
   const filterButton = (event.target as HTMLElement).closest('[data-action="skua-filter"]');
   if (filterButton) {
-    skuaFilter = parseLogFilter(filterButton.getAttribute('data-value'));
+    // The filter buttons are drawn by the Bot views, so their chunk (and its parser) is in.
+    skuaFilter = bot?.parseLogFilter(filterButton.getAttribute('data-value')) ?? 'all';
     draw();
     return;
   }
@@ -519,38 +513,11 @@ app.addEventListener('click', (event) => {
 });
 app.addEventListener('change', (event) => {
   const box = event.target as HTMLInputElement;
-  const chosen = currentInstance();
+  const chosen = routeInstance();
   if (box.getAttribute('data-action') === 'ask-options' && chosen && control) control.setAsk(chosen.instanceId, box.getAttribute('data-value') ?? '', box.checked);
 });
-app.addEventListener('scroll', (event) => {
-  if ((event.target as HTMLElement).classList?.contains('chips')) markOverflow();
-}, true);
-window.addEventListener('resize', markOverflow);
-
-/** Chooses a Skua by its instance id and remembers its label. */
-function chooseInstance(id: string | null): void {
-  const chosen = state?.skuaInstances?.find((i) => i.instanceId === id);
-  if (!chosen) return;
-  skuaInstanceId = chosen.instanceId;
-  skuaInstance = chosen.label;
-  saveInstance(storage(), chosen.label);
-  control?.track(chosen);
-  draw();
-}
-
-const TAB_KEYS = ['ArrowRight', 'ArrowLeft', 'Home', 'End'];
 
 app.addEventListener('keydown', (event) => {
-  const tab = (event.target as HTMLElement).closest<HTMLElement>('[role="tab"]');
-  if (tab && TAB_KEYS.includes(event.key)) {
-    event.preventDefault();
-    const list = state?.skuaInstances ?? [];
-    const at = currentInstance()?.instanceId ?? '';
-    const id = event.key === 'Home' ? list[0]?.instanceId : event.key === 'End' ? list[list.length - 1]?.instanceId : neighbourId(list, at, event.key === 'ArrowRight' ? 1 : -1);
-    chooseInstance(id ?? null);
-    app.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')?.focus();
-    return;
-  }
   if (event.key === 'Enter' && (event.target as HTMLElement).id === 'pair-link') {
     event.preventDefault();
     pairFromPaste();
@@ -569,9 +536,16 @@ window.addEventListener('hashchange', () => {
   if (control?.sheet) control.close();
   dock?.close();
   loadDock();
+  botFailed = false;
+  redirectLegacy();
+  control?.track(routeInstance());
   draw();
 });
-window.addEventListener('online', loadDock);
+window.addEventListener('online', () => {
+  loadDock();
+  botFailed = false;
+  if (parseRoute(location.hash).view === 'character') draw();
+});
 
 // The sheets (stop confirmation, script list, options) live in one native dialog: modal, so focus stays inside and Escape closes it.
 const sheet = document.createElement('dialog');

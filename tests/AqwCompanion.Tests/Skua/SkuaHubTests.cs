@@ -1,5 +1,7 @@
+using AqwCompanion.Phone.Characters;
 using AqwCompanion.Phone.Skua;
 using AqwCompanion.Skua;
+using AqwCompanion.Tests.TestDoubles;
 
 namespace AqwCompanion.Tests.Skua;
 
@@ -724,6 +726,47 @@ public class SkuaHubTests
     public void A_very_long_name_is_cut()
     {
         Assert.True(SkuaLogFiles.FileName(new string('a', 500)).Length <= 100);
+    }
+
+    // ---- character book ----
+
+    private readonly MemoryCharacterBookStore _bookStore = new();
+
+    private (SkuaHub Hub, CharacterBook Book) CreateWithBook()
+    {
+        var book = new CharacterBook(_bookStore, () => _now);
+        return (new SkuaHub(_stores, () => _now, _timer.Delay, book), book);
+    }
+
+    [Fact]
+    public void A_logged_in_status_with_a_profile_reaches_the_character_book()
+    {
+        var (hub, book) = CreateWithBook();
+        var (pipe, _) = Connect(hub, "p1");
+        hub.Accept(pipe, new StatusMessage(new SkuaStatus(true, "Hero", "Artix", "battleon", null, false, null, Profile: new SkuaProfile(60, 1, 2, 3, 4, 10, false))));
+        Assert.Equal(60, book.Find("hero")!.Profile!.Level);
+    }
+
+    [Fact]
+    public void An_inventory_goes_to_its_own_character_or_else_to_the_instance_character_and_not_to_the_log()
+    {
+        var (hub, book) = CreateWithBook();
+        var (pipe, _) = Connect(hub, "p1", "Hero");
+        hub.Accept(pipe, new InventoryMessage(new SkuaInventory(null, ["inv"], [new SkuaItem("Sword", 1, "inv")])));
+        hub.Accept(pipe, new InventoryMessage(new SkuaInventory("Alt", ["inv"], [new SkuaItem("Axe", 1, "inv")])));
+        Assert.Equal("Sword", book.Find("Hero")!.Inventory!.Items.Single().Name);
+        Assert.Equal("Axe", book.Find("Alt")!.Inventory!.Items.Single().Name);
+        Assert.Empty(Only(hub).Log);
+    }
+
+    [Fact]
+    public void A_closed_pipe_stamps_when_its_character_was_last_seen()
+    {
+        var (hub, book) = CreateWithBook();
+        var (pipe, _) = Connect(hub, "p1", "Hero");
+        _now = T0.AddMinutes(7);
+        pipe.Dispose();
+        Assert.Equal(T0.AddMinutes(7), book.Find("Hero")!.LastSeenUtc);
     }
 
     // ---- doubles ----

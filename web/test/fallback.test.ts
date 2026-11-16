@@ -6,14 +6,14 @@ import { fallbackNav, type VNode } from '../src/views';
 const all = (n: VNode): VNode[] => [n, ...n.children.flatMap(all)];
 
 describe('fallback navigation until the dock is mounted', () => {
-  it('is a labelled nav with real links to Characters and Skua, texts from the catalog', () => {
+  it('is a labelled nav with a real link to Characters, text from the catalog', () => {
     const v = fallbackNav(parseRoute('#/'), false)!;
     expect(v.tag).toBe('nav');
     expect(v.attrs!['aria-label']).toBe(en['dock.label']);
     const links = all(v).filter((n) => n.tag === 'a');
-    expect(links.map((a) => [a.attrs!.href, a.text])).toEqual([['#/', en['list.title']], ['#/skua', en['skua.title']]]);
+    expect(links.map((a) => [a.attrs!.href, a.text])).toEqual([['#/', en['list.title']]]);
   });
-  it.each([['#/', '#/'], ['#/c/Hero', '#/'], ['#/skua', '#/skua']])('marks the page of %s as current', (hash, href) => {
+  it.each([['#/', '#/'], ['#/c/Hero', '#/'], ['#/character/Hero', '#/'], ['#/character/Hero/bot', '#/'], ['#/skua', '#/']])('marks the page of %s as current', (hash, href) => {
     const marked = all(fallbackNav(parseRoute(hash), false)!).filter((n) => n.attrs?.['aria-current'] === 'page');
     expect(marked.map((n) => n.attrs!.href)).toEqual([href]);
   });

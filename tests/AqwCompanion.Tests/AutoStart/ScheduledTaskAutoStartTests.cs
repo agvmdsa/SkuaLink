@@ -56,7 +56,7 @@ public class ScheduledTaskAutoStartTests
     }
 
     [Fact]
-    public void Turning_it_on_creates_a_logon_task_that_runs_elevated_in_the_background()
+    public void Turning_it_on_creates_a_logon_task_that_runs_with_limited_rights_in_the_background()
     {
         var runner = new FakeRunner(0);
 
@@ -67,9 +67,10 @@ public class ScheduledTaskAutoStartTests
         Assert.Equal(
             [
                 "/Create", "/TN", ScheduledTaskAutoStart.TaskName, "/TR", "\"" + Exe + "\" --background", "/SC", "ONLOGON",
-                "/RL", "HIGHEST", "/RU", @"PC\player", "/IT", "/DELAY", "0000:15", "/F",
+                "/RL", "LIMITED", "/RU", @"PC\player", "/IT", "/DELAY", "0000:15", "/F",
             ],
             call.Args);
+        Assert.DoesNotContain("HIGHEST", call.Args);
     }
 
     [Fact]

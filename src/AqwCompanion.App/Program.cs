@@ -1,5 +1,4 @@
 using AqwCompanion.App.Infrastructure;
-using AqwCompanion.App.Infrastructure.Elevation;
 using Avalonia;
 using Avalonia.Threading;
 using Serilog;
@@ -11,10 +10,8 @@ internal static class Program
     [STAThread]
     public static void Main(string[] args)
     {
-        // An elevated relaunch starts while the old process is still ending, so it waits for it; a normal start does not wait.
-        var relaunched = StartupArguments.TryGetDataRoot(args) is not null;
         using var instance = new SingleInstance(AppInfo.ExeName);
-        if (!instance.TryBecomePrimary(relaunched ? RelaunchWait : TimeSpan.Zero))
+        if (!instance.TryBecomePrimary(TimeSpan.Zero))
         {
             instance.SignalPrimary();
             return;
@@ -22,7 +19,7 @@ internal static class Program
 
         instance.ListenForSignals(() => Dispatcher.UIThread.Post(() => (Application.Current as CompanionApp)?.OpenMainWindow()));
 
-        var paths = AppPaths.ForCurrentUser(AppInfo.ExeName, StartupArguments.TryGetDataRoot(args));
+        var paths = AppPaths.ForCurrentUser(AppInfo.ExeName);
 
         Log.Logger = LoggingSetup.CreateLogger(paths, AppInfo.Version);
         Log.Information("Starting {SafeProduct} {SafeVersion}", AppInfo.ProductName, AppInfo.Version);
@@ -44,8 +41,6 @@ internal static class Program
             StartSafetyNet();
         }
     }
-
-    private static readonly TimeSpan RelaunchWait = TimeSpan.FromSeconds(10);
 
     // Safety net: if something (a stray foreground thread, a driver handle) keeps the process alive after the window loop
     // has ended, exit for real 5 seconds later. It is a background thread, so a normal exit simply discards it.
