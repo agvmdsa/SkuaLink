@@ -9,6 +9,7 @@ using AqwCompanion.App.Infrastructure;
 using AqwCompanion.App.Infrastructure.AutoStart;
 using AqwCompanion.App.Infrastructure.Persistence;
 using AqwCompanion.App.Phone;
+using AqwCompanion.App.Push;
 using AqwCompanion.App.Inventory;
 using AqwCompanion.App.Settings;
 using AqwCompanion.App.Skua;
@@ -21,6 +22,7 @@ using AqwCompanion.Phone.Characters;
 using AqwCompanion.Phone.Devices;
 using AqwCompanion.Phone.Hub;
 using AqwCompanion.Phone.Notices;
+using AqwCompanion.Phone.Push;
 using AqwCompanion.Phone.Skua;
 using AqwCompanion.Phone.Web;
 using AqwCompanion.Core.Wiki;
@@ -103,6 +105,18 @@ public static class CompositionRoot
         services.AddSingleton<LocalFeedController>();
         services.AddSingleton<IPhoneFileStore>(sp => new PhoneStore(sp.GetRequiredService<AppPaths>().PhonePath));
         services.AddSingleton(sp => new PhoneRegistry(sp.GetRequiredService<IPhoneFileStore>(), () => DateTimeOffset.UtcNow));
+        services.AddSingleton<IPushFileStore>(sp => new PushFileStore(sp.GetRequiredService<AppPaths>().PushPath));
+        services.AddSingleton(sp =>
+        {
+            var store = new PushSubscriptionStore(sp.GetRequiredService<IPushFileStore>(), () => DateTimeOffset.UtcNow);
+            // A revoked phone (or every phone, on Forget) loses its subscription.
+            var registry = sp.GetRequiredService<PhoneRegistry>();
+            registry.DevicesRevoked += store.RemoveDevices;
+            store.RetainDevices(registry.List().Select(d => d.Id).ToList());
+            return store;
+        });
+        services.AddSingleton(sp => new VapidKeyStore(sp.GetRequiredService<AppPaths>().VapidKeyPath));
+        services.AddSingleton<IVapidKeySource>(sp => sp.GetRequiredService<VapidKeyStore>());
         services.AddSingleton(sp => new PhoneHub(
             sp.GetRequiredService<IFeedSource>(), new NoticeEngine(), new NoticeLog(50), () => DateTimeOffset.UtcNow,
             ex => Log.Warning("Phone hub failed: {ExceptionType}", ex.GetType().Name),
@@ -172,6 +186,8 @@ public static class CompositionRoot
         sp.GetRequiredService<SkuaHub>(),
         sp.GetRequiredService<SkuaScriptPrefs>(),
         sp.GetRequiredService<SkuaOptionCache>(),
+        sp.GetRequiredService<PushSubscriptionStore>(),
+        sp.GetRequiredService<VapidKeyStore>(),
         // PhoneController MUST stay the LAST participant: its Forget resets the phone hub, which reads the feed, and then brings
         // the phone host back. Every other participant has to have forgotten first, or the host returns serving data from before
         // the Forget. CompositionRootTests.The_phone_controller_is_the_last_forget_participant guards this order.

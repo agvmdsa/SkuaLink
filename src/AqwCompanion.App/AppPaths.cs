@@ -10,6 +10,8 @@ public sealed record AppPaths(string Root)
     public string FeedTokenPath => Path.Combine(Root, "feed.token");
     public string SettingsPath => Path.Combine(Root, "settings.json");
     public string PhonePath => Path.Combine(Root, "phone.json");
+    public string PushPath => Path.Combine(Root, "push.json");
+    public string VapidKeyPath => Path.Combine(Root, "vapid.key");
     public string SkuaLogPath => Path.Combine(Root, "skua-log.json");
     public string SkuaScriptPrefsPath => Path.Combine(Root, "skua-script-prefs.json");
     public string SkuaScriptOptionsPath => Path.Combine(Root, "skua-script-options.json");

@@ -7,6 +7,7 @@ using AqwCompanion.App.Infrastructure.AutoStart;
 using AqwCompanion.App.Infrastructure.Persistence;
 using AqwCompanion.App.Inventory;
 using AqwCompanion.App.Phone;
+using AqwCompanion.App.Push;
 using AqwCompanion.App.Settings;
 using AqwCompanion.App.Skua;
 using AqwCompanion.App.Shell;
@@ -17,6 +18,7 @@ using AqwCompanion.Core.Wiki;
 using AqwCompanion.Phone.Characters;
 using AqwCompanion.Phone.Devices;
 using AqwCompanion.Phone.Hub;
+using AqwCompanion.Phone.Push;
 using AqwCompanion.Phone.Skua;
 using AqwCompanion.Phone.Web;
 using Microsoft.Extensions.DependencyInjection;
@@ -286,5 +288,81 @@ public class CompositionRootTests
     {
         Assert.False(string.IsNullOrWhiteSpace(AppInfo.ProductName));
         Assert.False(string.IsNullOrWhiteSpace(AppInfo.Version));
+    }
+
+    [Fact]
+    public void The_push_stores_forget_before_the_phone_controller_and_building_creates_no_file()
+    {
+        var paths = new AppPaths(Path.Combine(Path.GetTempPath(), "aqw-tests", Guid.NewGuid().ToString("N")));
+
+        using var services = CompositionRoot.Build(paths);
+
+        var participants = CompositionRoot.ForgetParticipants(services).ToList();
+        var phone = participants.FindIndex(p => p is PhoneController);
+        var subscriptions = participants.FindIndex(p => ReferenceEquals(p, services.GetRequiredService<PushSubscriptionStore>()));
+        var key = participants.FindIndex(p => ReferenceEquals(p, services.GetRequiredService<VapidKeyStore>()));
+        Assert.InRange(subscriptions, 0, phone - 1);
+        Assert.InRange(key, 0, phone - 1);
+        Assert.Same(services.GetRequiredService<VapidKeyStore>(), services.GetRequiredService<IVapidKeySource>());
+        Assert.False(Directory.Exists(paths.Root));
+    }
+
+    [Fact]
+    public void A_revoked_device_loses_its_push_subscription_and_forget_removes_the_push_files()
+    {
+        var paths = new AppPaths(Path.Combine(Path.GetTempPath(), "aqw-tests", Guid.NewGuid().ToString("N")));
+        using var services = CompositionRoot.Build(paths);
+        try
+        {
+            var registry = services.GetRequiredService<PhoneRegistry>();
+            registry.TryPair(registry.CreatePairingToken(), "Phone");
+            var id = registry.List().Single().Id;
+            var store = services.GetRequiredService<PushSubscriptionStore>();
+            store.Set(id, "https://fcm.googleapis.com/fcm/send/abc", "P", "A", null);
+            services.GetRequiredService<VapidKeyStore>().GetOrCreate();
+            Assert.True(File.Exists(paths.PushPath));
+            Assert.True(File.Exists(paths.VapidKeyPath));
+
+            registry.Revoke(id);
+            Assert.Null(store.Get(id));
+
+            store.Set("again", "https://fcm.googleapis.com/fcm/send/def", "P", "A", null);
+            services.GetRequiredService<ForgetCoordinator>().Forget();
+
+            Assert.False(File.Exists(paths.PushPath));
+            Assert.False(File.Exists(paths.VapidKeyPath));
+            Assert.Empty(store.All);
+        }
+        finally
+        {
+            if (Directory.Exists(paths.Root))
+            {
+                Directory.Delete(paths.Root, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public void A_subscription_of_a_device_revoked_while_closed_is_dropped_when_the_store_is_built()
+    {
+        var paths = new AppPaths(Path.Combine(Path.GetTempPath(), "aqw-tests", Guid.NewGuid().ToString("N")));
+        try
+        {
+            Directory.CreateDirectory(paths.Root);
+            new PushFileStore(paths.PushPath).Save(new PushFile(
+                [new PushSubscription("gone", "https://fcm.googleapis.com/fcm/send/abc", "P", "A", PushKinds.All, DateTimeOffset.UtcNow, null)]));
+
+            using var services = CompositionRoot.Build(paths);
+
+            Assert.Empty(services.GetRequiredService<PushSubscriptionStore>().All);
+            Assert.Empty(new PushFileStore(paths.PushPath).Load().Subscriptions);
+        }
+        finally
+        {
+            if (Directory.Exists(paths.Root))
+            {
+                Directory.Delete(paths.Root, recursive: true);
+            }
+        }
     }
 }
