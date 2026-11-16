@@ -117,13 +117,21 @@ public static class CompositionRoot
         });
         services.AddSingleton(sp => new VapidKeyStore(sp.GetRequiredService<AppPaths>().VapidKeyPath));
         services.AddSingleton<IVapidKeySource>(sp => sp.GetRequiredService<VapidKeyStore>());
+        services.AddSingleton(sp => new PushSender(PushHttp.Create(), sp.GetRequiredService<IVapidKeySource>(), () => DateTimeOffset.UtcNow));
+        services.AddSingleton(sp => new PushDispatcher(
+            sp.GetRequiredService<PushSender>(), sp.GetRequiredService<PushSubscriptionStore>(),
+            ex => Log.Warning("Push dispatch failed: {ExceptionType}", ex.GetType().Name)));
+        services.AddSingleton(sp => new PushNotifier(sp.GetRequiredService<PushSubscriptionStore>(), sp.GetRequiredService<PushDispatcher>()));
+        services.AddSingleton(sp => new PushApi(
+            sp.GetRequiredService<PushSubscriptionStore>(), sp.GetRequiredService<IVapidKeySource>(), sp.GetRequiredService<PushSender>(), () => DateTimeOffset.UtcNow));
         services.AddSingleton(sp => new PhoneStops(() => DateTimeOffset.UtcNow));
         services.AddSingleton(sp => new PhoneHub(
             sp.GetRequiredService<IFeedSource>(), new NoticeEngine(stops: sp.GetRequiredService<PhoneStops>()), new NoticeLog(50), () => DateTimeOffset.UtcNow,
             ex => Log.Warning("Phone hub failed: {ExceptionType}", ex.GetType().Name),
             skua: sp.GetRequiredService<ISkuaFeed>(),
             characters: sp.GetRequiredService<CharacterBook>(),
-            hardFarms: sp.GetRequiredService<IHardFarmsCheck>()));
+            hardFarms: sp.GetRequiredService<IHardFarmsCheck>(),
+            notices: sp.GetRequiredService<PushNotifier>()));
         services.AddSingleton(sp => new SkuaScriptPrefs(
             new SkuaScriptFile(sp.GetRequiredService<AppPaths>().SkuaScriptPrefsPath), () => DateTimeOffset.UtcNow));
         services.AddSingleton(sp => new SkuaOptionCache(
@@ -153,7 +161,8 @@ public static class CompositionRoot
             var controller = new Lazy<PhoneController>(() => sp.GetRequiredService<PhoneController>());
             return new PhoneHandler(
                 sp.GetRequiredService<PhoneRegistry>(), sp.GetRequiredService<PhoneHub>(), sp.GetRequiredService<IAssetSource>(),
-                host => controller.Value.AllowedHost(host), AppInfo.Version, sp.GetRequiredService<SkuaApi>());
+                host => controller.Value.AllowedHost(host), AppInfo.Version, sp.GetRequiredService<SkuaApi>(),
+                sp.GetRequiredService<PushApi>());
         });
         services.AddSingleton<IPhoneHost>(sp => new PhoneHost(
             sp.GetRequiredService<PhoneHandler>(), sp.GetRequiredService<PhoneHub>(), sp.GetRequiredService<PhoneRegistry>()));

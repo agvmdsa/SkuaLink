@@ -13,7 +13,7 @@ public sealed class PushDispatcher(PushSender sender, PushSubscriptionStore stor
     public const int Capacity = 64;
     private const int MinTtl = 60;
     private const int MaxTtl = 86400;
-    private const string Refused = "The push service refused the key; subscribe again";
+    internal const string Refused = "The push service refused the key; subscribe again";
     private static readonly TimeSpan DisposeWait = TimeSpan.FromSeconds(2);
 
     private readonly Channel<PushJob> _channel = Channel.CreateBounded<PushJob>(
@@ -34,7 +34,8 @@ public sealed class PushDispatcher(PushSender sender, PushSubscriptionStore stor
                     return false;
                 }
 
-                _worker ??= Task.Run(() => RunAsync(_cts.Token));
+                var token = _cts.Token;
+                _worker ??= Task.Run(() => RunAsync(token));
             }
 
             return _channel.Writer.TryWrite(job);
@@ -81,6 +82,10 @@ public sealed class PushDispatcher(PushSender sender, PushSubscriptionStore stor
             _cts.Cancel();
             _channel.Writer.TryComplete();
             worker?.Wait(DisposeWait);
+            if (worker is null || worker.IsCompleted)
+            {
+                _cts.Dispose();
+            }
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
@@ -142,7 +147,8 @@ public sealed class PushDispatcher(PushSender sender, PushSubscriptionStore stor
                 store.RecordSuccess(job.DeviceId);
                 break;
             case PushOutcome.Gone:
-                store.Remove(job.DeviceId);
+                // Only the subscription that was sent to: a re-subscribe with a new endpoint meanwhile stays.
+                store.RemoveIfEndpoint(job.DeviceId, sub.Endpoint);
                 break;
             default:
                 store.RecordError(job.DeviceId, result.Status is 401 or 403 ? Refused : result.Error ?? "push failed");

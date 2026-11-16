@@ -29,7 +29,8 @@ public interface IAssetSource
 /// method (405) and the route (404).
 /// </summary>
 public sealed class PhoneHandler(
-    PhoneRegistry registry, PhoneHub hub, IAssetSource assets, Func<string, bool> isAllowedHost, string appVersion, SkuaApi? skua = null)
+    PhoneRegistry registry, PhoneHub hub, IAssetSource assets, Func<string, bool> isAllowedHost, string appVersion, SkuaApi? skua = null,
+    PushApi? push = null)
 {
     public const string CookieName = "qkp_device";
     private const string Csp = "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
@@ -84,6 +85,11 @@ public sealed class PhoneHandler(
         if (skua is not null && SkuaApi.Handles(path))
         {
             return await skua.HandleAsync(request, path, ct).ConfigureAwait(false);
+        }
+
+        if (push is not null && PushApi.Handles(path))
+        {
+            return await push.HandleAsync(request, path, device.Id, ct).ConfigureAwait(false);
         }
 
         if (!isGet)

@@ -277,4 +277,33 @@ public class PushSubscriptionStoreTests
             ["ScriptStopped", "ScriptError", "SkuaDisconnected", "CharacterKicked", "SkuaOptionsWaiting", "RankUp", "HardFarmDrop", "NoProgress", "DyingOften"],
             PushKinds.All);
     }
+
+    [Fact]
+    public void RemoveIfEndpoint_removes_only_while_the_endpoint_is_the_same()
+    {
+        var file = new MemoryPushFileStore();
+        var store = new PushSubscriptionStore(file, () => DateTimeOffset.UnixEpoch);
+        store.Set("d", "https://fcm.googleapis.com/a", "p", "a", null);
+
+        Assert.False(store.RemoveIfEndpoint("d", "https://fcm.googleapis.com/other"));
+        Assert.NotNull(store.Get("d"));
+        Assert.True(store.RemoveIfEndpoint("d", "https://fcm.googleapis.com/a"));
+        Assert.Null(store.Get("d"));
+        Assert.Empty(store.All);
+    }
+
+    [Fact]
+    public void All_is_a_snapshot_that_follows_every_change_and_does_not_wait_for_the_store_lock()
+    {
+        var store = new PushSubscriptionStore(new MemoryPushFileStore(), () => DateTimeOffset.UnixEpoch);
+        store.Set("d", "https://fcm.googleapis.com/a", "p", "a", null);
+        var before = store.All;
+
+        store.SetKinds("d", ["RankUp"]);
+
+        Assert.Equal(PushKinds.All, before.Single().Kinds);
+        Assert.Equal(["RankUp"], store.All.Single().Kinds);
+        store.Forget();
+        Assert.Empty(store.All);
+    }
 }

@@ -16,26 +16,20 @@ public sealed class PushSubscriptionStore : IForgettable
     private readonly Dictionary<string, string> _errors = new(StringComparer.Ordinal);
     private List<PushSubscription> _subs;
     private bool _quiesced;
+    private volatile IReadOnlyList<PushSubscription> _view;
 
     public PushSubscriptionStore(IPushFileStore file, Func<DateTimeOffset> now)
     {
         _file = file;
         _now = now;
         _subs = Clean(file.Load());
+        _view = [.. _subs];
     }
 
     public string Name => "Push notifications";
 
-    public IReadOnlyList<PushSubscription> All
-    {
-        get
-        {
-            lock (_lock)
-            {
-                return [.. _subs];
-            }
-        }
-    }
+    /// <summary>A snapshot read without the store's lock, so a caller never waits for a file write (the phone hub reads it).</summary>
+    public IReadOnlyList<PushSubscription> All => _view;
 
     public PushSubscription? Get(string deviceId)
     {
@@ -79,6 +73,15 @@ public sealed class PushSubscriptionStore : IForgettable
             _subs[index] = _subs[index] with { Kinds = normalized };
             Save();
             return true;
+        }
+    }
+
+    /// <summary>Removes the device's subscription only while it still has this endpoint (a re-subscribe with a new one is kept).</summary>
+    public bool RemoveIfEndpoint(string deviceId, string endpoint)
+    {
+        lock (_lock)
+        {
+            return _subs.Any(s => s.DeviceId == deviceId && s.Endpoint == endpoint) && RemoveLocked([deviceId]);
         }
     }
 
@@ -167,6 +170,7 @@ public sealed class PushSubscriptionStore : IForgettable
         lock (_lock)
         {
             _subs = [];
+            _view = [];
             _errors.Clear();
             _file.Delete();
             _quiesced = false;
@@ -195,7 +199,11 @@ public sealed class PushSubscriptionStore : IForgettable
         return true;
     }
 
-    private void Save() => _file.Save(new PushFile([.. _subs]));
+    private void Save()
+    {
+        _view = [.. _subs];
+        _file.Save(new PushFile(_view));
+    }
 
     private static List<PushSubscription> Clean(PushFile? loaded)
     {

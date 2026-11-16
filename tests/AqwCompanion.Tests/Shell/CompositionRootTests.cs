@@ -365,4 +365,44 @@ public class CompositionRootTests
             }
         }
     }
+
+    [Fact]
+    public void The_push_pipeline_is_wired_hub_to_notifier_and_handler_to_api()
+    {
+        var paths = new AppPaths(Path.Combine(Path.GetTempPath(), "aqw-tests", Guid.NewGuid().ToString("N")));
+        try
+        {
+            using var services = CompositionRoot.Build(paths);
+
+            Assert.NotNull(services.GetRequiredService<PhoneHub>());
+            Assert.NotNull(services.GetRequiredService<PushNotifier>());
+            Assert.NotNull(services.GetRequiredService<PushApi>());
+            var handler = services.GetRequiredService<PhoneHandler>();
+            var registry = services.GetRequiredService<PhoneRegistry>();
+            Assert.False(Directory.Exists(paths.Root));
+            var paired = registry.TryPair(registry.CreatePairingToken(), "Phone");
+            Assert.Equal(PairStatus.Paired, paired.Status);
+            var deviceId = registry.List().Single().Id;
+            using var ua = System.Security.Cryptography.ECDiffieHellman.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
+            var q = ua.ExportParameters(false).Q;
+            services.GetRequiredService<PushSubscriptionStore>().Set(
+                deviceId, "https://fcm.googleapis.com/fcm/send/abc",
+                System.Buffers.Text.Base64Url.EncodeToString([0x04, .. q.X!, .. q.Y!]), System.Buffers.Text.Base64Url.EncodeToString(new byte[16]), null);
+
+            var request = new PhoneRequest(
+                "GET", "/api/push/state",
+                new Dictionary<string, string> { ["Host"] = "127.0.0.1:47822", ["Cookie"] = $"{PhoneHandler.CookieName}={paired.DeviceToken}" }, string.Empty);
+            var response = handler.Handle(request);
+
+            Assert.Equal(200, response.Status);
+            Assert.Contains("\"subscribed\":true", System.Text.Encoding.UTF8.GetString(response.Body), StringComparison.Ordinal);
+        }
+        finally
+        {
+            if (Directory.Exists(paths.Root))
+            {
+                Directory.Delete(paths.Root, true);
+            }
+        }
+    }
 }

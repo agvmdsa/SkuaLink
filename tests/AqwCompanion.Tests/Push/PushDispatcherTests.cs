@@ -91,6 +91,41 @@ public class PushDispatcherTests
         Assert.Null(_store.Get("dev"));
     }
 
+    private sealed class ResubscribeHandler(PushSubscriptionStore store, string device, string newEndpoint, (string P256dh, string Auth) keys) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            // The phone subscribes again with a new endpoint while the send to the old one is on its way.
+            store.Set(device, newEndpoint, keys.P256dh, keys.Auth, null);
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Gone));
+        }
+    }
+
+    [Fact]
+    public async Task A_410_for_the_old_endpoint_does_not_remove_a_subscription_made_meanwhile_with_a_new_endpoint()
+    {
+        const string newEndpoint = "https://updates.push.services.mozilla.com/wpush/v2/new";
+        using var dispatcher = Dispatcher(new ResubscribeHandler(_store, "dev", newEndpoint, NewKeys()));
+
+        dispatcher.Enqueue(Job());
+        await dispatcher.StopAsync();
+
+        Assert.Equal(newEndpoint, _store.Get("dev")!.Endpoint);
+    }
+
+    [Fact]
+    public async Task Disposing_after_the_worker_ran_is_safe_twice()
+    {
+        var dispatcher = Dispatcher(new FakePushHandler());
+        dispatcher.Enqueue(Job());
+        await dispatcher.StopAsync();
+
+        dispatcher.Dispose();
+        dispatcher.Dispose();
+
+        Assert.False(dispatcher.Enqueue(Job()));
+    }
+
     [Theory]
     [InlineData(HttpStatusCode.Forbidden)]
     [InlineData(HttpStatusCode.Unauthorized)]
