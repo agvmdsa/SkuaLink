@@ -38,6 +38,7 @@ public sealed class PhoneHub : IDisposable
     private readonly ISkuaFeed? _skua;
     private readonly CharacterBook? _characters;
     private readonly IHardFarmsCheck? _hardFarms;
+    private readonly INoticeSink? _notices;
     private readonly object _lock = new();
     private readonly List<HubSubscription> _subscribers = [];
     private FeedSnapshot _snapshot;
@@ -45,8 +46,9 @@ public sealed class PhoneHub : IDisposable
 
     public PhoneHub(
         IFeedSource source, NoticeEngine engine, NoticeLog log, Func<DateTimeOffset> now, Action<Exception>? onError = null, ISkuaFeed? skua = null,
-        CharacterBook? characters = null, IHardFarmsCheck? hardFarms = null)
+        CharacterBook? characters = null, IHardFarmsCheck? hardFarms = null, INoticeSink? notices = null)
     {
+        _notices = notices;
         _source = source;
         _engine = engine;
         _log = log;
@@ -240,6 +242,11 @@ public sealed class PhoneHub : IDisposable
         {
             lock (_lock)
             {
+                if (_characters is not null)
+                {
+                    _engine.NoteProgress(_characters.All, _now());
+                }
+
                 PublishState();
             }
         }
@@ -266,6 +273,15 @@ public sealed class PhoneHub : IDisposable
         foreach (var notice in notices)
         {
             _log.Add(notice);
+            try
+            {
+                _notices?.Publish(notice);
+            }
+            catch (Exception ex)
+            {
+                Report(ex);   // a sink failure never stops the SSE publish
+            }
+
             Publish(new HubMessage("notice", PhoneJson.SerializeNotice(notice)));
         }
     }

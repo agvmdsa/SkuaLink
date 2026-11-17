@@ -14,7 +14,7 @@ const links = (n: VNode) => all(n).filter((x) => x.tag === 'a');
 describe('dock items', () => {
   it('are Characters and Settings, in that order, with catalog labels', () => {
     expect(DOCK_ITEMS.map((i) => i.id)).toEqual(['characters', 'settings']);
-    expect(DOCK_ITEMS.map((i) => en[i.label])).toEqual(['Characters', 'Settings']);
+    expect(DOCK_ITEMS.map((i) => en[i.label as keyof typeof en])).toEqual(['Characters', 'Settings']);
   });
   it('link the page by its hash route; Settings is a button, not a page', () => {
     expect(DOCK_ITEMS.map((i) => i.href)).toEqual(['#/', null]);
@@ -454,7 +454,7 @@ describe('accessible names of the dock items', () => {
   it('names every page link and the Settings button from the catalog, whether or not the label is shown', () => {
     const v = dockView('characters', false);
     const items = all(v).filter((n) => n.className === 'dock-btn');
-    expect(items.map((n) => n.attrs!['aria-label'])).toEqual(DOCK_ITEMS.map((i) => en[i.label]));
+    expect(items.map((n) => n.attrs!['aria-label'])).toEqual(DOCK_ITEMS.map((i) => en[i.label as keyof typeof en]));
     for (const n of items) expect(n.attrs!['aria-label']!.trim()).not.toBe('');
   });
 });

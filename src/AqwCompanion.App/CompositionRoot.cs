@@ -9,6 +9,7 @@ using AqwCompanion.App.Infrastructure;
 using AqwCompanion.App.Infrastructure.AutoStart;
 using AqwCompanion.App.Infrastructure.Persistence;
 using AqwCompanion.App.Phone;
+using AqwCompanion.App.Push;
 using AqwCompanion.App.Inventory;
 using AqwCompanion.App.Settings;
 using AqwCompanion.App.Skua;
@@ -21,6 +22,7 @@ using AqwCompanion.Phone.Characters;
 using AqwCompanion.Phone.Devices;
 using AqwCompanion.Phone.Hub;
 using AqwCompanion.Phone.Notices;
+using AqwCompanion.Phone.Push;
 using AqwCompanion.Phone.Skua;
 using AqwCompanion.Phone.Web;
 using AqwCompanion.Core.Wiki;
@@ -103,12 +105,34 @@ public static class CompositionRoot
         services.AddSingleton<LocalFeedController>();
         services.AddSingleton<IPhoneFileStore>(sp => new PhoneStore(sp.GetRequiredService<AppPaths>().PhonePath));
         services.AddSingleton(sp => new PhoneRegistry(sp.GetRequiredService<IPhoneFileStore>(), () => DateTimeOffset.UtcNow));
+        services.AddSingleton<IPushFileStore>(sp => new PushFileStore(sp.GetRequiredService<AppPaths>().PushPath));
+        services.AddSingleton(sp =>
+        {
+            var store = new PushSubscriptionStore(sp.GetRequiredService<IPushFileStore>(), () => DateTimeOffset.UtcNow);
+            // A revoked phone (or every phone, on Forget) loses its subscription.
+            var registry = sp.GetRequiredService<PhoneRegistry>();
+            registry.DevicesRevoked += store.RemoveDevices;
+            store.RetainDevices(registry.List().Select(d => d.Id).ToList());
+            return store;
+        });
+        services.AddSingleton(sp => new VapidKeyStore(sp.GetRequiredService<AppPaths>().VapidKeyPath));
+        services.AddSingleton<IVapidKeySource>(sp => sp.GetRequiredService<VapidKeyStore>());
+        services.AddSingleton(sp => new PushSender(PushHttp.Create(), sp.GetRequiredService<IVapidKeySource>(), () => DateTimeOffset.UtcNow, null,
+            ex => Log.Warning("Push encryption failed: {ExceptionType}", ex.GetType().Name)));
+        services.AddSingleton(sp => new PushDispatcher(
+            sp.GetRequiredService<PushSender>(), sp.GetRequiredService<PushSubscriptionStore>(),
+            ex => Log.Warning("Push dispatch failed: {ExceptionType}", ex.GetType().Name)));
+        services.AddSingleton(sp => new PushNotifier(sp.GetRequiredService<PushSubscriptionStore>(), sp.GetRequiredService<PushDispatcher>()));
+        services.AddSingleton(sp => new PushApi(
+            sp.GetRequiredService<PushSubscriptionStore>(), sp.GetRequiredService<IVapidKeySource>(), sp.GetRequiredService<PushSender>(), () => DateTimeOffset.UtcNow));
+        services.AddSingleton(sp => new PhoneStops(() => DateTimeOffset.UtcNow));
         services.AddSingleton(sp => new PhoneHub(
-            sp.GetRequiredService<IFeedSource>(), new NoticeEngine(), new NoticeLog(50), () => DateTimeOffset.UtcNow,
+            sp.GetRequiredService<IFeedSource>(), new NoticeEngine(stops: sp.GetRequiredService<PhoneStops>()), new NoticeLog(50), () => DateTimeOffset.UtcNow,
             ex => Log.Warning("Phone hub failed: {ExceptionType}", ex.GetType().Name),
             skua: sp.GetRequiredService<ISkuaFeed>(),
             characters: sp.GetRequiredService<CharacterBook>(),
-            hardFarms: sp.GetRequiredService<IHardFarmsCheck>()));
+            hardFarms: sp.GetRequiredService<IHardFarmsCheck>(),
+            notices: sp.GetRequiredService<PushNotifier>()));
         services.AddSingleton(sp => new SkuaScriptPrefs(
             new SkuaScriptFile(sp.GetRequiredService<AppPaths>().SkuaScriptPrefsPath), () => DateTimeOffset.UtcNow));
         services.AddSingleton(sp => new SkuaOptionCache(
@@ -120,7 +144,8 @@ public static class CompositionRoot
         services.AddSingleton<ICharacterBookStore>(sp => new StoredCharacterBookStore(sp.GetRequiredService<StoredData>()));
         services.AddSingleton(sp => new CharacterBook(sp.GetRequiredService<ICharacterBookStore>(), () => DateTimeOffset.UtcNow));
         services.AddSingleton(sp => new SkuaHub(
-            sp.GetRequiredService<ISkuaLogStores>(), () => DateTimeOffset.UtcNow, characters: sp.GetRequiredService<CharacterBook>()));
+            sp.GetRequiredService<ISkuaLogStores>(), () => DateTimeOffset.UtcNow, characters: sp.GetRequiredService<CharacterBook>(),
+            stops: sp.GetRequiredService<PhoneStops>()));
         services.AddSingleton<ISkuaFeed>(sp => sp.GetRequiredService<SkuaHub>());
         services.AddSingleton<ISkuaCommandChannel>(sp => sp.GetRequiredService<SkuaHub>());
         services.AddSingleton(sp => new SkuaBridgeHost(
@@ -137,7 +162,8 @@ public static class CompositionRoot
             var controller = new Lazy<PhoneController>(() => sp.GetRequiredService<PhoneController>());
             return new PhoneHandler(
                 sp.GetRequiredService<PhoneRegistry>(), sp.GetRequiredService<PhoneHub>(), sp.GetRequiredService<IAssetSource>(),
-                host => controller.Value.AllowedHost(host), AppInfo.Version, sp.GetRequiredService<SkuaApi>());
+                host => controller.Value.AllowedHost(host), AppInfo.Version, sp.GetRequiredService<SkuaApi>(),
+                sp.GetRequiredService<PushApi>());
         });
         services.AddSingleton<IPhoneHost>(sp => new PhoneHost(
             sp.GetRequiredService<PhoneHandler>(), sp.GetRequiredService<PhoneHub>(), sp.GetRequiredService<PhoneRegistry>()));
@@ -166,6 +192,10 @@ public static class CompositionRoot
     [
         sp.GetRequiredService<HardFarmsViewModel>(),
         new LegacyReputationFolder(sp.GetRequiredService<AppPaths>()),
+        // The push stores forget before the book and the hub: a notice produced while those forget then finds no subscription
+        // and no key, so nothing is pushed after Forget. The send path only reads the key, so a send in flight cannot recreate it.
+        sp.GetRequiredService<PushSubscriptionStore>(),
+        sp.GetRequiredService<VapidKeyStore>(),
         // The book forgets before the hub: a re-report arriving between the two is then kept by the book (resumed already)
         // instead of dropped by a still-quiesced one; the plugin reports again only on a change.
         sp.GetRequiredService<CharacterBook>(),

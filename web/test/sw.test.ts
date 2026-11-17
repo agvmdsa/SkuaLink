@@ -219,3 +219,240 @@ describe('service worker script', () => {
     expect(template).toContain(SENTENCE);
   });
 });
+interface PushFake {
+  listeners: Record<string, (event: unknown) => void>;
+  show: ReturnType<typeof vi.fn>;
+  matchAll: ReturnType<typeof vi.fn>;
+  openWindow: ReturnType<typeof vi.fn>;
+  subscribe: ReturnType<typeof vi.fn>;
+  fetch: ReturnType<typeof vi.fn>;
+}
+
+/** Runs the template with the extra globals the push handlers use. */
+function loadPush(clients: unknown[] = [], subscribeResult: unknown = null): PushFake {
+  const listeners: Record<string, (event: unknown) => void> = {};
+  const show = vi.fn(async () => undefined);
+  const matchAll = vi.fn(async () => clients);
+  const openWindow = vi.fn(async () => undefined);
+  const subscribe = vi.fn(async () => subscribeResult);
+  const fetchFn = vi.fn(async () => new Response('{}'));
+  const context = {
+    self: {
+      addEventListener: (name: string, fn: (event: unknown) => void) => (listeners[name] = fn),
+      location: { origin: 'https://pc.tail.ts.net' },
+      clients: { claim: async () => undefined, matchAll, openWindow },
+      skipWaiting: async () => undefined,
+      registration: { showNotification: show, pushManager: { subscribe } },
+    },
+    caches: { open: async () => ({ addAll: async () => undefined, put: async () => undefined }), match: async () => undefined, keys: async () => [], delete: async () => true },
+    fetch: fetchFn,
+    Response, URL, Promise, setTimeout, clearTimeout, RegExp, JSON, atob, Uint8Array,
+  };
+  vm.runInNewContext(template.replace("'__CACHE__'", '"test"').replace('__SHELL__', '[]'), context);
+  return { listeners, show, matchAll, openWindow, subscribe, fetch: fetchFn };
+}
+
+const pushEvent = (data: unknown) => {
+  const waits: Promise<unknown>[] = [];
+  return { event: { data: data === undefined ? null : { json: () => (typeof data === 'string' ? JSON.parse(data) : data) }, waitUntil: (p: Promise<unknown>) => waits.push(p) }, waits };
+};
+
+describe('push', () => {
+  it('shows the notification the payload describes, with the notice id as its tag and the url in data', async () => {
+    const sw = loadPush();
+    const { event, waits } = pushEvent({ title: 'Hero keeps dying', body: 'Hero died 5 times in 2 minutes.', tag: 'dying:Hero:1', url: '/#/character/Hero/bot', kind: 'DyingOften', at: 'x' });
+
+    sw.listeners.push!(event);
+    await Promise.all(waits);
+
+    expect(sw.show).toHaveBeenCalledWith('Hero keeps dying', { body: 'Hero died 5 times in 2 minutes.', tag: 'dying:Hero:1', icon: '/icons/icon-192.png', data: { url: '/#/character/Hero/bot' } });
+  });
+
+  it.each([[undefined], ['not json'], [42], [null], ['"a string"'], ['[]']])('always shows a notification, even for unreadable data (%s)', async (data) => {
+    const sw = loadPush();
+    const { event, waits } = pushEvent(data === 'not json' ? { json: undefined } : data);
+    if (data === 'not json') (event as { data: unknown }).data = { json: () => { throw new SyntaxError('bad'); } };
+
+    sw.listeners.push!(event);
+    await Promise.all(waits);
+
+    expect(sw.show).toHaveBeenCalledTimes(1);
+    expect(sw.show.mock.calls[0]![0]).toBe('SkuaLink');
+    expect(sw.show.mock.calls[0]![1].body).toBe('Something happened. Open SkuaLink.');
+    expect(sw.show.mock.calls[0]![1].data).toEqual({ url: '/' });
+  });
+
+  it.each(['https://evil.example/x', '//evil.example/x', 'javascript:alert(1)', '\\evil', 5, null, '', '/other/path', '/#/a b', '/#/a\\b', '#x', '/#evil'])('never lets a payload send the tap elsewhere (%s)', async (url) => {
+    const sw = loadPush();
+    const { event, waits } = pushEvent({ title: 't', body: 'b', url });
+
+    sw.listeners.push!(event);
+    await Promise.all(waits);
+
+    expect(sw.show.mock.calls[0]![1].data).toEqual({ url: '/' });
+  });
+
+  it('cuts very long texts and ignores non-string fields', async () => {
+    const sw = loadPush();
+    const { event, waits } = pushEvent({ title: 'x'.repeat(500), body: 'y'.repeat(900), tag: 7 });
+
+    sw.listeners.push!(event);
+    await Promise.all(waits);
+
+    const [title, options] = sw.show.mock.calls[0]!;
+    expect(title).toHaveLength(100);
+    expect(options.body).toHaveLength(300);
+    expect(options.tag).toBe('skualink');
+  });
+});
+
+describe('notification click', () => {
+  const clickEvent = (url: unknown) => {
+    const waits: Promise<unknown>[] = [];
+    const close = vi.fn();
+    return { event: { notification: { close, data: url === undefined ? undefined : { url } }, waitUntil: (p: Promise<unknown>) => waits.push(p) }, waits, close };
+  };
+
+  it('closes the notification, tells an open page of this site to show the section and focuses it', async () => {
+    const page = { url: 'https://pc.tail.ts.net/#/', postMessage: vi.fn(), focus: vi.fn(async () => undefined) };
+    const other = { url: 'https://other.example/', postMessage: vi.fn(), focus: vi.fn(async () => undefined) };
+    const sw = loadPush([other, page]);
+    const { event, waits, close } = clickEvent('/#/character/Hero/bot');
+
+    sw.listeners.notificationclick!(event);
+    await Promise.all(waits);
+
+    expect(close).toHaveBeenCalled();
+    expect(page.postMessage).toHaveBeenCalledWith({ type: 'qkp-open', hash: '#/character/Hero/bot' });
+    expect(page.focus).toHaveBeenCalled();
+    expect(other.postMessage).not.toHaveBeenCalled();
+    expect(sw.openWindow).not.toHaveBeenCalled();
+  });
+
+  it('opens a window at the url when no page is open', async () => {
+    const sw = loadPush([]);
+    const { event, waits } = clickEvent('/#/character/Hero/bot');
+
+    sw.listeners.notificationclick!(event);
+    await Promise.all(waits);
+
+    expect(sw.openWindow).toHaveBeenCalledWith('/#/character/Hero/bot');
+  });
+
+  it('opens a bare #/ url as an absolute path, never relative to the worker script', async () => {
+    const sw = loadPush([]);
+    const { event, waits } = clickEvent('#/character/Hero/bot');
+
+    sw.listeners.notificationclick!(event);
+    await Promise.all(waits);
+
+    expect(sw.openWindow).toHaveBeenCalledWith('/#/character/Hero/bot');
+  });
+
+  it('a url without a section opens the list (hash #/) and a hostile or missing url falls back to /', async () => {
+    const page = { url: 'https://pc.tail.ts.net/', postMessage: vi.fn(), focus: vi.fn(async () => undefined) };
+    const sw = loadPush([page]);
+    for (const url of ['/', 'https://evil.example/', undefined]) {
+      const { event, waits } = clickEvent(url);
+      sw.listeners.notificationclick!(event);
+      await Promise.all(waits);
+    }
+
+    expect(page.postMessage.mock.calls.map((c) => c[0].hash)).toEqual(['#/', '#/', '#/']);
+  });
+
+  it('survives a client that refuses to focus', async () => {
+    const page = { url: 'https://pc.tail.ts.net/', postMessage: vi.fn(), focus: vi.fn(async () => { throw new Error('no'); }) };
+    const sw = loadPush([page]);
+    const { event, waits } = clickEvent('/');
+
+    sw.listeners.notificationclick!(event);
+
+    await expect(Promise.all(waits)).resolves.toBeDefined();
+  });
+});
+
+describe('push subscription change', () => {
+  const changeEvent = (extra: Record<string, unknown>) => {
+    const waits: Promise<unknown>[] = [];
+    return { event: { ...extra, waitUntil: (p: Promise<unknown>) => waits.push(p) }, waits };
+  };
+  const sub = { toJSON: () => ({ endpoint: 'https://fcm.googleapis.com/x', keys: { p256dh: 'P', auth: 'A' } }) };
+
+  it('subscribes again with the old options and registers the new subscription without kinds', async () => {
+    const sw = loadPush([], sub);
+    const options = { userVisibleOnly: true, applicationServerKey: new Uint8Array([1]) };
+    const { event, waits } = changeEvent({ oldSubscription: { options } });
+
+    sw.listeners.pushsubscriptionchange!(event);
+    await Promise.all(waits);
+
+    expect(sw.subscribe).toHaveBeenCalledWith(options);
+    const [path, init] = sw.fetch.mock.calls[0]!;
+    expect(path).toBe('/api/push/subscription');
+    expect(init.method).toBe('PUT');
+    expect(init.headers['X-Remote']).toBe('1');
+    expect(JSON.parse(init.body)).toEqual({ endpoint: 'https://fcm.googleapis.com/x', keys: { p256dh: 'P', auth: 'A' } });
+  });
+
+  it('uses the new subscription the browser already made', async () => {
+    const sw = loadPush();
+    const { event, waits } = changeEvent({ newSubscription: sub });
+
+    sw.listeners.pushsubscriptionchange!(event);
+    await Promise.all(waits);
+
+    expect(sw.subscribe).not.toHaveBeenCalled();
+    expect(sw.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('swallows every failure', async () => {
+    const sw = loadPush([], null);
+    sw.fetch.mockRejectedValue(new Error('offline'));
+    const { event, waits } = changeEvent({ oldSubscription: { options: {} } });
+
+    sw.listeners.pushsubscriptionchange!(event);
+
+    await expect(Promise.all(waits)).resolves.toBeDefined();
+  });
+});
+
+describe('push url shape', () => {
+  it.each(['#/character/Hero/bot', '/#/', '/'])('keeps the allowed url %s', async (url) => {
+    const sw = loadPush();
+    const { event, waits } = pushEvent({ title: 't', body: 'b', url });
+    sw.listeners.push!(event);
+    await Promise.all(waits);
+    expect(sw.show.mock.calls[0]![1].data).toEqual({ url });
+  });
+
+  it('still shows the notification when showNotification itself throws synchronously', () => {
+    const sw = loadPush();
+    sw.show.mockImplementationOnce(() => { throw new Error('boom'); });
+    const { event } = pushEvent({ title: 't' });
+    expect(() => sw.listeners.push!(event)).not.toThrow();
+    expect(sw.show).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('push subscription change without old options', () => {
+  it('reads the VAPID key from the PC and subscribes with it', async () => {
+    const sub = { toJSON: () => ({ endpoint: 'https://fcm.googleapis.com/x', keys: { p256dh: 'P', auth: 'A' } }) };
+    const sw = loadPush([], sub);
+    sw.fetch.mockImplementation(async (path: string) => new Response(path === '/api/push/key' ? JSON.stringify({ publicKey: 'AQID' }) : '{}'));
+    const waits: Promise<unknown>[] = [];
+
+    sw.listeners.pushsubscriptionchange!({ waitUntil: (p: Promise<unknown>) => waits.push(p) });
+    await Promise.all(waits);
+
+    expect(sw.fetch.mock.calls[0]![0]).toBe('/api/push/key');
+    expect(sw.fetch.mock.calls[0]![1].credentials).toBe('same-origin');
+    const options = sw.subscribe.mock.calls[0]![0];
+    expect(options.userVisibleOnly).toBe(true);
+    expect(Array.from(options.applicationServerKey as Uint8Array)).toEqual([1, 2, 3]);
+    const [path, init] = sw.fetch.mock.calls[1]!;
+    expect(path).toBe('/api/push/subscription');
+    expect(init.credentials).toBe('same-origin');
+    expect(JSON.parse(init.body)).not.toHaveProperty('kinds');
+  });
+});

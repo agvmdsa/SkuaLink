@@ -27,7 +27,7 @@ export interface EventHandlers {
   notice(data: string): void;
 }
 
-async function send(path: string, init: RequestInit = {}): Promise<Response> {
+export async function send(path: string, init: RequestInit = {}): Promise<Response> {
   const headers = new Headers(init.headers);
   if (init.method && init.method !== 'GET') {
     headers.set('X-Remote', '1');

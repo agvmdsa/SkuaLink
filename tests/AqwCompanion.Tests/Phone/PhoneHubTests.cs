@@ -94,10 +94,67 @@ public class PhoneHubTests
         Assert.Equal(NoticeKind.RankUp, notice.Kind);
     }
 
-    [Fact]
-    public void Tick_after_eleven_minutes_of_silence_publishes_one_stall_notice_and_no_state()
+    private sealed class RecordingSink : INoticeSink
     {
-        var (hub, _, clock) = NewHub();
+        public List<Notice> Seen { get; } = [];
+        public Exception? Throws { get; init; }
+        public Action<Notice>? OnPublish { get; init; }
+
+        public void Publish(Notice notice)
+        {
+            Seen.Add(notice);
+            OnPublish?.Invoke(notice);
+            if (Throws is not null)
+            {
+                throw Throws;
+            }
+        }
+    }
+
+    [Fact]
+    public void A_published_notice_reaches_the_sink_after_the_log()
+    {
+        var clock = new Clock();
+        var source = new FakeFeedSource(Base());
+        PhoneHub? hub = null;
+        var loggedWhenSunk = false;
+        var sink = new RecordingSink { OnPublish = n => loggedWhenSunk = hub!.Current.Notices.Any(x => x.Id == n.Id) };
+        hub = new PhoneHub(source, new NoticeEngine(), new NoticeLog(50), () => clock.Now, null, null, null, null, sink);
+
+        clock.Now = T0.AddSeconds(5);
+        source.Current = Base(rank: 9);
+        source.Raise();
+
+        var notice = Assert.Single(sink.Seen);
+        Assert.Equal(NoticeKind.RankUp, notice.Kind);
+        Assert.True(loggedWhenSunk);
+        Assert.Equal(notice, Assert.Single(hub.Current.Notices));
+    }
+
+    [Fact]
+    public void A_throwing_sink_does_not_stop_the_state_message_and_is_reported()
+    {
+        var clock = new Clock();
+        var source = new FakeFeedSource(Base());
+        var errors = new List<Exception>();
+        var sink = new RecordingSink { Throws = new InvalidOperationException("sink") };
+        using var hub = new PhoneHub(source, new NoticeEngine(), new NoticeLog(50), () => clock.Now, errors.Add, null, null, null, sink);
+        using var sub = hub.Subscribe();
+
+        clock.Now = T0.AddSeconds(5);
+        source.Current = Base(rank: 9);
+        source.Raise();
+
+        Assert.Equal(["notice", "state"], Drain(sub).Select(m => m.Event));
+        Assert.Single(errors);
+    }
+
+    [Fact]
+    public void Tick_after_eleven_minutes_without_progress_publishes_one_notice_and_no_state()
+    {
+        var clock = new Clock();
+        var skua = new FakeSkua { Current = new SkuaHubView([FakeSkua.Instance("a", "Hero", status: NoticeEngineScriptTests.Status(profile: null))]) };
+        var hub = new PhoneHub(new FakeFeedSource(Base()), new NoticeEngine(), new NoticeLog(50), () => clock.Now, skua: skua);
         using var sub = hub.Subscribe();
 
         clock.Now = T0.AddMinutes(11);
@@ -108,8 +165,31 @@ public class PhoneHubTests
 
         var message = Assert.Single(first);
         Assert.Equal("notice", message.Event);
-        Assert.Contains("ActivityStopped", message.Json);
+        Assert.Contains("NoProgress", message.Json);
         Assert.Empty(second);
+    }
+
+    [Fact]
+    public void A_changed_inventory_in_the_book_restarts_the_no_progress_timer()
+    {
+        var clock = new Clock();
+        var book = new CharacterBook(new MemoryCharacterBookStore(), () => clock.Now);
+        var skua = new FakeSkua { Current = new SkuaHubView([FakeSkua.Instance("a", "Hero", status: NoticeEngineScriptTests.Status(profile: null))]) };
+        var hub = new PhoneHub(new FakeFeedSource(Base()), new NoticeEngine(), new NoticeLog(50), () => clock.Now, skua: skua, characters: book);
+        using var sub = hub.Subscribe();
+
+        clock.Now = T0.AddMinutes(3);
+        book.OnInventory("Hero", new SkuaInventory("Hero", ["inv"], [new SkuaItem("Sword", 1, "inv")]));
+        clock.Now = T0.AddMinutes(8);
+        book.OnInventory("Hero", new SkuaInventory("Hero", ["inv"], [new SkuaItem("Sword", 2, "inv")]));
+        Drain(sub);
+
+        clock.Now = T0.AddMinutes(11);
+        hub.Tick();
+        Assert.DoesNotContain(Drain(sub), m => m.Event == "notice");
+        clock.Now = T0.AddMinutes(19);
+        hub.Tick();
+        Assert.Single(Drain(sub), m => m.Event == "notice");
     }
 
     [Fact]

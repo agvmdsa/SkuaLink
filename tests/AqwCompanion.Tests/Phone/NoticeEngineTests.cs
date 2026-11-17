@@ -105,38 +105,13 @@ public class NoticeEngineTests
     }
 
     [Fact]
-    public void A_live_character_with_no_activity_for_ten_minutes_is_reported_once_by_tick()
+    public void A_stalled_feed_character_no_longer_raises_ActivityStopped()
     {
         var engine = new NoticeEngine();
         engine.Process(Snap(characters: [Hero("Alpha", live: true, last: T0)]), T0);
 
-        Assert.Empty(engine.Tick(T0.AddMinutes(9)));
-        var n = Assert.Single(engine.Tick(T0.AddMinutes(11)));
-        Assert.Equal(NoticeKind.ActivityStopped, n.Kind);
-        Assert.Equal($"stall:Alpha:{T0.UtcTicks}", n.Id);
-        Assert.Empty(engine.Tick(T0.AddMinutes(12)));
-    }
-
-    [Fact]
-    public void Activity_that_resumes_and_stops_again_is_reported_again()
-    {
-        var engine = new NoticeEngine();
-        engine.Process(Snap(characters: [Hero("Alpha", last: T0)]), T0);
-        Assert.Single(engine.Tick(T0.AddMinutes(11)));
-
-        var resumed = T0.AddMinutes(12);
-        engine.Process(Snap(characters: [Hero("Alpha", last: resumed)]), resumed);
-
-        Assert.Single(engine.Tick(resumed.AddMinutes(11)));
-    }
-
-    [Fact]
-    public void A_character_that_is_not_live_never_counts_as_stopped()
-    {
-        var engine = new NoticeEngine();
-        engine.Process(Snap(characters: [Hero("Alpha", live: false, last: null)]), T0);
-
         Assert.Empty(engine.Tick(T0.AddHours(5)));
+        Assert.Empty(engine.Process(Snap(characters: [Hero("Alpha", live: true, last: T0)]), T0.AddHours(5)));
     }
 
     [Fact]

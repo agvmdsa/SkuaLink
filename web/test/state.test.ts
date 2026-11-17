@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   characterHref, deviceName, expFraction, formatCompact, formatNumber,
-  hardFarmsView, iosInstallHint, KEPT_KEY, linkAfterFreshData, linkBanner, noticeLine, parseRoute, parseState, relativeTime,
+  hardFarmsView, iosInstallHint, isIos, KEPT_KEY, linkAfterFreshData, linkBanner, noticeLine, parseOpenMessage, parseRoute, parseState, relativeTime,
 } from '../src/state';
 
 const NOW = Date.parse('2026-11-09T12:00:00Z');
@@ -175,4 +175,21 @@ describe('notices, routes and device names', () => {
     ['Mozilla/5.0 (iPhone; CPU iPhone OS 17_0)', 'iPhone'], ['Mozilla/5.0 (iPad; CPU OS 17_0)', 'iPad'],
     ['Mozilla/5.0 (Linux; Android 14; Pixel 7)', 'Android phone'], ['Mozilla/5.0 (Windows NT 10.0)', 'Browser'], ['', 'Browser'],
   ])('deviceName(%s)', (ua, name) => expect(deviceName(ua)).toBe(name));
+});
+
+describe('parseOpenMessage and isIos', () => {
+  it('accepts a section hash from the service worker', () => {
+    expect(parseOpenMessage({ type: 'qkp-open', hash: '#/character/Hero/bot' })).toBe('#/character/Hero/bot');
+    expect(parseOpenMessage({ type: 'qkp-open', hash: '#/' })).toBe('#/');
+  });
+
+  it.each([null, 'x', { type: 'other', hash: '#/' }, { type: 'qkp-open', hash: '/x' }, { type: 'qkp-open', hash: '#/a b' }, { type: 'qkp-open', hash: `#/${'a'.repeat(299)}` }, { type: 'qkp-open', hash: 'javascript:alert(1)' }, { type: 'qkp-open' }])('refuses %j', (data) => {
+    expect(parseOpenMessage(data)).toBeNull();
+  });
+
+  it('knows iPhones, iPads posing as Macs and not Windows', () => {
+    expect(isIos('Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)')).toBe(true);
+    expect(isIos('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)', 5)).toBe(true);
+    expect(isIos('Mozilla/5.0 (Windows NT 10.0; Win64; x64)')).toBe(false);
+  });
 });

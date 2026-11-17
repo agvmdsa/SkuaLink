@@ -20,7 +20,9 @@ export function dockView(current: DockId | null, open: boolean, settings: ThemeC
   return h(
     'nav',
     { className: 'dock', attrs: { 'aria-label': t('dock.label'), 'data-open': String(open) } },
-    settings ? h('div', { className: 'card', attrs: { id: 'dock-settings' } }, themeFooter({ theme: settings }, 'div')) : null,
+    settings
+      ? h('div', { className: 'card', attrs: { id: 'dock-settings' } }, themeFooter({ theme: settings }, 'div'), h('div', { className: 'push', attrs: { id: 'push-block' } }))
+      : null,
     h(
       'ul',
       { className: 'dock-items', attrs: { id: 'dock-items' } },
@@ -110,6 +112,37 @@ export function setOpen(root: DockRoot, open: boolean, env: DockEnv): void {
   if (!open) settleList(root.querySelector('.dock-items'), false, env, true);
 }
 
+/**
+ * Loads the Notifications chunk the first time the Settings panel is mounted and draws it into the panel after every mount.
+ * When the chunk cannot load (offline with nothing cached) the slot says so, and the next opening of the panel tries again.
+ */
+export function pushLoader(deps: { load: () => Promise<{ attach(slot: HTMLElement): void }>; slot: () => HTMLElement | null; fail: (slot: HTMLElement) => void }): () => void {
+  let push: { attach(slot: HTMLElement): void } | null = null;
+  let loading = false;
+  return () => {
+    const slot = deps.slot();
+    if (!slot) return;
+    if (push) {
+      push.attach(slot);
+      return;
+    }
+    if (loading) return;
+    loading = true;
+    deps
+      .load()
+      .then((loaded) => {
+        push = loaded;
+        const current = deps.slot();
+        if (current) loaded.attach(current);
+      })
+      .catch(() => {
+        loading = false;
+        const current = deps.slot();
+        if (current) deps.fail(current);
+      });
+  };
+}
+
 export interface DockContext {
   host: HTMLElement;
   unpaired: () => boolean;
@@ -131,6 +164,11 @@ export function startDock(ctx: DockContext): { draw: () => void; close: () => vo
   const desktop = matchMedia(DESKTOP_QUERY);
   const reduced = matchMedia(REDUCED_MOTION_QUERY);
   let refreshMagnify: (() => void) | null = null;
+  const attachPush = pushLoader({
+    load: () => import('./pushUi').then((m) => m.startPush(host)),
+    slot: () => host.querySelector<HTMLElement>('#push-block'),
+    fail: (slot) => slot.replaceChildren(mount(h('p', { className: 'muted', text: t('push.chunkFailed') }))),
+  });
 
   function draw(): void {
     const route = parseRoute(location.hash);
@@ -149,6 +187,7 @@ export function startDock(ctx: DockContext): { draw: () => void; close: () => vo
     const key = ctx.focusedKey(host);
     host.replaceChildren(mount(dockView(current, state.menu, theme)));
     settleDock(host, state.menu, env);
+    if (theme !== null) attachPush();
     ctx.restoreFocus(key, host);
     refreshMagnify?.();
   }

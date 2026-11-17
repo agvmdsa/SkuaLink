@@ -4,6 +4,7 @@ using AqwCompanion.Core.Feed;
 using AqwCompanion.Phone.Devices;
 using AqwCompanion.Phone.Hub;
 using AqwCompanion.Phone.Notices;
+using AqwCompanion.Phone.Push;
 using AqwCompanion.Phone.Web;
 using AqwCompanion.Tests.TestDoubles;
 
@@ -376,5 +377,48 @@ public class PhoneHandlerTests : IDisposable
         }
 
         Assert.All(responses, r => Assert.True(r.Status >= 400));
+    }
+
+    private sealed class FixedKey(VapidKey key) : IVapidKeySource
+    {
+        public VapidKey GetOrCreate() => key;
+
+        public VapidKey? GetExisting() => key;
+    }
+
+    private PhoneHandler HandlerWithPush()
+    {
+        var key = new FixedKey(VapidKey.Create());
+        var store = new PushSubscriptionStore(new MemoryPushFileStore(), _clock.GetUtcNow);
+        var push = new PushApi(store, key, new PushSender(new HttpClient(new FakePushHandler()), key, _clock.GetUtcNow), _clock.GetUtcNow);
+        return new PhoneHandler(_registry, _hub, _assets, h => h is "127.0.0.1:47822" or "localhost:47822", "9.9.9", push: push);
+    }
+
+    [Fact]
+    public void Push_routes_need_the_device_cookie_the_write_header_and_a_same_origin_request()
+    {
+        var handler = HandlerWithPush();
+        var token = Paired();
+        const string body = "{\"kinds\":[]}";
+        var json = ("Content-Type", "application/json");
+
+        Assert.Equal(401, handler.Handle(Req("GET", "/api/push/key")).Status);
+        Assert.Equal(401, handler.Handle(Req("PUT", "/api/push/kinds", [Write, json], body)).Status);
+        Assert.Equal(403, handler.Handle(Req("PUT", "/api/push/kinds", [Cookie(token), json], body)).Status);
+        Assert.Equal(403, handler.Handle(Req("GET", "/api/push/key", [Cookie(token), ("Origin", "https://evil.example")])).Status);
+        Assert.Equal(403, handler.Handle(Req("PUT", "/api/push/kinds", [Cookie(token), Write, json, ("Origin", "https://evil.example")], body)).Status);
+        var key = handler.Handle(Req("GET", "/api/push/key", [Cookie(token)]));
+        Assert.Equal(200, key.Status);
+        Assert.Contains("\"publicKey\":\"", Text(key));
+        Assert.Equal(409, handler.Handle(Req("PUT", "/api/push/kinds", [Cookie(token), Write, json], body)).Status);
+        Assert.Equal(421, handler.Handle(Req("GET", "/api/push/key", [Cookie(token)], host: "evil.example")).Status);
+    }
+
+    [Fact]
+    public void Without_a_push_api_the_push_routes_are_404()
+    {
+        var token = Paired();
+
+        Assert.Equal(404, _handler.Handle(Req("GET", "/api/push/key", [Cookie(token)])).Status);
     }
 }
