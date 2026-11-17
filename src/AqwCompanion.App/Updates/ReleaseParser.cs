@@ -53,7 +53,7 @@ public static class ReleaseParser
                 ? NotReady
                 : new ReleaseParseResult(ReleaseParseStatus.Ready, new ReleaseInfo(version, installer, plugin, sums));
         }
-        catch (JsonException)
+        catch (Exception e) when (e is JsonException or InvalidOperationException)
         {
             return Invalid;
         }

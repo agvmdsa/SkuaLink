@@ -158,6 +158,24 @@ public class ReleaseParserTests
     }
 
     [Fact]
+    public void A_lone_surrogate_in_the_tag_is_invalid_not_a_crash()
+    {
+        var json = Release("v0.8.0", false, false, Good()).Replace("\"v0.8.0\"", "\"\\ud800\"", StringComparison.Ordinal);
+
+        Assert.Equal(ReleaseParseStatus.Invalid, ReleaseParser.Parse(json).Status);
+    }
+
+    [Fact]
+    public void A_lone_surrogate_in_an_asset_name_or_url_never_throws_and_is_never_ready()
+    {
+        var inName = new[] { Asset("\\ud800", 5), Asset("SkuaLink-Setup-v0.8.0.exe", 5), Asset("SkuaLink.SkuaBridge.dll", 5), Asset("SHA256SUMS.txt", 5) };
+        var inUrl = new[] { Asset("SkuaLink-Setup-v0.8.0.exe", 5, "https://github.com/\\ud800"), Asset("SkuaLink.SkuaBridge.dll", 5), Asset("SHA256SUMS.txt", 5) };
+
+        Assert.NotEqual(ReleaseParseStatus.Ready, ReleaseParser.Parse(Release("v0.8.0", false, false, inName)).Status);
+        Assert.NotEqual(ReleaseParseStatus.Ready, ReleaseParser.Parse(Release("v0.8.0", false, false, inUrl)).Status);
+    }
+
+    [Fact]
     public void The_installer_name_follows_the_version()
     {
         Assert.Equal("SkuaLink-Setup-v1.2.3.exe", ReleaseParser.InstallerFileName(new ReleaseVersion(1, 2, 3)));
