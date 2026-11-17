@@ -39,6 +39,13 @@ public class PushDocsTests
     }
 
     [Fact]
+    public void The_privacy_text_in_settings_names_the_push_service()
+    {
+        Assert.Contains("Notifications", AqwCompanion.App.Settings.SettingsViewModel.PrivacyText, StringComparison.Ordinal);
+        Assert.DoesNotContain("Only two things", AqwCompanion.App.Settings.SettingsViewModel.PrivacyText, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void The_readme_has_no_capture_words()
     {
         Assert.DoesNotContain("npcap", Readme(), StringComparison.OrdinalIgnoreCase);

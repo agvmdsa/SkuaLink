@@ -47,8 +47,9 @@ public partial class SettingsViewModel : ObservableObject
         "membership, guild and slot counts, faction reputation, the names and quantities of the items in the inventory, the house and the bank (once opened in Skua), " +
         "and what Skua is doing (server, map, script, active quests, a short log). " +
         "It never reads or keeps your e-mail address, IP address, password, user or character ids, or anything about other players, and it never sends anything to the game. " +
-        "Only two things go beyond this computer, and only when you ask for them: the AQW Wiki is contacted when you ask for the Hard Farms list, " +
-        "and with Phone access on the app serves what it shows to the phones you paired, over your own Tailscale network. " +
+        "Only three things go beyond this computer, and only when you ask for them: the AQW Wiki is contacted when you ask for the Hard Farms list, " +
+        "with Phone access on the app serves what it shows to the phones you paired, over your own Tailscale network, " +
+        "and with Notifications on, encrypted notification text goes to Apple's or Google's push service. " +
         "The data is saved locally so the app opens with it, and Forget my data removes it.";
 
     public const string CreditsText =
