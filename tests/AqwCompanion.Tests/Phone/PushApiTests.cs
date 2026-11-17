@@ -16,6 +16,8 @@ public class PushApiTests
     private sealed class Keys(VapidKey key) : IVapidKeySource
     {
         public VapidKey GetOrCreate() => key;
+
+        public VapidKey? GetExisting() => key;
     }
 
     private readonly ManualClock _clock = new(new DateTimeOffset(2026, 11, 16, 12, 0, 0, TimeSpan.Zero));
@@ -378,5 +380,37 @@ public class PushApiTests
         Assert.Equal(503, response.Status);
         Assert.Equal(PushApi.Unavailable, Error(response));
         Assert.Null(_store.Get("d1"));
+    }
+
+    [Fact]
+    public void An_allowed_endpoint_of_900_characters_is_accepted()
+    {
+        var endpoint = "https://fcm.googleapis.com/fcm/send/" + new string('a', 900 - "https://fcm.googleapis.com/fcm/send/".Length);
+
+        var response = Call("PUT", "/api/push/subscription", SubBody(endpoint));
+
+        Assert.Equal(200, response.Status);
+        Assert.Equal(900, _store.Get("d1")!.Endpoint.Length);
+    }
+
+    [Fact]
+    public void A_clock_moved_backwards_does_not_block_tests()
+    {
+        Subscribe();
+        Assert.Equal(200, Call("POST", "/api/push/test").Status);
+        _clock.Advance(TimeSpan.FromMinutes(-5));
+
+        Assert.Equal(200, Call("POST", "/api/push/test").Status);
+    }
+
+    [Fact]
+    public void Unsubscribing_drops_the_throttle_entry_of_the_device()
+    {
+        Subscribe();
+        Assert.Equal(200, Call("POST", "/api/push/test").Status);
+        Call("DELETE", "/api/push/subscription");
+        Subscribe();
+
+        Assert.Equal(200, Call("POST", "/api/push/test").Status);
     }
 }

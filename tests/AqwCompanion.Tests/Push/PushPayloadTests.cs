@@ -112,4 +112,23 @@ public class PushPayloadTests
         Assert.Equal(300, message.TtlSeconds);
         Assert.Equal(PushUrgency.Normal, message.Urgency);
     }
+
+    [Fact]
+    public void A_lone_surrogate_in_a_notice_is_replaced_so_the_push_is_still_built()
+    {
+        var message = PushPayload.Build(new Notice("id\uD800x", NoticeKind.ScriptError, "Hero", "Bad\uDC00title", "Body \uD83D", T0));
+
+        var json = Parse(message);
+        Assert.Equal("Bad\uFFFDtitle", json.GetProperty("title").GetString());
+        Assert.Equal("Body \uFFFD", json.GetProperty("body").GetString());
+        Assert.Equal("id\uFFFDx", json.GetProperty("tag").GetString());
+    }
+
+    [Fact]
+    public void A_well_formed_pair_is_kept()
+    {
+        var json = Parse(PushPayload.Build(N(body: "Hi " + Emoji)));
+
+        Assert.Equal("Hi " + Emoji, json.GetProperty("body").GetString());
+    }
 }

@@ -14,6 +14,8 @@ public class PushDispatcherTests
     private sealed class Keys(VapidKey key) : IVapidKeySource
     {
         public VapidKey GetOrCreate() => key;
+
+        public VapidKey? GetExisting() => key;
     }
 
     /// <summary>Records the TTL header of every request; the first request waits for <see cref="Gate"/>.</summary>
@@ -250,5 +252,18 @@ public class PushDispatcherTests
         {
             dispatcher.Dispose();
         }
+    }
+
+    [Fact]
+    public void A_target_and_a_job_never_print_the_endpoint_or_the_keys()
+    {
+        var target = new PushTarget("https://fcm.googleapis.com/fcm/send/SECRET-ENDPOINT", "SECRET-P256DH", "SECRET-AUTH");
+        var job = new PushJob("dev", new PushMessage("{}"u8.ToArray(), 60, PushUrgency.Normal));
+
+        var text = target.ToString() + job.ToString();
+
+        Assert.DoesNotContain("SECRET", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("fcm.googleapis.com", text, StringComparison.Ordinal);
+        Assert.Contains("<redacted>", target.ToString(), StringComparison.Ordinal);
     }
 }

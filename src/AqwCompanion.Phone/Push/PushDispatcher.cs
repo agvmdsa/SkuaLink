@@ -2,7 +2,14 @@ using System.Threading.Channels;
 
 namespace AqwCompanion.Phone.Push;
 
-public sealed record PushJob(string DeviceId, PushMessage Message);
+public sealed record PushJob(string DeviceId, PushMessage Message)
+{
+    private bool PrintMembers(System.Text.StringBuilder builder)
+    {
+        builder.Append("DeviceId = <redacted>, Message = <redacted>");
+        return true;
+    }
+}
 
 /// <summary>
 /// Sends push jobs one at a time on a background worker through a bounded queue that drops the oldest job when full.

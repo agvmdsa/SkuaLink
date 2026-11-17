@@ -61,6 +61,11 @@ public sealed class PushApi(PushSubscriptionStore store, IVapidKeySource vapid, 
                 if (method == "DELETE")
                 {
                     store.Remove(deviceId);
+                    lock (_lock)
+                    {
+                        _lastTest.Remove(deviceId);
+                    }
+
                     return State(deviceId);
                 }
 
@@ -93,7 +98,7 @@ public sealed class PushApi(PushSubscriptionStore store, IVapidKeySource vapid, 
         using var doc = JsonDocument.Parse(request.Body, BodyOptions);
         var root = doc.RootElement;
         var endpoint = Text(root, "endpoint");
-        if (endpoint is null || endpoint.Length > MaxText || !PushEndpointPolicy.IsAllowed(endpoint))
+        if (endpoint is null || endpoint.Length > PushEndpointPolicy.MaxLength || !PushEndpointPolicy.IsAllowed(endpoint))
         {
             return PhoneHandler.Error(400, EndpointRefused);
         }
@@ -169,7 +174,12 @@ public sealed class PushApi(PushSubscriptionStore store, IVapidKeySource vapid, 
         var at = now();
         lock (_lock)
         {
-            if (_lastTest.TryGetValue(deviceId, out var last) && at - last < TestEvery)
+            foreach (var stale in _lastTest.Where(e => at - e.Value >= TestEvery || at < e.Value).Select(e => e.Key).ToList())
+            {
+                _lastTest.Remove(stale);   // a revoked phone leaves no entry behind, and a clock moved backwards blocks nobody
+            }
+
+            if (_lastTest.ContainsKey(deviceId))
             {
                 var wait = PhoneHandler.Error(429, WaitText);
                 return wait with { Headers = [.. wait.Headers, new KeyValuePair<string, string>("Retry-After", ((int)TestEvery.TotalSeconds).ToString(System.Globalization.CultureInfo.InvariantCulture))] };

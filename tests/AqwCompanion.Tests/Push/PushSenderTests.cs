@@ -10,9 +10,17 @@ public class PushSenderTests
 {
     private static readonly DateTimeOffset Now = new(2026, 11, 16, 12, 0, 0, TimeSpan.Zero);
 
-    private sealed class Keys(VapidKey key) : IVapidKeySource
+    private sealed class Keys(VapidKey? key) : IVapidKeySource
     {
-        public VapidKey GetOrCreate() => key;
+        public int Created { get; private set; }
+
+        public VapidKey GetOrCreate()
+        {
+            Created++;
+            return key ?? VapidKey.Create();
+        }
+
+        public VapidKey? GetExisting() => key;
     }
 
     private readonly List<TimeSpan> _waits = [];
@@ -30,6 +38,35 @@ public class PushSenderTests
         using var ua = ECDiffieHellman.Create(ECCurve.NamedCurves.nistP256);
         var q = ua.ExportParameters(false).Q;
         return new PushTarget(endpoint, Base64Url.EncodeToString([0x04, .. q.X!, .. q.Y!]), Base64Url.EncodeToString(RandomNumberGenerator.GetBytes(16)));
+    }
+
+    [Fact]
+    public async Task A_payload_that_cannot_be_encrypted_is_reported_as_such_before_any_network_call_and_logs_only_the_exception_type()
+    {
+        var logged = new List<Exception>();
+        var sender = new PushSender(new HttpClient(_handler), new Keys(_vapid), () => Now, null, logged.Add);
+        var tooBig = new PushMessage(new byte[5000], 3600, PushUrgency.Normal);
+
+        var result = await sender.SendAsync(Target(), tooBig, CancellationToken.None);
+
+        Assert.Equal(new PushResult(PushOutcome.Failed, null, PushSender.EncryptFailed), result);
+        Assert.Equal("could not encrypt the notification", result.Error);
+        Assert.Empty(_handler.Requests);
+        Assert.Single(logged);
+    }
+
+    [Fact]
+    public async Task The_send_path_never_creates_a_key_and_without_one_nothing_is_sent()
+    {
+        var keys = new Keys(null);
+        var sender = new PushSender(new HttpClient(_handler), keys, () => Now);
+
+        var result = await sender.SendAsync(Target(), Message(), CancellationToken.None);
+
+        Assert.Equal(PushOutcome.Failed, result.Outcome);
+        Assert.Equal(PushSender.KeyUnavailable, result.Error);
+        Assert.Equal(0, keys.Created);
+        Assert.Empty(_handler.Requests);
     }
 
     private static PushMessage Message(PushUrgency urgency = PushUrgency.Normal, int ttl = 3600) => new("{\"title\":\"t\"}"u8.ToArray(), ttl, urgency);

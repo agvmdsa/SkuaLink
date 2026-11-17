@@ -44,6 +44,25 @@ public sealed class VapidKeyStore(string path) : IVapidKeySource, IForgettable
         }
     }
 
+    public VapidKey? GetExisting()
+    {
+        lock (_lock)
+        {
+            if (_quiesced)
+            {
+                return null;
+            }
+
+            if (_key is not null)
+            {
+                return _key;
+            }
+
+            var key = Read(out _);
+            return key is null ? null : _key = key;
+        }
+    }
+
     public void Quiesce()
     {
         lock (_lock)

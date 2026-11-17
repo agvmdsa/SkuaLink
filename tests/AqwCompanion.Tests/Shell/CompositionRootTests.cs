@@ -158,6 +158,23 @@ public class CompositionRootTests
     }
 
     [Fact]
+    public void The_push_stores_forget_before_the_book_and_the_hub_so_a_notice_made_while_they_forget_cannot_be_pushed()
+    {
+        var paths = new AppPaths(Path.Combine(Path.GetTempPath(), "aqw-tests", Guid.NewGuid().ToString("N")));
+
+        using var services = CompositionRoot.Build(paths);
+
+        var participants = CompositionRoot.ForgetParticipants(services).ToList();
+        var subscriptions = participants.FindIndex(p => ReferenceEquals(p, services.GetRequiredService<PushSubscriptionStore>()));
+        var key = participants.FindIndex(p => ReferenceEquals(p, services.GetRequiredService<VapidKeyStore>()));
+        var book = participants.FindIndex(p => ReferenceEquals(p, services.GetRequiredService<CharacterBook>()));
+        var hub = participants.FindIndex(p => ReferenceEquals(p, services.GetRequiredService<SkuaHub>()));
+        Assert.InRange(subscriptions, 0, Math.Min(book, hub) - 1);
+        Assert.InRange(key, 0, Math.Min(book, hub) - 1);
+        Assert.Same(services.GetRequiredService<PhoneController>(), participants[^1]);
+    }
+
+    [Fact]
     public void Container_resolves_the_character_book_over_the_stored_data()
     {
         var paths = new AppPaths(Path.Combine(Path.GetTempPath(), "aqw-tests", Guid.NewGuid().ToString("N")));

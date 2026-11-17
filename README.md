@@ -29,7 +29,7 @@ SkuaLink puts your Skua bots on your phone. See what each Skua is doing and its 
 - **Characters:** every character you play in Skua, with its level, experience, gold, AC, class, reputation and the Hard Farms you already own (from its inventory, house and bank), kept on the PC when Skua is closed, with how old the data is.
 - **Several Skua at once:** each character shows its own bot: state, active quests, log and controls.
 - **Hands off the game:** through the [Skua plugin](#skua-plugin), and only when you ask from the phone, it can start and stop Skua scripts and read or write the options file of a script in Skua's scripts list. It never sends anything to the game.
-- **Local:** everything stays on your computer. No telemetry. **Forget my data** (in **Settings**) removes it. Nothing leaves the PC except the Wiki request you start and, if you turn them on, [Notifications](#notifications) (encrypted text to Apple's or Google's push service), [Phone access](#watch-and-control-from-your-phone) and the [Skua plugin](#skua-plugin).
+- **Local:** everything stays on your computer. No telemetry. **Forget my data** (in **Settings**) removes it. Nothing leaves the PC except the Wiki request you start and, if you turn them on, [Notifications](#notifications) (encrypted text to the push service of your phone's browser: Apple, Google, Mozilla or Microsoft), [Phone access](#watch-and-control-from-your-phone) and the [Skua plugin](#skua-plugin).
 
 ## Install
 
@@ -68,9 +68,9 @@ Off until you turn them on, per phone. Open the page, then **Settings**, then **
 
 Tapping a notification opens that character's **Bot** section. A script you stopped yourself from the phone does not notify you.
 
-**Limits:** SkuaLink must be running and the PC must have internet access: nothing can be sent while SkuaLink is closed. If a system proxy is configured, SkuaLink uses it for push. Skua reports script and death events only while a script runs, so deaths in manual play are not counted. Delivery is up to Apple and Google and can be delayed or dropped.
+**Limits:** SkuaLink must be running and the PC must have internet access: nothing can be sent while SkuaLink is closed. If a system proxy is configured, SkuaLink uses it for push. Skua reports script and death events only while a script runs, so deaths in manual play are not counted. Delivery is up to the push service and can be delayed or dropped.
 
-**Privacy:** the notification text (the character and script names and the event) is encrypted end to end for your phone and goes through Apple's push service on an iPhone or Google's on Android. They see only ciphertext and metadata (the address, the size and the time). Nothing secret is in it. The PC keeps its own push key in `vapid.key` and each phone's subscription in `push.json` in `%LOCALAPPDATA%\AqwCompanion`; the page never receives either. **Forget my data** deletes both, and revoking a phone deletes its subscription.
+**Privacy:** the notification text is encrypted end to end for your phone and goes through the push service of your phone's browser (Apple, Google, Mozilla or Microsoft). That service sees only ciphertext and metadata: the address, the size, the time and the signed request headers. The notice carries the character and script names and, for an error, the first line of the error message, so it can show that text on your phone. The PC keeps its own push key in `vapid.key` and each phone's subscription in `push.json` in `%LOCALAPPDATA%\AqwCompanion`; the page never receives either. **Forget my data** deletes both, and revoking a phone deletes its subscription.
 
 ## Skua plugin
 

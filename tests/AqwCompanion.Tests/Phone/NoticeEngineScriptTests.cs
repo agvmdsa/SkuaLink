@@ -236,7 +236,7 @@ public class NoticeEngineScriptTests
     [Fact]
     public void A_script_stopped_with_no_phone_stop_noted_is_not_suppressed()
     {
-        var stops = new PhoneStops(() => T0);   // a phone start is never noted, so nothing is in the stops
+        var stops = new PhoneStops(() => T0);   // nothing was sent from the phone, so nothing is in the stops
         var engine = new NoticeEngine(stops: stops);
         engine.ProcessSkua(View(Inst("a", "Hero", Status())), T0);
 

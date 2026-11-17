@@ -21,9 +21,11 @@ public sealed class PushNotifier(PushSubscriptionStore store, PushDispatcher dis
             }
 
             PushMessage? message = null;
+            var endpoints = new HashSet<string>(StringComparer.Ordinal);
             foreach (var sub in store.All)
             {
-                if (sub.Kinds.Contains(kind, StringComparer.Ordinal))
+                // One push per endpoint: the same browser subscription stored under two device ids is still one phone.
+                if (sub.Kinds.Contains(kind, StringComparer.Ordinal) && endpoints.Add(sub.Endpoint))
                 {
                     message ??= PushPayload.Build(notice);
                     dispatcher.Enqueue(new PushJob(sub.DeviceId, message));

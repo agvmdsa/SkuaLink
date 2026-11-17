@@ -106,4 +106,29 @@ public class VapidKeyTests
     {
         Assert.Null(VapidKey.TryParse(System.Buffers.Text.Base64Url.EncodeToString(new byte[40])));
     }
+
+    [Fact]
+    public void A_key_on_another_curve_is_not_a_key()
+    {
+        using var p384 = ECDsa.Create(ECCurve.NamedCurves.nistP384);
+        Assert.Null(VapidKey.TryParse(Base64Url.EncodeToString(p384.ExportECPrivateKey())));
+
+        // secp256k1 has 32-byte coordinates like P-256: only the curve check tells them apart (some platforms cannot even import it).
+        ECDsa? k1 = null;
+        try
+        {
+            k1 = ECDsa.Create(ECCurve.CreateFromValue("1.3.132.0.10"));
+        }
+        catch (Exception ex) when (ex is PlatformNotSupportedException or CryptographicException or ArgumentException)
+        {
+        }
+
+        using (k1)
+        {
+            if (k1 is not null)
+            {
+                Assert.Null(VapidKey.TryParse(Base64Url.EncodeToString(k1.ExportECPrivateKey())));
+            }
+        }
+    }
 }

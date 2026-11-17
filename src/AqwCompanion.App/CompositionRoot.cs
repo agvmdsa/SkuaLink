@@ -117,7 +117,8 @@ public static class CompositionRoot
         });
         services.AddSingleton(sp => new VapidKeyStore(sp.GetRequiredService<AppPaths>().VapidKeyPath));
         services.AddSingleton<IVapidKeySource>(sp => sp.GetRequiredService<VapidKeyStore>());
-        services.AddSingleton(sp => new PushSender(PushHttp.Create(), sp.GetRequiredService<IVapidKeySource>(), () => DateTimeOffset.UtcNow));
+        services.AddSingleton(sp => new PushSender(PushHttp.Create(), sp.GetRequiredService<IVapidKeySource>(), () => DateTimeOffset.UtcNow, null,
+            ex => Log.Warning("Push encryption failed: {ExceptionType}", ex.GetType().Name)));
         services.AddSingleton(sp => new PushDispatcher(
             sp.GetRequiredService<PushSender>(), sp.GetRequiredService<PushSubscriptionStore>(),
             ex => Log.Warning("Push dispatch failed: {ExceptionType}", ex.GetType().Name)));
@@ -191,14 +192,16 @@ public static class CompositionRoot
     [
         sp.GetRequiredService<HardFarmsViewModel>(),
         new LegacyReputationFolder(sp.GetRequiredService<AppPaths>()),
+        // The push stores forget before the book and the hub: a notice produced while those forget then finds no subscription
+        // and no key, so nothing is pushed after Forget. The send path only reads the key, so a send in flight cannot recreate it.
+        sp.GetRequiredService<PushSubscriptionStore>(),
+        sp.GetRequiredService<VapidKeyStore>(),
         // The book forgets before the hub: a re-report arriving between the two is then kept by the book (resumed already)
         // instead of dropped by a still-quiesced one; the plugin reports again only on a change.
         sp.GetRequiredService<CharacterBook>(),
         sp.GetRequiredService<SkuaHub>(),
         sp.GetRequiredService<SkuaScriptPrefs>(),
         sp.GetRequiredService<SkuaOptionCache>(),
-        sp.GetRequiredService<PushSubscriptionStore>(),
-        sp.GetRequiredService<VapidKeyStore>(),
         // PhoneController MUST stay the LAST participant: its Forget resets the phone hub, which reads the feed, and then brings
         // the phone host back. Every other participant has to have forgotten first, or the host returns serving data from before
         // the Forget. CompositionRootTests.The_phone_controller_is_the_last_forget_participant guards this order.

@@ -5,12 +5,16 @@ using System.Text;
 namespace AqwCompanion.Phone.Push;
 
 /// <summary>Encrypts and posts one push message. Never throws. The client must not follow redirects (a 3xx is a failure).</summary>
-public sealed class PushSender(HttpClient http, IVapidKeySource vapid, Func<DateTimeOffset> now, Func<TimeSpan, CancellationToken, Task>? delay = null)
+public sealed class PushSender(
+    HttpClient http, IVapidKeySource vapid, Func<DateTimeOffset> now, Func<TimeSpan, CancellationToken, Task>? delay = null,
+    Action<Exception>? onEncryptError = null)
 {
     public static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(10);
     public static readonly TimeSpan MaxRetryWait = TimeSpan.FromSeconds(5);
     public const int MaxErrorChars = 120;
     private const int MaxErrorBodyBytes = 512;
+    public const string EncryptFailed = "could not encrypt the notification";
+    public const string KeyUnavailable = "the push key is not available";
     private const string Unreachable = "could not reach the push service";
 
     private readonly Func<TimeSpan, CancellationToken, Task> _delay = delay ?? Task.Delay;
@@ -50,11 +54,34 @@ public sealed class PushSender(HttpClient http, IVapidKeySource vapid, Func<Date
     /// <summary>One request with a fresh encryption. 2xx Sent; 404/410 Gone; 429 and 5xx Failed with a retry wait; 3xx and other 4xx Failed.</summary>
     private async Task<Attempt> AttemptAsync(Uri endpoint, byte[] p256dh, byte[] auth, PushMessage message, CancellationToken ct)
     {
+        if (vapid.GetExisting() is not { } key)
+        {
+            return new Attempt(new PushResult(PushOutcome.Failed, null, KeyUnavailable), null);
+        }
+
         using var request = new HttpRequestMessage(HttpMethod.Post, endpoint);
-        request.Headers.TryAddWithoutValidation("Authorization", vapid.GetOrCreate().AuthorizationHeader(endpoint, now()));
-        request.Headers.TryAddWithoutValidation("TTL", message.TtlSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture));
-        request.Headers.TryAddWithoutValidation("Urgency", message.Urgency == PushUrgency.High ? "high" : "normal");
-        request.Content = new ByteArrayContent(WebPushEncryption.Encrypt(message.Payload, p256dh, auth));
+        try
+        {
+            request.Headers.TryAddWithoutValidation("Authorization", key.AuthorizationHeader(endpoint, now()));
+            request.Headers.TryAddWithoutValidation("TTL", message.TtlSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            request.Headers.TryAddWithoutValidation("Urgency", message.Urgency == PushUrgency.High ? "high" : "normal");
+            request.Content = new ByteArrayContent(WebPushEncryption.Encrypt(message.Payload, p256dh, auth));
+        }
+        catch (Exception ex) when (ex is System.Security.Cryptography.CryptographicException or ArgumentException or InvalidOperationException or NotSupportedException or PlatformNotSupportedException)
+        {
+            // Before any network call. Only the exception type is reported: its message could carry key material.
+            try
+            {
+                onEncryptError?.Invoke(ex);
+            }
+            catch
+            {
+                // The reporter must not throw.
+            }
+
+            return new Attempt(new PushResult(PushOutcome.Failed, null, EncryptFailed), null);
+        }
+
         request.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/octet-stream");
         request.Content.Headers.ContentEncoding.Add("aes128gcm");
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);

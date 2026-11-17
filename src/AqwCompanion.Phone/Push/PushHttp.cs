@@ -10,6 +10,7 @@ public static class PushHttp
         UseProxy = true,
         Credentials = null,
         PreAuthenticate = false,
+        PooledConnectionLifetime = TimeSpan.FromMinutes(5),
     };
 
     public static HttpClient Create() => new(CreateHandler()) { Timeout = PushSender.RequestTimeout + TimeSpan.FromSeconds(5) };

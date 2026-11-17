@@ -139,4 +139,42 @@ public sealed class VapidKeyStoreTests : IDisposable
     {
         public AqwCompanion.Phone.Push.VapidKey? Key { get; set; }
     }
+
+    [Fact]
+    public void Reading_the_existing_key_never_creates_the_file()
+    {
+        var store = Store();
+
+        Assert.Null(store.GetExisting());
+        Assert.False(File.Exists(_paths.VapidKeyPath));
+    }
+
+    [Fact]
+    public void Reading_the_existing_key_returns_the_key_that_was_made()
+    {
+        var made = Store().GetOrCreate();
+
+        Assert.Equal(made.PublicKeyText, Store().GetExisting()!.PublicKeyText);
+    }
+
+    [Fact]
+    public void After_forget_the_existing_key_is_gone_and_a_late_send_does_not_bring_the_file_back()
+    {
+        var store = Store();
+        _ = store.GetOrCreate();
+        store.Forget();
+
+        Assert.Null(store.GetExisting());
+        Assert.False(File.Exists(_paths.VapidKeyPath));
+    }
+
+    [Fact]
+    public void While_quiesced_there_is_no_existing_key()
+    {
+        var store = Store();
+        _ = store.GetOrCreate();
+        store.Quiesce();
+
+        Assert.Null(store.GetExisting());
+    }
 }

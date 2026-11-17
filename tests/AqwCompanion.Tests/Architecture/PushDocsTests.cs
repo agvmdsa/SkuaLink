@@ -19,6 +19,10 @@ public class PushDocsTests
     [InlineData("internet")]
     [InlineData("Apple")]
     [InlineData("Google")]
+    [InlineData("Mozilla")]
+    [InlineData("Microsoft")]
+    [InlineData("the first line of the error message")]
+    [InlineData("signed request headers")]
     [InlineData("encrypted")]
     [InlineData("5 deaths in 2 minutes")]
     [InlineData("10 minutes")]
@@ -43,6 +47,16 @@ public class PushDocsTests
     {
         Assert.Contains("Notifications", AqwCompanion.App.Settings.SettingsViewModel.PrivacyText, StringComparison.Ordinal);
         Assert.DoesNotContain("Only two things", AqwCompanion.App.Settings.SettingsViewModel.PrivacyText, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_privacy_text_and_readme_name_every_allowed_push_service_and_do_not_claim_nothing_secret()
+    {
+        var privacy = AqwCompanion.App.Settings.SettingsViewModel.PrivacyText;
+        Assert.Contains("the push service of your phone's browser (Apple, Google, Mozilla or Microsoft)", privacy, StringComparison.Ordinal);
+        Assert.Contains("the push service of your phone's browser (Apple, Google, Mozilla or Microsoft)", Readme(), StringComparison.Ordinal);
+        Assert.DoesNotContain("Nothing secret is in it", Readme(), StringComparison.Ordinal);
+        Assert.DoesNotContain("Apple's or Google's", privacy, StringComparison.Ordinal);
     }
 
     [Fact]

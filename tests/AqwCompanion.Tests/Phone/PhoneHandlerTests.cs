@@ -382,6 +382,8 @@ public class PhoneHandlerTests : IDisposable
     private sealed class FixedKey(VapidKey key) : IVapidKeySource
     {
         public VapidKey GetOrCreate() => key;
+
+        public VapidKey? GetExisting() => key;
     }
 
     private PhoneHandler HandlerWithPush()

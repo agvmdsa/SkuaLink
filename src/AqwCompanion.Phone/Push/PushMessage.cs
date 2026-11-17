@@ -6,7 +6,14 @@ public enum PushUrgency { Normal, High }
 public sealed record PushMessage(byte[] Payload, int TtlSeconds, PushUrgency Urgency);
 
 /// <summary>A browser's subscription as the PC needs it: the endpoint and the two keys as base64url text.</summary>
-public sealed record PushTarget(string Endpoint, string P256dh, string Auth);
+public sealed record PushTarget(string Endpoint, string P256dh, string Auth)
+{
+    private bool PrintMembers(System.Text.StringBuilder builder)
+    {
+        builder.Append("Endpoint = <redacted>, P256dh = <redacted>, Auth = <redacted>");
+        return true;
+    }
+}
 
 public enum PushOutcome { Sent, Gone, Failed }
 

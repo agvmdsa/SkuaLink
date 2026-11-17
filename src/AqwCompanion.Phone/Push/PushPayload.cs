@@ -1,5 +1,6 @@
 using System.Buffers;
 using System.Text.Encodings.Web;
+using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using AqwCompanion.Phone.Notices;
@@ -20,9 +21,9 @@ public static partial class PushPayload
 
     public static PushMessage Build(Notice notice)
     {
-        var title = Cut(notice.Title ?? string.Empty, MaxTitle);
-        var body = Cut(notice.Body ?? string.Empty, MaxBody);
-        var tag = Cut(notice.Id ?? string.Empty, MaxTag);
+        var title = Cut(Sanitize(notice.Title), MaxTitle);
+        var body = Cut(Sanitize(notice.Body), MaxBody);
+        var tag = Cut(Sanitize(notice.Id), MaxTag);
         var url = UrlFor(notice);
         var kind = notice.Kind.ToString();
         var at = notice.AtUtc.ToString("O");
@@ -63,6 +64,37 @@ public static partial class PushPayload
 
     public static PushUrgency UrgencyFor(NoticeKind kind) =>
         kind is NoticeKind.ScriptError or NoticeKind.CharacterKicked or NoticeKind.SkuaDisconnected or NoticeKind.SkuaOptionsWaiting ? PushUrgency.High : PushUrgency.Normal;
+
+    /// <summary>The text with every lone surrogate replaced by U+FFFD: the JSON writer throws on one and the notice would never be pushed.</summary>
+    private static string Sanitize(string? text)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return string.Empty;
+        }
+
+        StringBuilder? fixedText = null;
+        for (var i = 0; i < text.Length; i++)
+        {
+            var c = text[i];
+            if (char.IsHighSurrogate(c) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1]))
+            {
+                fixedText?.Append(c).Append(text[i + 1]);
+                i++;
+            }
+            else if (char.IsSurrogate(c))
+            {
+                fixedText ??= new StringBuilder(text, 0, i, text.Length);
+                fixedText.Append('\uFFFD');
+            }
+            else
+            {
+                fixedText?.Append(c);
+            }
+        }
+
+        return fixedText?.ToString() ?? text;
+    }
 
     private static string Cut(string text, int max)
     {

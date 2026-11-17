@@ -225,10 +225,11 @@ public sealed class SkuaHub : ISkuaFeed, ISkuaCommandChannel, IForgettable
             try
             {
                 await connection.SendAsync(outgoing, ct).ConfigureAwait(false);
-                if (outgoing is StopCommand)
+                if (outgoing is StopCommand or StartCommand)
                 {
-                    // Noted only once the stop was handed to the pipe (a send that failed or timed out does not hide a genuine
-                    // ScriptStopped); only a stop, because a start produces no ScriptStopped the owner asked for.
+                    // Noted only once the command was handed to the pipe (a send that failed or timed out does not hide a genuine
+                    // ScriptStopped). A start counts too: the plugin ends a running script before it starts the new one. The engine
+                    // suppresses ScriptStopped only, never ScriptError.
                     _stops?.Note(instanceId);
                 }
             }

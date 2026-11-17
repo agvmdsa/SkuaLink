@@ -31,11 +31,23 @@ public class SkuaHubPhoneStopsTests
     }
 
     [Fact]
-    public void A_start_command_is_not_noted()
+    public void A_start_command_is_noted_too_because_the_plugin_ends_the_old_script_for_it()
     {
         _ = _hub.SendCommandAsync("id-a", new StartCommand("", "0123456789abcdef"), CancellationToken.None);
 
-        Assert.False(_stops.Within("id-a", T0, Window));
+        Assert.True(_stops.Within("id-a", T0, Window));
+    }
+
+    [Fact]
+    public async Task A_start_that_could_not_be_sent_is_not_noted()
+    {
+        var hub = new SkuaHub(_stores, () => T0, (_, ct) => new TaskCompletionSource().Task.WaitAsync(ct), stops: _stops);
+        var attachment = hub.Attach(new FakeConnection { Fail = true })!;
+        hub.Accept(attachment, new HelloMessage(new SkuaHello("0.5.0", "1.4.5.0", "id-y")));
+
+        Assert.Null(await hub.SendCommandAsync("id-y", new StartCommand("", "0123456789abcdef"), CancellationToken.None));
+
+        Assert.False(_stops.Within("id-y", T0, Window));
     }
 
     [Fact]

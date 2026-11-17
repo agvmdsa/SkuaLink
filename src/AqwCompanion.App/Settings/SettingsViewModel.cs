@@ -49,7 +49,7 @@ public partial class SettingsViewModel : ObservableObject
         "It never reads or keeps your e-mail address, IP address, password, user or character ids, or anything about other players, and it never sends anything to the game. " +
         "Only three things go beyond this computer, and only when you ask for them: the AQW Wiki is contacted when you ask for the Hard Farms list, " +
         "with Phone access on the app serves what it shows to the phones you paired, over your own Tailscale network, " +
-        "and with Notifications on, encrypted notification text goes to Apple's or Google's push service. " +
+        "and with Notifications on, encrypted notification text goes to the push service of your phone's browser (Apple, Google, Mozilla or Microsoft). " +
         "The data is saved locally so the app opens with it, and Forget my data removes it.";
 
     public const string CreditsText =

@@ -13,6 +13,8 @@ public class PushNotifierTests
     private sealed class Keys(VapidKey key) : IVapidKeySource
     {
         public VapidKey GetOrCreate() => key;
+
+        public VapidKey? GetExisting() => key;
     }
 
     private readonly FakePushHandler _handler = new();
@@ -82,5 +84,19 @@ public class PushNotifierTests
 
         new PushNotifier(_store, dispatcher).Publish(N(NoticeKind.RankUp));
         new PushNotifier(null!, dispatcher).Publish(N(NoticeKind.RankUp));
+    }
+
+    [Fact]
+    public async Task The_same_endpoint_under_two_device_ids_gets_one_push()
+    {
+        Subscribe("one", ["RankUp"]);
+        var first = _store.Get("one")!;
+        _store.Set("two", first.Endpoint, first.P256dh, first.Auth, ["RankUp"]);
+        using var dispatcher = Dispatcher();
+
+        new PushNotifier(_store, dispatcher).Publish(N(NoticeKind.RankUp));
+        await dispatcher.StopAsync();
+
+        Assert.Single(_handler.Requests);
     }
 }

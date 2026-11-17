@@ -43,8 +43,9 @@ public sealed class VapidKey
             try
             {
                 key.ImportECPrivateKey(Base64Url.DecodeFromChars(text.Trim()), out _);
-                var q = key.ExportParameters(false).Q;
-                if (q.X is not { Length: 32 } || q.Y is not { Length: 32 })
+                var parameters = key.ExportParameters(false);
+                var q = parameters.Q;
+                if (key.KeySize != 256 || !IsNistP256(parameters.Curve) || q.X is not { Length: 32 } || q.Y is not { Length: 32 })
                 {
                     key.Dispose();
                     return null;
@@ -63,6 +64,9 @@ public sealed class VapidKey
             return null;
         }
     }
+
+    private static bool IsNistP256(ECCurve curve) =>
+        curve.IsNamed && (curve.Oid.Value == "1.2.840.10045.3.1.7" || (string.IsNullOrEmpty(curve.Oid.Value) && curve.Oid.FriendlyName is "nistP256" or "secp256r1" or "prime256v1"));
 
     /// <summary>The private key as text (base64url of its SEC1 DER); only the key store writes it, only to the user's data folder.</summary>
     public string Export()
