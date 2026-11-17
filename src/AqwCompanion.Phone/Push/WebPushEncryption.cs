@@ -28,12 +28,12 @@ public static class WebPushEncryption
 
         try
         {
-            // A real agreement against a throwaway key: OpenSSL rejects an off-curve point at import, CNG may only fail here.
+            // A real agreement against a throwaway key: OpenSSL rejects an off-curve point at import, CNG may only fail here (and reports it as PlatformNotSupportedException).
             using var key = Import(uaPublic);
             using var probe = ECDiffieHellman.Create(ECCurve.NamedCurves.nistP256);
             return probe.DeriveRawSecretAgreement(key.PublicKey).Length == 32;
         }
-        catch (CryptographicException)
+        catch (Exception ex) when (ex is CryptographicException or PlatformNotSupportedException)
         {
             return false;
         }
@@ -87,7 +87,7 @@ public static class WebPushEncryption
             using var ua = Import(uaPublic);
             secret = asKey.DeriveRawSecretAgreement(ua.PublicKey);
         }
-        catch (CryptographicException ex)
+        catch (Exception ex) when (ex is CryptographicException or PlatformNotSupportedException)
         {
             throw new ArgumentException("The public key is not a point on P-256.", nameof(uaPublic), ex);
         }
