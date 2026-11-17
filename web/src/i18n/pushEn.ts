@@ -1,3 +1,5 @@
+import type { PushKind } from '../push';
+
 /** The texts of the Notifications block. A catalog of its own: pushUi.ts registers it when the chunk loads, so the first load does not carry it. */
 export const pushEn = {
   'push.title': 'Notifications',
@@ -28,5 +30,11 @@ export const pushEn = {
   'push.kind.HardFarmDrop': 'Hard Farm obtained',
   'push.kind.NoProgress': 'No progress for 10 minutes',
   'push.kind.DyingOften': 'Dying too often',
+  'push.retryLater': 'The PC is busy. Try again in a moment.',
+  'push.testUnreachable': 'The PC could not reach the push service: {error}',
+  'push.statusN': 'status {n}',
   'push.limits': 'SkuaLink must be running and the PC online. Deaths and script events are seen only while a script runs.',
 } as const;
+
+/** The catalog key of a kind's label; a kind without a label fails to compile. */
+export const kindKey = (kind: PushKind): keyof typeof pushEn => `push.kind.${kind}`;

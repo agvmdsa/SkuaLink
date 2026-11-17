@@ -3,7 +3,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { pushEn as en } from '../src/i18n/pushEn';
 import { t } from '../src/i18n';
 import { keyBytes, type PushKind, parsePushState, pushApi, pushSupport, PUSH_KINDS, type CallResult, type PushApi, type PushEnv } from '../src/push';
-import { PushController, pushBlockView, type PushBrowser, type PushModel } from '../src/pushUi';
+import { FocusKeeper, PushController, pushBlockView, pushNoteText, type PushBrowser, type PushModel } from '../src/pushUi';
+import { pushLoader } from '../src/dockUi';
 import type { VNode } from '../src/views';
 
 const settle = async (): Promise<void> => {
@@ -92,7 +93,7 @@ const SUB = { endpoint: 'https://push.example/abc', p256dh: 'P', auth: 'A' };
 const OFFSTATE = { subscribed: false, kinds: [], lastError: null };
 const ONSTATE = { subscribed: true, kinds: [...PUSH_KINDS], lastError: null };
 
-function rig(over: { env?: Partial<PushEnv>; api?: Partial<Record<keyof PushApi, CallResult | (() => Promise<CallResult>)>>; permission?: NotificationPermission; sub?: typeof SUB | null } = {}) {
+function rig(over: { env?: Partial<PushEnv>; api?: Partial<Record<keyof PushApi, CallResult | (() => Promise<CallResult>)>>; permission?: NotificationPermission; sub?: typeof SUB | null; has?: boolean | 'throws' } = {}) {
   const log: string[] = [];
   const answer = (name: keyof PushApi, fallback: CallResult) => async (..._a: unknown[]): Promise<CallResult> => {
     log.push(name);
@@ -121,6 +122,10 @@ function rig(over: { env?: Partial<PushEnv>; api?: Partial<Record<keyof PushApi,
     unsubscribe: vi.fn(async () => {
       log.push('browser.unsubscribe');
     }),
+    hasSubscription: vi.fn(async () => {
+      if (over.has === 'throws') throw new Error('no worker');
+      return over.has ?? true;
+    }),
   } satisfies PushBrowser;
   const onChange = vi.fn();
   const controller = new PushController({ env: () => env(over.env), api, browser, onChange });
@@ -141,6 +146,13 @@ describe('PushController.enable', () => {
     void r.controller.enable();
     expect(r.browser.requestPermission).toHaveBeenCalledTimes(1);
   });
+  it('a dismissed prompt is not a block: Enable stays available and no API is called', async () => {
+    const r = rig({ permission: 'default' });
+    await r.controller.enable();
+    expect(r.controller.model.support).toBe('ready');
+    expect(r.log).toEqual(['permission']);
+    expect(r.controller.model.note).toBeNull();
+  });
   it('a refused permission is denied and calls no API', async () => {
     const r = rig({ permission: 'denied' });
     await r.controller.enable();
@@ -148,8 +160,17 @@ describe('PushController.enable', () => {
     expect(r.log).toEqual(['permission']);
     expect(r.controller.model.busy).toBe(false);
   });
+  it('a 503 from the PC says to try again in a moment, in key and subscribe', async () => {
+    const a = rig({ api: { key: res(503) } });
+    await a.controller.enable();
+    expect(a.controller.model.note).toEqual({ key: 'push.retryLater' });
+    const b = rig({ api: { subscribe: res(503) } });
+    await b.controller.enable();
+    expect(b.controller.model.note).toEqual({ key: 'push.retryLater' });
+    expect(b.browser.unsubscribe).toHaveBeenCalled();
+  });
   it('a key failure is push.pcFailed', async () => {
-    const r = rig({ api: { key: res(503) } });
+    const r = rig({ api: { key: res(500) } });
     await r.controller.enable();
     expect(r.controller.model.note).toEqual({ key: 'push.pcFailed' });
     expect(r.log).not.toContain('browser.subscribe');
@@ -194,12 +215,24 @@ describe('PushController.enable', () => {
 });
 
 describe('PushController other actions', () => {
-  it('disable tries both and ends off', async () => {
-    const r = rig({ api: { unsubscribe: res(500) } });
+  it('disable asks the PC, then the browser, and ends off', async () => {
+    const r = rig();
     await r.controller.enable();
     await r.controller.disable();
     expect(r.log.slice(-2)).toEqual(['unsubscribe', 'browser.unsubscribe']);
     expect(r.controller.model.state).toEqual({ subscribed: false, kinds: [], lastError: null });
+  });
+  it.each([
+    [500, 'push.pcFailed'],
+    [0, 'push.pcFailed'],
+    [503, 'push.retryLater'],
+  ] as const)('a PC that answers %i to the disable keeps the on state and says so', async (status, key) => {
+    const r = rig({ api: { unsubscribe: res(status) } });
+    await r.controller.enable();
+    await r.controller.disable();
+    expect(r.controller.model.state).toEqual(ONSTATE);
+    expect(r.controller.model.note).toEqual({ key });
+    expect(r.browser.unsubscribe).not.toHaveBeenCalled();
   });
   it('toggle removes and adds in PUSH_KINDS order', async () => {
     const r = rig();
@@ -239,16 +272,28 @@ describe('PushController other actions', () => {
     await r.controller.test();
     expect(r.log).toEqual(['test', 'state']);
   });
-  it('another failure shows the cut server error and refreshes the state', async () => {
+  it('a 502 says the PC could not reach the push service, with the cut server error, and refreshes the state', async () => {
     const r = rig({ api: { test: res(502, { error: 'e'.repeat(300) }) } });
     await r.controller.test();
-    expect(r.controller.model.note).toEqual({ key: 'push.testFailed', params: { error: 'e'.repeat(200) } });
+    expect(r.controller.model.note).toEqual({ key: 'push.testUnreachable', params: { error: 'e'.repeat(200) } });
     expect(r.log).toEqual(['test', 'state']);
   });
-  it('a failure without an error text says status N', async () => {
-    const r = rig({ api: { test: res(0) } });
-    await r.controller.test();
-    expect(r.controller.model.note).toEqual({ key: 'push.testFailed', params: { error: 'status 0' } });
+  it('another refusal shows the cut server error, or status N without one', async () => {
+    const a = rig({ api: { test: res(403, { error: 'x'.repeat(300) }) } });
+    await a.controller.test();
+    expect(a.controller.model.note).toEqual({ key: 'push.testFailed', params: { error: 'x'.repeat(200) } });
+    const b = rig({ api: { test: res(500) } });
+    await b.controller.test();
+    expect(b.controller.model.note).toEqual({ key: 'push.testFailed', params: { error: 'status 500' } });
+  });
+  it('a test the PC cannot answer (0) or is busy with (503) says so and does not refresh', async () => {
+    const a = rig({ api: { test: res(0) } });
+    await a.controller.test();
+    expect(a.controller.model.note).toEqual({ key: 'push.pcFailed' });
+    const b = rig({ api: { test: res(503) } });
+    await b.controller.test();
+    expect(b.controller.model.note).toEqual({ key: 'push.retryLater' });
+    expect(b.log).toEqual(['test']);
   });
   it('refresh loads the state when ready, and flags a failure', async () => {
     const r = rig({ api: { state: res(200, ONSTATE) } });
@@ -257,6 +302,31 @@ describe('PushController other actions', () => {
     const bad = rig({ api: { state: res(0) } });
     await bad.controller.refresh();
     expect(bad.controller.model.loadFailed).toBe(true);
+  });
+  it.each([
+    ['PC on, browser has it', true, true, true],
+    ['PC on, browser has none', true, false, false],
+    ['PC off, browser has one', false, true, false],
+    ['PC off, browser has none', false, false, false],
+  ] as const)('refresh reconciles: %s', async (_name, server, browser, shownOn) => {
+    const r = rig({ api: { state: res(200, { subscribed: server, kinds: ['RankUp'], lastError: null }) }, has: browser });
+    await r.controller.refresh();
+    expect(r.controller.model.state!.subscribed).toBe(shownOn);
+    const view = pushBlockView(r.controller.model);
+    expect(all(view).filter((n) => n.tag === 'input')).toHaveLength(shownOn ? 9 : 0);
+    expect(all(view).some((n) => n.attrs?.['data-action'] === 'push-enable')).toBe(!shownOn);
+  });
+  it('refresh trusts the PC when the browser cannot be asked', async () => {
+    const r = rig({ api: { state: res(200, ONSTATE) }, has: 'throws' });
+    await r.controller.refresh();
+    expect(r.controller.model.state!.subscribed).toBe(true);
+  });
+  it('a PC that thinks it is on but a browser with none can enable again, and the enable replaces the browser subscription', async () => {
+    const r = rig({ api: { state: res(200, ONSTATE) }, has: false });
+    await r.controller.refresh();
+    await r.controller.enable();
+    expect(r.log).toEqual(['state', 'permission', 'key', 'browser.subscribe', 'subscribe']);
+    expect(r.controller.model.state!.subscribed).toBe(true);
   });
   it('refresh on an unsupported browser makes no API call', async () => {
     const r = rig({ env: { hasPushManager: false } });
@@ -304,6 +374,9 @@ describe('pushBlockView', () => {
   });
   it('subscribed shows nine switches, checked only for the enabled kinds', () => {
     const v = pushBlockView(model({ state: on(['RankUp', 'ScriptError']), note: { key: 'push.testSent' } }));
+    expect(all(v).find((n) => n.attrs?.role === 'group')!.attrs!['aria-label']).toBe(t('push.kinds'));
+    expect(all(v).filter((n) => n.attrs?.role === 'group')[0]!.children).toHaveLength(9);
+    expect(all(v).find((n) => n.tag === 'h3')!.text).toBe(t('push.title'));
     const inputs = all(v).filter((n) => n.tag === 'input');
     expect(inputs).toHaveLength(9);
     expect(inputs.map((i) => i.attrs!['data-value'])).toEqual([...PUSH_KINDS]);
@@ -311,10 +384,12 @@ describe('pushBlockView', () => {
       expect(i.attrs).toMatchObject({ type: 'checkbox', role: 'switch', 'data-action': 'push-kind' });
       expect('checked' in i.attrs!).toBe(['RankUp', 'ScriptError'].includes(i.attrs!['data-value']!));
     }
-    expect(texts(v)).toEqual(expect.arrayContaining([t('push.on'), t('push.testSent'), t('push.limits'), ...PUSH_KINDS.map((k) => en[`push.kind.${k}` as keyof typeof en])]));
+    expect(texts(v)).toEqual(expect.arrayContaining([t('push.on'), t('push.limits'), ...PUSH_KINDS.map((k) => en[`push.kind.${k}` as keyof typeof en])]));
+    expect(pushNoteText(model({ note: { key: 'push.testSent' } }))).toBe(t('push.testSent'));
+    expect(pushNoteText(model())).toBe('');
     const buttons = all(v).filter((n) => n.tag === 'button');
     expect(buttons.map((x) => x.attrs!['data-action'])).toEqual(['push-test', 'push-disable']);
-    expect(all(v).find((n) => n.attrs?.role === 'status')!.text).toBe(t('push.testSent'));
+    expect(all(v).some((n) => n.attrs?.role === 'status')).toBe(false); // the live region is drawn once by startPush, not re-created with the block
   });
   it('every button has type=button', () => {
     for (const m of [model({ state: on([]) }), model({ state: { subscribed: false, kinds: [], lastError: null } })])
@@ -324,7 +399,7 @@ describe('pushBlockView', () => {
     const hostile = '<img src=x onerror=alert(1)>';
     const v = pushBlockView(model({ state: on([], hostile), note: { key: 'push.testFailed', params: { error: hostile } } }));
     expect(texts(v)).toContain(t('push.lastError', { error: hostile }));
-    expect(texts(v)).toContain(t('push.testFailed', { error: hostile }));
+    expect(pushNoteText(model({ note: { key: 'push.testFailed', params: { error: hostile } } }))).toBe(t('push.testFailed', { error: hostile }));
     for (const n of all(v)) for (const val of Object.values(n.attrs ?? {})) expect(val).not.toContain(hostile);
     expect(all(v).filter((n) => n.tag === 'button').map((x) => x.attrs!['data-action'])).toEqual(['push-test', 'push-disable', 'push-enable']);
   });
@@ -348,7 +423,7 @@ describe('stylesheet and catalog', () => {
 describe('the lazy catalog', () => {
   it('is not in the first-load catalog', async () => {
     const { en: first } = await import('../src/i18n/en');
-    expect(Object.keys(first).filter((k) => k.startsWith('push.'))).toEqual([]);
+    expect(Object.keys(first).filter((k) => k.startsWith('push.'))).toEqual(['push.chunkFailed']); // the one text for a chunk that cannot load
   });
   it('registers its texts when pushUi loads, so the view reads them', () => {
     for (const key of Object.keys(en)) expect(t(key as keyof typeof en)).toBe(en[key as keyof typeof en]);
@@ -358,5 +433,93 @@ describe('the lazy catalog', () => {
     expect(src).toMatch(/import\('\.\/pushUi'\)/);
     expect(src).not.toMatch(/^import .*pushUi/m);
     expect(src).toMatch(/if \(theme !== null\) attachPush\(\)/);
+  });
+});
+
+describe('FocusKeeper', () => {
+  const rigFocus = () => {
+    const el = { disabled: true, focus: vi.fn() };
+    let current: string | null = null;
+    let found: typeof el | null = el;
+    const keeper = new FocusKeeper({ current: () => current, find: () => found });
+    return { el, keeper, setCurrent: (k: string | null) => (current = k), setFound: (f: typeof el | null) => (found = f) };
+  };
+  it('waits while the control is disabled by the running action, then focuses it once it is enabled', () => {
+    const f = rigFocus();
+    f.keeper.activate('push-test|');
+    f.keeper.before();
+    f.keeper.after(true); // busy render: the control is disabled, focus() would do nothing
+    expect(f.el.focus).not.toHaveBeenCalled();
+    f.el.disabled = false;
+    f.keeper.before();
+    f.keeper.after(false); // the action finished
+    expect(f.el.focus).toHaveBeenCalledTimes(1);
+    f.keeper.before();
+    f.keeper.after(false); // later redraws leave focus alone
+    expect(f.el.focus).toHaveBeenCalledTimes(1);
+  });
+  it('remembers what had focus before a redraw, and gives up quietly when the control is gone', () => {
+    const f = rigFocus();
+    f.el.disabled = false;
+    f.setCurrent('push-kind|RankUp');
+    f.keeper.before();
+    f.setCurrent(null);
+    f.keeper.after(false);
+    expect(f.el.focus).toHaveBeenCalledTimes(1);
+    f.keeper.activate('push-enable|');
+    f.setFound(null);
+    expect(() => f.keeper.after(false)).not.toThrow();
+  });
+  it('does nothing when nothing was used', () => {
+    const f = rigFocus();
+    f.el.disabled = false;
+    f.keeper.before();
+    f.keeper.after(false);
+    expect(f.el.focus).not.toHaveBeenCalled();
+  });
+});
+
+describe('pushLoader (the chunk behind the Settings panel)', () => {
+  const rigLoader = (loads: (() => Promise<{ attach(slot: HTMLElement): void }>)[]) => {
+    const slot = { id: 'slot' } as unknown as HTMLElement;
+    const fail = vi.fn();
+    let n = 0;
+    const attach = pushLoader({ load: () => loads[Math.min(n++, loads.length - 1)]!(), slot: () => slot, fail });
+    return { attach, fail, slot, loadCount: () => n };
+  };
+  it('loads once, attaches after the load and on every later mount', async () => {
+    const attached = vi.fn();
+    const r = rigLoader([async () => ({ attach: attached })]);
+    r.attach();
+    r.attach(); // while loading: no second load
+    await settle();
+    expect(r.loadCount()).toBe(1);
+    expect(attached).toHaveBeenCalledTimes(1);
+    r.attach();
+    expect(attached).toHaveBeenCalledTimes(2);
+    expect(r.loadCount()).toBe(1);
+    expect(r.fail).not.toHaveBeenCalled();
+  });
+  it('says so in the slot when the chunk cannot load, and tries again on the next opening', async () => {
+    const attached = vi.fn();
+    const r = rigLoader([() => Promise.reject(new Error('offline')), async () => ({ attach: attached })]);
+    r.attach();
+    await settle();
+    expect(r.fail).toHaveBeenCalledWith(r.slot);
+    expect(attached).not.toHaveBeenCalled();
+    r.attach(); // the next opening
+    await settle();
+    expect(r.loadCount()).toBe(2);
+    expect(attached).toHaveBeenCalledTimes(1);
+  });
+  it('does nothing without a slot', () => {
+    const load = vi.fn();
+    pushLoader({ load, slot: () => null, fail: vi.fn() })();
+    expect(load).not.toHaveBeenCalled();
+  });
+  it('the failure text is in the first-load catalog and the chunk is reached only through import()', async () => {
+    const { en: first } = await import('../src/i18n/en');
+    expect(first['push.chunkFailed']).toMatch(/Notifications could not load/);
+    expect(readFileSync(new URL('../src/dockUi.ts', import.meta.url), 'utf8')).toMatch(/import\('\.\/pushUi'\)/);
   });
 });

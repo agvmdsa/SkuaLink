@@ -195,6 +195,8 @@ export const en = {
   'control.reason.settling': 'Skua is still finishing the last script. Try again in a few seconds.',
   'control.reason.unknownScript': "the script is no longer in Skua's scripts folder.",
 
+  'push.chunkFailed': 'Notifications could not load. Close and reopen Settings to try again.',
+
   'duration.minutes': '{n} min',
   'duration.hours': '{n} h',
   'duration.hoursMinutes': '{h} h {m} min',

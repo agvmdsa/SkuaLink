@@ -45,3 +45,5 @@
 .push { margin-top: 1rem; }
 .push-row { display: flex; align-items: center; gap: 0.75rem; min-height: 3rem; }
 .push-row input { flex: none; width: 1.5rem; height: 1.5rem; }
+.push-title { margin: 0 0 0.5rem; font-size: 1rem; }
+.push-kinds { margin: 0.5rem 0; }

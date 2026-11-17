@@ -112,6 +112,37 @@ export function setOpen(root: DockRoot, open: boolean, env: DockEnv): void {
   if (!open) settleList(root.querySelector('.dock-items'), false, env, true);
 }
 
+/**
+ * Loads the Notifications chunk the first time the Settings panel is mounted and draws it into the panel after every mount.
+ * When the chunk cannot load (offline with nothing cached) the slot says so, and the next opening of the panel tries again.
+ */
+export function pushLoader(deps: { load: () => Promise<{ attach(slot: HTMLElement): void }>; slot: () => HTMLElement | null; fail: (slot: HTMLElement) => void }): () => void {
+  let push: { attach(slot: HTMLElement): void } | null = null;
+  let loading = false;
+  return () => {
+    const slot = deps.slot();
+    if (!slot) return;
+    if (push) {
+      push.attach(slot);
+      return;
+    }
+    if (loading) return;
+    loading = true;
+    deps
+      .load()
+      .then((loaded) => {
+        push = loaded;
+        const current = deps.slot();
+        if (current) loaded.attach(current);
+      })
+      .catch(() => {
+        loading = false;
+        const current = deps.slot();
+        if (current) deps.fail(current);
+      });
+  };
+}
+
 export interface DockContext {
   host: HTMLElement;
   unpaired: () => boolean;
@@ -133,29 +164,11 @@ export function startDock(ctx: DockContext): { draw: () => void; close: () => vo
   const desktop = matchMedia(DESKTOP_QUERY);
   const reduced = matchMedia(REDUCED_MOTION_QUERY);
   let refreshMagnify: (() => void) | null = null;
-  let push: { attach(slot: HTMLElement): void } | null = null;
-  let pushLoading = false;
-
-  /** The Notifications block is a chunk of its own, loaded when the Settings panel first opens and drawn into the panel after every mount. */
-  function attachPush(): void {
-    const slot = host.querySelector<HTMLElement>('#push-block');
-    if (!slot) return;
-    if (push) {
-      push.attach(slot);
-      return;
-    }
-    if (pushLoading) return;
-    pushLoading = true;
-    import('./pushUi')
-      .then((m) => {
-        push = m.startPush(host);
-        const current = host.querySelector<HTMLElement>('#push-block');
-        if (current) push.attach(current);
-      })
-      .catch(() => {
-        pushLoading = false; // offline with nothing cached: Settings shows the Appearance choice alone; opening it again tries again
-      });
-  }
+  const attachPush = pushLoader({
+    load: () => import('./pushUi').then((m) => m.startPush(host)),
+    slot: () => host.querySelector<HTMLElement>('#push-block'),
+    fail: (slot) => slot.replaceChildren(mount(h('p', { className: 'muted', text: t('push.chunkFailed') }))),
+  });
 
   function draw(): void {
     const route = parseRoute(location.hash);

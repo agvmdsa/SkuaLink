@@ -183,8 +183,6 @@ const ALLOWED = new Set([
   'Escape', // KeyboardEvent.key value, not text
   'already running', // a refusal text of the Skua plugin, matched to choose the page's own words
   'unknown script id', // a refusal text of the Skua plugin, matched to choose the page's own words
-  'push.kind.${kind}', // a catalog key resolved through t()
-  'status ${answer.status}', // the HTTP status of a failed push test, a technical detail passed to push.testFailed, not a sentence
   'ScriptStopped', // push kind enum value of the protocol, never shown
   'ScriptError', // push kind enum value of the protocol, never shown
   'SkuaDisconnected', // push kind enum value of the protocol, never shown
