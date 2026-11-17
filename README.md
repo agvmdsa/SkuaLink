@@ -29,7 +29,7 @@ SkuaLink puts your Skua bots on your phone. See what each Skua is doing and its 
 - **Characters:** every character you play in Skua, with its level, experience, gold, AC, class, reputation and the Hard Farms you already own (from its inventory, house and bank), kept on the PC when Skua is closed, with how old the data is.
 - **Several Skua at once:** each character shows its own bot: state, active quests, log and controls.
 - **Hands off the game:** through the [Skua plugin](#skua-plugin), and only when you ask from the phone, it can start and stop Skua scripts and read or write the options file of a script in Skua's scripts list. It never sends anything to the game.
-- **Local:** everything stays on your computer. No telemetry. **Forget my data** (in **Settings**) removes it. Nothing leaves the PC except the Wiki request you start and, if you turn them on, [Phone access](#watch-and-control-from-your-phone) and the [Skua plugin](#skua-plugin).
+- **Local:** everything stays on your computer. No telemetry. **Forget my data** (in **Settings**) removes it. Nothing leaves the PC except the Wiki request you start and, if you turn them on, [Notifications](#notifications) (encrypted text to Apple's or Google's push service), [Phone access](#watch-and-control-from-your-phone) and the [Skua plugin](#skua-plugin).
 
 ## Install
 
@@ -53,7 +53,24 @@ Off by default. **Settings, "Watch my characters from my phone"** serves a small
 - **Installed to the Home Screen first?** An iPhone Home Screen app keeps its own storage, so pairing in Safari does not pair it. Open the installed app, use the **Pairing link** field on its "Not paired" card and paste the link there.
 - **PC off?** The page opens from its saved copy within a few seconds and says it cannot reach SkuaLink, with how old the last data is.
 - Anyone on your tailnet can open the page, but only a paired phone sees any data.
-- Push notifications (a notice while the page is closed) do not exist yet.
+- **Notifications:** see the next section.
+
+### Notifications
+
+Off until you turn them on, per phone. Open the page, then **Settings**, then **Notifications**, then **Enable on this phone** (on an iPhone the page must be added to the Home Screen first, iOS 16.4 or later). Each kind has its own switch, and **Send a test notification** checks the whole path. You get a notice when:
+
+- a script stopped, or failed (with the first line of the error);
+- a Skua or character was disconnected (including a kick or an unexpected logout while a script was running);
+- Skua is waiting for you on the PC (a script's options window);
+- you rank up, or obtain a Hard Farm;
+- a character made no progress for 10 minutes (no change in experience, gold, AC, class points, inventory, reputation, map or script state);
+- a character is dying too often (5 deaths in 2 minutes; the notification names the character).
+
+Tapping a notification opens that character's **Bot** section. A script you stopped yourself from the phone does not notify you.
+
+**Limits:** SkuaLink must be running and the PC must have internet access: nothing can be sent while SkuaLink is closed. If a system proxy is configured, SkuaLink uses it for push. Skua reports script and death events only while a script runs, so deaths in manual play are not counted. Delivery is up to Apple and Google and can be delayed or dropped.
+
+**Privacy:** the notification text (the character and script names and the event) is encrypted end to end for your phone and goes through Apple's push service on an iPhone or Google's on Android. They see only ciphertext and metadata (the address, the size and the time). Nothing secret is in it. The PC keeps its own push key in `vapid.key` and each phone's subscription in `push.json` in `%LOCALAPPDATA%\AqwCompanion`; the page never receives either. **Forget my data** deletes both, and revoking a phone deletes its subscription.
 
 ## Skua plugin
 
