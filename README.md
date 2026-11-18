@@ -65,7 +65,8 @@ Off until you turn them on, per phone. Open the page, then **Settings**, then **
 - Skua is waiting for you on the PC (a script's options window);
 - you rank up, or obtain a Hard Farm;
 - a character made no progress for 10 minutes (no change in experience, gold, AC, class points, inventory, reputation, map or script state);
-- a character is dying too often (5 deaths in 2 minutes; the notification names the character).
+- a character is dying too often (5 deaths in 2 minutes; the notification names the character);
+- a queue needs you (it paused, or skipped a step), or finished.
 
 Tapping a notification opens that character's **Bot** section. A script you stopped yourself from the phone does not notify you.
 
@@ -88,6 +89,20 @@ Besides reporting, the plugin does exactly five things for SkuaLink: list the sc
 3. To remove it, close Skua and delete the file.
 
 The plugin and SkuaLink must come from the same release: with a plugin from 0.5 the Bot section works but the Overview has no numbers or Hard Farms, and an even older plugin shows the state but cannot start or stop anything. Tested with Skua 1.4.5.0. Up to 8 Skua at once; log lines appear while a script is running; Skua started as administrator is not supported. Skua publishes no license: the plugin only references its interfaces and copies none of its code.
+
+## Script queue
+
+Chain scripts and let SkuaLink run them one after the other. A queue belongs to a character and has up to 20 steps. A step is a script from Skua's scripts folder plus the item it must obtain (name and quantity, counted in the inventory only, not in the bank), with an optional reputation rank and an optional time limit in minutes. SkuaLink starts the script of the first step, watches the character's inventory, **stops the script when the goal is reached**, waits for Skua to settle (the same 10 seconds as always) and starts the next step. "The script ended" is never a success.
+
+- A script that ends without the item (usually a daily you already did today) raises a notice ("The step ... ended without ... It may be a daily you already did today.") and the queue skips to the next step. A step whose item you already have is skipped at once.
+- **Problems pause the queue** and notify you: a script error, a kick or logout, Skua disconnecting, a start that fails, a time limit, or you starting another script yourself. Nothing is retried and nothing restarts by itself: press **Continue**. Nothing starts when SkuaLink opens either.
+- **Use Pause or Stop queue in SkuaLink before you step in by hand in Skua.** If you stop the queue's script in Skua yourself, SkuaLink cannot tell it from a script that ended by itself: it treats the step as ended without the item and skips to the next step (unless the log shows an error, a logout or a kick). If you start a different script yourself, the queue pauses ("You changed the script"); it never stops a script it did not start.
+- **Start**, **Pause**, **Continue**, **Skip step** and **Stop queue** are on the **Script queue** card of the PC window and on the phone, in the **Bot** section. After SkuaLink restarts, a queue is stopped at the step it was on; nothing starts by itself.
+- Edit the queue with **Edit queue** on the PC (a window) or on the phone (a page loaded only when you open it). The reputation rank is edited on the PC only: the phone editor does not show it and does not remove one the PC set. A save from the phone overwrites the whole list, so a step the PC added or edited while the phone's editor was open is lost (there is no revision check), and the phone refuses to save an empty queue (use **Stop queue**).
+- Two notifications, **The queue needs you** and **The queue finished**, have their own switches; a phone that subscribed before this version must switch them on once in **Settings**, **Notifications** (there is no migration).
+- It uses only what the plugin already does (list, start and stop scripts) and reports (status, inventory, reputation): there is no plugin change. Queues are saved as `skua-queue.<character>.json` in `%LOCALAPPDATA%\AqwCompanion`, hold only script ids, item names and numbers, and **Forget my data** removes them. Nothing about them leaves the PC and your paired phones.
+
+**Limits:** the plugin refreshes the inventory after item events and at least every 5 minutes, so a goal can be noticed a little late (or a step wrongly skipped from an old snapshot). SkuaLink cannot tell a script you stopped yourself from a script that ended by itself, so it treats both as "ended without the item". Scripts with the same name in two folders look the same to the "you changed the script" check. This has not been run against a real Skua yet.
 
 ## Using the PC app
 
