@@ -1,18 +1,29 @@
 using System.Diagnostics;
+using System.Text.RegularExpressions;
 using Serilog;
 
 namespace AqwCompanion.App.Skua;
 
-/// <summary>Opens the release page of SkuaLink in the system browser. Only the exact address in <see cref="ReleasePage.Url"/> is ever launched.</summary>
+/// <summary>Opens the release page of SkuaLink in the system browser. Only the addresses <see cref="ReleasePage.IsAllowed"/> accepts are ever launched.</summary>
 public interface IReleasePageLauncher
 {
     /// <summary>True when the URL is the release page and was handed to the system; false for any other text or a failed start. Never throws.</summary>
     bool Open(string url);
 }
 
-public static class ReleasePage
+public static partial class ReleasePage
 {
     public const string Url = "https://github.com/agvmdsa/SkuaLink/releases/latest";
+
+    [GeneratedRegex(@"\Ahttps://github\.com/agvmdsa/SkuaLink/releases/tag/v[0-9]{1,6}\.[0-9]{1,6}\.[0-9]{1,6}\z", RegexOptions.CultureInvariant)]
+    private static partial Regex TagPage();
+
+    /// <summary>The page of one release, built here from a parsed version, never from text that came over the network.</summary>
+    public static string ForVersion(AqwCompanion.App.Updates.ReleaseVersion version) =>
+        "https://github.com/agvmdsa/SkuaLink/releases/tag/" + version.Tag;
+
+    /// <summary>The latest-release page or the page of one release tag of this repository; nothing else.</summary>
+    public static bool IsAllowed(string? url) => url is not null && (string.Equals(url, Url, StringComparison.Ordinal) || TagPage().IsMatch(url));
 }
 
 public sealed class ProcessReleasePageLauncher : IReleasePageLauncher
@@ -23,14 +34,14 @@ public sealed class ProcessReleasePageLauncher : IReleasePageLauncher
 
     public bool Open(string url)
     {
-        if (!string.Equals(url, ReleasePage.Url, StringComparison.Ordinal))
+        if (!ReleasePage.IsAllowed(url))
         {
             return false;
         }
 
         try
         {
-            return _start(new ProcessStartInfo(ReleasePage.Url) { UseShellExecute = true });
+            return _start(new ProcessStartInfo(url) { UseShellExecute = true });
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {

@@ -3,6 +3,7 @@ using AqwCompanion.App.Infrastructure;
 using AqwCompanion.App.Phone;
 using AqwCompanion.App.Settings;
 using AqwCompanion.App.Shell;
+using AqwCompanion.App.Updates;
 using AqwCompanion.App.Skua;
 using AqwCompanion.Phone.Characters;
 using Avalonia;
@@ -28,6 +29,7 @@ public partial class CompanionApp : Application
         {
             var services = CompositionRoot.Build(AppPaths.ForCurrentUser(AppInfo.ExeName));
             var main = services.GetRequiredService<MainViewModel>();
+            _ = services.GetRequiredService<UpdatesViewModel>();   // attaches itself to Settings, so the window's bindings find it
             var window = new MainWindow { DataContext = main };
             // Started by the sign-in task, the app waits in the notification area; its window opens from the tray icon.
             if (!StartupArguments.IsBackground(desktop.Args ?? []))
@@ -50,6 +52,7 @@ public partial class CompanionApp : Application
             services.GetRequiredService<CharacterBook>().Restore();
             services.GetRequiredService<SkuaBridgeHost>().Start();
             services.GetRequiredService<SkuaSettingsPresenter>().Start();
+            services.GetRequiredService<UpdateChecker>().Start();
             _ = services.GetRequiredService<SettingsViewModel>().MigrateAutoStartAsync();
             desktop.Exit += (_, _) =>
             {
