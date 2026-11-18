@@ -614,4 +614,82 @@ public sealed class SkuaQueueServiceTests
         Assert.Equal(QueueState.Running, ViewOf(rig).State);
         Assert.Equal(2, rig.Skua.Sent.Count(s => s.Command is StartCommand));
     }
+
+    private static async Task<(Rig Rig, TaskCompletionSource<ResultMessage?> Late)> GatedAsync(Func<SkuaCommand, bool> gated, SwitchFeed? feed = null)
+    {
+        var rig = new Rig(feed);
+        if (feed is not null)
+        {
+            feed.Inner = rig.Skua;
+        }
+
+        var late = new TaskCompletionSource<ResultMessage?>(TaskCreationOptions.RunContinuationsAsynchronously);   // the test thread must not run the answer inline
+        var inner = rig.Skua.Answer;
+        rig.Skua.Answer = (id, c) => gated(c) ? late.Task : inner(id, c);
+        rig.Service.Replace(Hero, [Step()]);
+        await Task.CompletedTask;
+        return (rig, late);
+    }
+
+    [Fact]
+    public async Task A_quiesce_that_lands_between_the_world_read_and_the_gate_still_records_the_lost_answer()
+    {
+        var feed = new SwitchFeed();
+        var (rig, late) = await GatedAsync(c => c is StartCommand, feed);
+        using var _ = rig;
+        rig.Service.Command(Hero, QueueCommand.Start);
+        await Wait.Until(() => rig.Skua.Sent.Any(s => s.Command is StartCommand));
+
+        feed.HoldAfterNextRead = new ManualResetEventSlim();
+        feed.Held = new ManualResetEventSlim();
+        late.SetResult(new ResultMessage("x", true, null, null, null, null, false, false));
+        feed.Held.Wait();   // the answer has read the world and is not at the gate yet
+        rig.Service.Quiesce();
+        feed.HoldAfterNextRead.Set();
+        await rig.Settle();
+        rig.Service.Resume();
+
+        Assert.Equal(QueueState.Paused, ViewOf(rig).State);
+        Assert.Equal("Skua did not answer.", ViewOf(rig).Reason);
+    }
+
+    [Fact]
+    public async Task A_script_list_dropped_while_quiesced_pauses_the_queue_on_Resume()
+    {
+        var (rig, late) = await GatedAsync(c => c is ListScriptsCommand);
+        using var _ = rig;
+        rig.Service.Command(Hero, QueueCommand.Start);
+        await Wait.Until(() => rig.Skua.Sent.Any(s => s.Command is ListScriptsCommand));
+
+        rig.Service.Quiesce();
+        late.SetResult(new ResultMessage("x", true, null, Scripts, null, null, false, false));
+        await rig.Settle();
+        rig.Service.Resume();
+
+        Assert.Equal(QueueState.Paused, ViewOf(rig).State);
+        Assert.Equal("Skua did not answer.", ViewOf(rig).Reason);
+        Assert.DoesNotContain(rig.Skua.Sent, s => s.Command is StartCommand);
+    }
+
+    [Fact]
+    public async Task A_stop_answer_dropped_while_quiesced_pauses_the_queue_on_Resume()
+    {
+        var (rig, late) = await GatedAsync(c => c is StopCommand);
+        using var _ = rig;
+        rig.Service.Command(Hero, QueueCommand.Start);
+        await rig.Settle();
+        rig.Script(Status(running: true, control: "running"));
+        rig.Service.Pump();
+        rig.Book.OnInventory(Hero, Bag("Blood Orb", 10));
+        rig.Service.Pump();
+        await Wait.Until(() => rig.Skua.Sent.Any(s => s.Command is StopCommand));
+
+        rig.Service.Quiesce();
+        late.SetResult(new ResultMessage("x", true, null, null, null, null, false, false));
+        await rig.Settle();
+        rig.Service.Resume();
+
+        Assert.Equal(QueueState.Paused, ViewOf(rig).State);
+        Assert.Equal("Skua did not answer.", ViewOf(rig).Reason);
+    }
 }

@@ -313,7 +313,7 @@ public sealed class SkuaQueueService : ISkuaQueues, IForgettable, IDisposable
     /// Runs <paramref name="underGate"/> on the engines, then, outside the gate: saves what changed (in order), announces the notices,
     /// starts the commands the engines asked for and raises Changed. Never throws.
     /// </summary>
-    private void Run(Action underGate)
+    private void Run(Action underGate, Action? whenQuiesced = null)
     {
         List<Func<Task>> effects = [];
         List<Notice> notices = [];
@@ -325,6 +325,7 @@ public sealed class SkuaQueueService : ISkuaQueues, IForgettable, IDisposable
             {
                 if (_quiesced)
                 {
+                    whenQuiesced?.Invoke();   // in the same gate acquisition as this check, so a dropped answer is never lost unrecorded
                     return;
                 }
 
@@ -527,17 +528,6 @@ public sealed class SkuaQueueService : ISkuaQueues, IForgettable, IDisposable
     /// </summary>
     private void Answer(Slot slot, object attempt, Action<QueueEngine> report, Action<QueueEngine> asNoAnswer)
     {
-        lock (_gate)
-        {
-            if (_quiesced)
-            {
-                // Dropped while quiescing; if Resume follows (the removal failed) the command would stay unanswered forever, so Resume
-                // reports it as "no answer" and the queue pauses instead of hanging.
-                slot.Lost.Add((attempt, asNoAnswer));
-                return;
-            }
-        }
-
         var haveWorld = TryWorld(out var world);
         Run(() =>
         {
@@ -551,7 +541,10 @@ public sealed class SkuaQueueService : ISkuaQueues, IForgettable, IDisposable
             {
                 Evaluate(slot, world);
             }
-        });
+        },
+        // Dropped while quiescing; if Resume follows (the removal failed) the command would stay unanswered forever, so Resume
+        // reports it as "no answer" and the queue pauses instead of hanging.
+        whenQuiesced: () => slot.Lost.Add((attempt, asNoAnswer)));
     }
 
     private void Launch(Func<Task> effect)
