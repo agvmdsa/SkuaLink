@@ -34,6 +34,7 @@ public sealed partial class QueueViewModel : ObservableObject, IDisposable
     public const string WatchingText = "watching the script";
     public const string StoppingText = "stopping the script";
     public const string SettlingText = "waiting for Skua to settle";
+    public const string LastNoticePrefix = "Last notice: ";
     public const string StepsAutomation = "Steps of the queue";
 
     private readonly ISkuaQueues _queues;
@@ -67,6 +68,10 @@ public sealed partial class QueueViewModel : ObservableObject, IDisposable
     public string ReasonText { get; private set; } = string.Empty;
 
     public bool HasReason => ReasonText.Length > 0;
+
+    public string NoticeText { get; private set; } = string.Empty;
+
+    public bool HasNotice => NoticeText.Length > 0;
 
     public string ErrorText { get; private set; } = string.Empty;
 
@@ -208,6 +213,7 @@ public sealed partial class QueueViewModel : ObservableObject, IDisposable
         Steps = [.. steps.Select((s, i) => Row(s, i, marked && i == view!.Cursor))];
         StateText = StateOf(state, view?.Phase);
         ReasonText = view?.Reason ?? string.Empty;
+        NoticeText = view?.LastNotice is { Length: > 0 } notice ? LastNoticePrefix + notice : string.Empty;
         ProgressText = marked && view is { Have: { } have } && view.Cursor >= 0 && view.Cursor < steps.Count
             ? $"{have.ToString(CultureInfo.InvariantCulture)} of {steps[view.Cursor].GoalQuantity.ToString(CultureInfo.InvariantCulture)} {steps[view.Cursor].GoalItem}"
             : string.Empty;

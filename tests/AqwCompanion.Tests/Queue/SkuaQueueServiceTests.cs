@@ -18,7 +18,20 @@ public sealed class SkuaQueueServiceTests
         public MemoryQueueStore Store { get; } = new();
         public FakeDelay Delay { get; } = new();
         public DateTimeOffset Now { get; set; } = T0;
-        public List<Notice> Notices { get; } = [];
+        private readonly List<Notice> _notices = [];
+
+        /// <summary>A copy: announcements come from pool threads.</summary>
+        public List<Notice> Notices
+        {
+            get
+            {
+                lock (_notices)
+                {
+                    return [.. _notices];
+                }
+            }
+        }
+
         public List<Exception> Errors { get; } = [];
         public Action<Notice>? OnAnnounce { get; set; }
         public SkuaQueueService Service { get; }
@@ -35,7 +48,11 @@ public sealed class SkuaQueueServiceTests
             });
             Service = new SkuaQueueService(feed ?? Skua, Skua, Book, Store, Delay, () => Now, n =>
             {
-                Notices.Add(n);
+                lock (_notices)
+                {
+                    _notices.Add(n);
+                }
+
                 OnAnnounce?.Invoke(n);
             }, Errors.Add);
             Service.Changed += (_, _) => Interlocked.Increment(ref Changes);
@@ -203,6 +220,26 @@ public sealed class SkuaQueueServiceTests
         var last = rig.Store.Saved.Last();
         Assert.Equal(2, last.Cursor);
         Assert.True(last.Finished);
+    }
+
+    [Fact]
+    public async Task The_view_remembers_the_last_notice_text_until_Forget()
+    {
+        using var rig = new Rig();
+        rig.Service.Replace(Hero, [Step(), Step("2", B, "Butler", "Gold", 5)]);
+        rig.Book.OnInventory(Hero, Bag("Blood Orb", 10));
+        Assert.Null(ViewOf(rig).LastNotice);
+
+        rig.Service.Command(Hero, QueueCommand.Start);
+        await rig.Settle();
+
+        Assert.Equal("Already had Blood Orb. Skipped Dailies.", ViewOf(rig).LastNotice);
+        Assert.Equal("Already had Blood Orb. Skipped Dailies.", rig.Service.Find(Hero)!.LastNotice);
+
+        rig.Service.Quiesce();
+        rig.Service.Forget();
+        rig.Service.Replace(Hero, [Step()]);
+        Assert.Null(ViewOf(rig).LastNotice);
     }
 
     [Fact]
@@ -511,6 +548,41 @@ public sealed class SkuaQueueServiceTests
 
         Assert.Equal(QueueState.Running, ViewOf(rig).State);
         Assert.Empty(rig.Notices);
+    }
+
+    [Fact]
+    public async Task An_answer_whose_snapshot_is_older_than_an_applied_one_still_gets_its_evaluation()
+    {
+        var feed = new SwitchFeed();
+        using var rig = new Rig(feed);
+        feed.Inner = rig.Skua;
+        var listing = new ManualResetEventSlim();
+        var answerList = new ManualResetEventSlim();
+        var inner = rig.Skua.Answer;
+        rig.Skua.Answer = (id, c) =>
+        {
+            if (c is ListScriptsCommand)
+            {
+                listing.Set();
+                answerList.Wait();
+            }
+
+            return inner(id, c);
+        };
+        rig.Service.Replace(Hero, [Step()]);
+        rig.Service.Command(Hero, QueueCommand.Start);
+        listing.Wait();
+
+        // The answer reads the world (older stamp) and is held before the gate; a newer pump is applied first.
+        feed.HoldAfterNextRead = new ManualResetEventSlim();
+        feed.Held = new ManualResetEventSlim();
+        answerList.Set();
+        feed.Held.Wait();
+        rig.Service.Pump();
+        feed.HoldAfterNextRead.Set();
+        await rig.Settle();
+
+        Assert.Equal(["list", "start:" + A], rig.SentKinds());
     }
 
     private sealed class SwitchFeed : ISkuaFeed

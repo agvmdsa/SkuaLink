@@ -194,6 +194,31 @@ public class QueueCardTests
     }
 
     [AvaloniaFact]
+    public void The_last_notice_line_shows_after_a_skipped_step_and_stays_inside_the_card()
+    {
+        var steps = Enumerable.Range(1, 20).Select(n => Step(n.ToString(), item: "Item " + n)).ToArray();
+        var notice = "The step Dailies ended without Blood Orb. It may be a daily you already did today. " + new string('x', 200);
+        var c = Open(true, new QueueView(Hero, steps, 1, QueueState.Running, QueuePhase.Running, null, 1, true, notice));
+        c.Window.Width = 900;
+        c.Window.Height = 600;
+        Dispatcher.UIThread.RunJobs();
+        c.Window.UpdateLayout();
+
+        var line = c.Named<TextBlock>("QueueNoticeText");
+        Assert.True(line.IsEffectivelyVisible);
+        Assert.Equal(QueueViewModel.LastNoticePrefix + notice, line.Text);
+        var card = c.Named<Border>("DashboardQueueCard");
+        Assert.True(card.Bounds.Height < 400);
+        var bottom = Avalonia.VisualExtensions.TranslatePoint(c.Named<Button>("QueueEditButton"), new Avalonia.Point(0, 30), c.Window)!.Value.Y;
+        Assert.True(bottom <= c.Window.Bounds.Height);
+
+        c.Queues.Items[0] = View(QueueState.Stopped);
+        c.Queues.Raise();
+        Dispatcher.UIThread.RunJobs();
+        Assert.False(c.Named<TextBlock>("QueueNoticeText").IsEffectivelyVisible);
+    }
+
+    [AvaloniaFact]
     public void A_refusal_does_not_follow_a_change_of_the_selected_character()
     {
         var c = Open(true, View(QueueState.Stopped));

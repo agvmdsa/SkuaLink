@@ -28,10 +28,11 @@ public sealed record QueueResult(bool Ok, string? Error = null)
 /// <summary>
 /// What the PC and the phones see of one queue. <paramref name="Cursor"/> is the current step (the step count once finished);
 /// <paramref name="Phase"/> only while running; <paramref name="Have"/> is how many of the current step's item the inventory
-/// holds (null when unknown); <paramref name="CanEdit"/> is false while a step is starting, stopping or settling.
+/// holds (null when unknown); <paramref name="CanEdit"/> is false while a step is starting, stopping or settling;
+/// <paramref name="LastNotice"/> is the text of the last notice the queue sent (in memory only, at most 300 characters), for the PC card.
 /// </summary>
 public sealed record QueueView(
-    string Character, IReadOnlyList<QueueStep> Steps, int Cursor, QueueState State, QueuePhase? Phase, string? Reason, int? Have, bool CanEdit)
+    string Character, IReadOnlyList<QueueStep> Steps, int Cursor, QueueState State, QueuePhase? Phase, string? Reason, int? Have, bool CanEdit, string? LastNotice = null)
 {
     public static QueueView Empty(string character) => new(character, [], 0, QueueState.Stopped, null, null, null, true);
 }

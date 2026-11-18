@@ -23,6 +23,7 @@ public sealed class SkuaQueueService : ISkuaQueues, IForgettable, IDisposable
 {
     public static readonly TimeSpan TickEvery = TimeSpan.FromSeconds(5);
 
+    private const int MaxNoticeText = 300;
     private const string TryAgain = "Try again in a moment.";
     private const string Disconnected = "Skua is disconnected.";
 
@@ -48,6 +49,7 @@ public sealed class SkuaQueueService : ISkuaQueues, IForgettable, IDisposable
     private int _disposed;
     private long _stamp;     // taken before every read of the world
     private long _applied;   // under _gate: the newest stamp an Evaluate used
+    private bool _repump;    // under _gate: an Evaluate was skipped as stale; the run that met it pumps again once the locks are free
 
     public SkuaQueueService(
         ISkuaFeed skua, ISkuaCommandChannel channel, CharacterBook characters, IQueueStore store, IDelay delay, Func<DateTimeOffset> now,
@@ -79,7 +81,7 @@ public sealed class SkuaQueueService : ISkuaQueues, IForgettable, IDisposable
                     EnsureLoaded();
                     return [.. _slots.Values
                         .Where(s => s.Engine.Steps.Count > 0 || s.Engine.State != QueueState.Stopped)
-                        .Select(s => s.Engine.View)
+                        .Select(s => s.View)
                         .OrderBy(v => v.Character, StringComparer.OrdinalIgnoreCase)];
                 }
             }
@@ -103,7 +105,7 @@ public sealed class SkuaQueueService : ISkuaQueues, IForgettable, IDisposable
             {
                 EnsureLoaded();
                 return _slots.TryGetValue(character, out var slot) && (slot.Engine.Steps.Count > 0 || slot.Engine.State != QueueState.Stopped)
-                    ? slot.Engine.View
+                    ? slot.View
                     : null;
             }
         }
@@ -318,6 +320,7 @@ public sealed class SkuaQueueService : ISkuaQueues, IForgettable, IDisposable
         List<Func<Task>> effects = [];
         List<Notice> notices = [];
         var changed = false;
+        var repump = false;
         lock (_io)
         {
             List<StoredQueue> saves = [];
@@ -339,6 +342,8 @@ public sealed class SkuaQueueService : ISkuaQueues, IForgettable, IDisposable
                     Report(ex);
                 }
 
+                repump = _repump;
+                _repump = false;
                 foreach (var slot in _slots.Values)
                 {
                     effects.AddRange(slot.Effects);
@@ -374,6 +379,11 @@ public sealed class SkuaQueueService : ISkuaQueues, IForgettable, IDisposable
         if (changed)
         {
             Safe(() => Changed?.Invoke(this, EventArgs.Empty));
+        }
+
+        if (repump)
+        {
+            Pump();   // a fresh stamp, so the evaluation that was skipped as stale happens now with the answer already reported
         }
     }
 
@@ -439,6 +449,7 @@ public sealed class SkuaQueueService : ISkuaQueues, IForgettable, IDisposable
     {
         if (world.Stamp < _applied)
         {
+            _repump = true;   // what this call reported (an answer, an edit) has not been evaluated yet
             return;
         }
 
@@ -640,7 +651,16 @@ public sealed class SkuaQueueService : ISkuaQueues, IForgettable, IDisposable
             Effects.Add(() => owner.StopAsync(this, attempt, id));
         }
 
-        public void Notify(Notice notice) => Notices.Add(notice);
+        public string? LastNotice;
+
+        public QueueView View => Engine.View with { LastNotice = LastNotice };
+
+        public void Notify(Notice notice)
+        {
+            Notices.Add(notice);
+            var text = QueueText.Clean(notice.Body, MaxNoticeText);
+            LastNotice = text.Length == 0 ? null : text;
+        }
 
         public void Changed() => Dirty = true;
     }

@@ -133,6 +133,8 @@
                      AutomationProperties.Name="{Binding ProgressText}" />
           <TextBlock x:Name="QueueReasonText" Text="{Binding ReasonText}" TextWrapping="Wrap" IsVisible="{Binding HasReason}"
                      AutomationProperties.Name="{Binding ReasonText}" />
+          <TextBlock x:Name="QueueNoticeText" Text="{Binding NoticeText}" TextWrapping="Wrap" Classes="muted"
+                     IsVisible="{Binding HasNotice}" AutomationProperties.Name="{Binding NoticeText}" />
           <TextBlock x:Name="QueueErrorText" Text="{Binding ErrorText}" TextWrapping="Wrap" Foreground="{DynamicResource AqwDangerText}"
                      IsVisible="{Binding HasError}" AutomationProperties.Name="{Binding ErrorText}" />
           <TextBlock x:Name="QueueEmptyText" Text="{Binding EmptyStateText}" TextWrapping="Wrap" Classes="muted"
