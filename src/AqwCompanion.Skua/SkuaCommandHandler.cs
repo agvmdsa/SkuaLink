@@ -42,7 +42,8 @@ public interface ISkuaScriptHost
 /// the configured flag on every load, so the dialog appears on every start of a script that has <c>Options</c> and no
 /// <c>DontPreconfigure</c>, and not at all for a script that preconfigures itself); a dialog still open after
 /// <see cref="OptionsStuckAfter"/> is reported stuck and left to the owner on the PC. A dialog that cannot be looked at is
-/// never taken for "no dialog".
+/// never taken for "no dialog". The boost and login commands (<c>useBoost</c>, <c>relogin</c>) are decided by
+/// <see cref="SkuaBoostCommands"/>; without one they are unknown commands.
 /// </remarks>
 public sealed class SkuaCommandHandler
 {
@@ -72,6 +73,7 @@ public sealed class SkuaCommandHandler
     private readonly Func<DateTimeOffset> _now;
     private readonly ISkuaOptionsHost? _options;
     private readonly Func<TimeSpan, Task> _delay;
+    private readonly SkuaBoostCommands? _boosts;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly object _lock = new();
     private readonly Dictionary<string, KnownOptions> _known = [];
@@ -88,7 +90,7 @@ public sealed class SkuaCommandHandler
 
     public SkuaCommandHandler(
         ISkuaScriptHost host, SkuaScriptCatalog catalog, SkuaControlState control, Func<DateTimeOffset> now,
-        ISkuaOptionsHost? options = null, Func<TimeSpan, Task>? delay = null)
+        ISkuaOptionsHost? options = null, Func<TimeSpan, Task>? delay = null, SkuaBoostCommands? boosts = null)
     {
         _host = host;
         _catalog = catalog;
@@ -96,6 +98,7 @@ public sealed class SkuaCommandHandler
         _now = now;
         _options = options;
         _delay = delay ?? (time => Task.Delay(time));
+        _boosts = boosts;
     }
 
     /// <summary>The background close of an options dialog after a start; completed when there is none.</summary>
@@ -144,6 +147,8 @@ public sealed class SkuaCommandHandler
                 StopCommand c => Stop(c.ReqId),
                 GetOptionsCommand c => GetOptions(c),
                 SetOptionsCommand c => SetOptions(c),
+                UseBoostCommand c when _boosts is not null => await _boosts.UseAsync(c).ConfigureAwait(false),
+                ReloginCommand c when _boosts is not null => _boosts.Relogin(c),
                 _ => Fail(reqId, "unknown command"),
             };
         }
