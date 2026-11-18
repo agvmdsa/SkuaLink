@@ -64,6 +64,6 @@ function logCard(i: SkuaInstance, nowMs: number, filter: LogFilter): VNode {
 }
 
 /** The Bot section of a connected Skua: Now, Control (once the control chunk is in), Active quests and Log. */
-export function botSection(i: SkuaInstance, model: { nowMs: number; skuaFilter: LogFilter; controlCard?: (i: SkuaInstance) => VNode | null }): VNode {
-  return h('div', {}, nowCard(i, model.nowMs), model.controlCard?.(i) ?? null, questsCard(i), logCard(i, model.nowMs, model.skuaFilter));
+export function botSection(i: SkuaInstance, model: { nowMs: number; skuaFilter: LogFilter; controlCard?: (i: SkuaInstance) => VNode | null; queueCard?: (i: SkuaInstance) => VNode | null }): VNode {
+  return h('div', {}, nowCard(i, model.nowMs), model.controlCard?.(i) ?? null, model.queueCard?.(i) ?? null, questsCard(i), logCard(i, model.nowMs, model.skuaFilter));
 }

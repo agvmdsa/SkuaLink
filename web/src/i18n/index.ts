@@ -1,8 +1,9 @@
 import { en } from './en';
 import type { pushEn } from './pushEn';
+import type { queueEn } from './queueEn';
 
 /** Every key, also those of a lazily loaded catalog (type only: nothing of it is bundled here). */
-export type MessageKey = keyof typeof en | keyof typeof pushEn;
+export type MessageKey = keyof typeof en | keyof typeof pushEn | keyof typeof queueEn;
 type Params = Record<string, string | number>;
 type Catalog = Readonly<Record<string, string>>;
 

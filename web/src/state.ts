@@ -157,7 +157,7 @@ export function focusKey(t: FocusTarget): string | null {
 function toState(value: unknown): RemoteState | null {
   if (!isObject(value) || !('snapshot' in value)) return null;
   const notices: unknown[] = Array.isArray(value.notices) ? value.notices : [];
-  const state = { snapshot: value.snapshot ?? null, notices: notices.filter(isNotice), skua: parseSkua(value.skua), skuaInstances: parseSkuaInstances(value.skuaInstances), characters: parseCharacters(value.characters) } as RemoteState;
+  const state = { snapshot: value.snapshot ?? null, notices: notices.filter(isNotice), skua: parseSkua(value.skua), skuaInstances: parseSkuaInstances(value.skuaInstances), characters: parseCharacters(value.characters), queues: Array.isArray(value.queues) ? value.queues.slice(0, 20) : undefined } as RemoteState;
   return isUsableState(state) ? state : null;
 }
 

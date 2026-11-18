@@ -85,6 +85,27 @@ function loadControl(): void {
     });
 }
 
+// The queue card of the Bot section: a chunk of its own, loaded next to the Control card.
+type QueueModule = typeof import('./queueViews');
+let queueModule: QueueModule | null = null;
+let queueControl: ReturnType<QueueModule['startQueue']> | null = null;
+let loadingQueue = false;
+
+function loadQueue(): void {
+  if (loadingQueue) return;
+  loadingQueue = true;
+  import('./queueViews')
+    .then((loaded) => {
+      loaded.addQueueRules();
+      queueControl = loaded.startQueue(app, { instance: routeInstance, queues: () => state?.queues, redraw: draw, onUnpaired: () => becomeUnpaired() });
+      queueModule = loaded;
+      draw();
+    })
+    .catch(() => {
+      loadingQueue = false;
+    });
+}
+
 // The Bot section's views: a chunk of their own, loaded when a Bot section is opened (three tries, then again on the next page
 // change or when the device is back online); until then the section shows a loading card.
 let bot: typeof import('./botViews') | null = null;
@@ -211,10 +232,12 @@ function tree(): VNode {
   const shown = ui && control ? { draw: ui.controlCard, control } : null;
   const controlCard = shown ? (i: SkuaInstance) => shown.draw(i, shown.control, nowMs) : undefined;
   const loaded = bot;
+  const queued = queueModule && queueControl ? { draw: queueModule.queueCard, queue: queueControl } : null;
+  const queueCard = queued ? (i: SkuaInstance) => queued.draw(i, queued.queue, state?.queues, nowMs) : undefined;
   const model: Model = {
     state: state && { ...state, notices }, nowMs, showAll, hfOpen, installHint, theme,
     sectionOf: (n) => sections.get(n) ?? 'overview', botFailed,
-    botSection: loaded ? (_c, i) => loaded.botSection(i, { nowMs, skuaFilter, controlCard }) : undefined,
+    botSection: loaded ? (_c, i) => loaded.botSection(i, { nowMs, skuaFilter, controlCard, queueCard }) : undefined,
   };
   // The Appearance choice lives in the dock's Settings panel; the Not paired screen has no dock, so it keeps it as a footer.
   if (unpaired) return withFooter(pairNeededView(pairReason, installHint), model);
@@ -226,6 +249,7 @@ function tree(): VNode {
     // After three failed tries it waits for the next page change or for the device to be back online.
     if (!botFailed) loadBot();
     loadControl();
+    loadQueue();
   }
   return characterView(model, route.name, route.section);
 }

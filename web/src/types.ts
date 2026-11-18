@@ -130,6 +130,8 @@ export interface RemoteState {
   skuaInstances?: SkuaInstance[];
   /** Every character SkuaLink knows, live or last known; an older app sends none (absent). */
   characters?: PhoneCharacter[];
+  /** Every queue the PC knows, raw: the lazy queue chunk validates it. */
+  queues?: unknown[];
 }
 
 /** A character's numbers as the Skua plugin reads them; the nullable ones may be unknown (not read yet, or an older plugin). */

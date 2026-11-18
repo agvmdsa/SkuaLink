@@ -74,12 +74,12 @@ export interface CallResult {
 /** A Skua command may wait for Skua for up to 45 s and the PC allows 60 s; the page waits a little longer than the PC. */
 export const SKUA_TIMEOUT_MS = 65_000;
 
-const skuaPath = (instanceId: string, ...rest: string[]): string => ['/api/skua', encodeURIComponent(instanceId), ...rest].join('/');
+export const skuaPath = (instanceId: string, ...rest: string[]): string => ['/api/skua', encodeURIComponent(instanceId), ...rest].join('/');
 
-async function skuaCall(path: string, body?: unknown): Promise<CallResult> {
+export async function skuaCall(path: string, body?: unknown, method: 'POST' | 'PUT' = 'POST'): Promise<CallResult> {
   const timeout = timeoutSignal(SKUA_TIMEOUT_MS);
   try {
-    const init: RequestInit = body === undefined ? { signal: timeout.signal } : { method: 'POST', body: JSON.stringify(body), signal: timeout.signal };
+    const init: RequestInit = body === undefined ? { signal: timeout.signal } : { method, body: JSON.stringify(body), signal: timeout.signal };
     const response = await send(path, init);
     let data: unknown = null;
     try {
