@@ -2,6 +2,7 @@ using AqwCompanion.App;
 using AqwCompanion.App.Infrastructure.Persistence;
 using AqwCompanion.App.Phone;
 using AqwCompanion.App.Queue;
+using AqwCompanion.App.Shell;
 using AqwCompanion.Core.Forgetting;
 using AqwCompanion.Phone.Characters;
 using AqwCompanion.Phone.Hub;
@@ -117,5 +118,18 @@ public class CompositionRootQueueTests
         {
             Cleanup(paths);
         }
+    }
+
+    [Fact]
+    public void The_queue_card_pieces_resolve_and_the_main_view_model_carries_the_queue()
+    {
+        var paths = TempPaths();
+        using var services = CompositionRoot.Build(paths);
+
+        Assert.IsType<SkuaQueueScripts>(services.GetRequiredService<IQueueScriptSource>());
+        Assert.IsType<AvaloniaQueueEditorDialog>(services.GetRequiredService<IQueueEditorDialog>());
+        var queue = services.GetRequiredService<QueueViewModel>();
+        Assert.Same(queue, services.GetRequiredService<MainViewModel>().Queue);
+        Assert.False(Directory.Exists(paths.Root));
     }
 }

@@ -164,6 +164,11 @@ public static class CompositionRoot
             notice => sp.GetRequiredService<PhoneHub>().Announce(notice),   // resolved on the first notice: PhoneHub itself takes the service
             ex => Log.Warning("Queue failed: {ExceptionType}", ex.GetType().Name)));
         services.AddSingleton<ISkuaQueues>(sp => sp.GetRequiredService<SkuaQueueService>());
+        services.AddSingleton<IQueueScriptSource>(sp => new SkuaQueueScripts(sp.GetRequiredService<ISkuaFeed>(), sp.GetRequiredService<ISkuaCommandChannel>()));
+        services.AddSingleton<IQueueEditorDialog>(sp => new AvaloniaQueueEditorDialog(
+            sp.GetRequiredService<ISkuaQueues>(), sp.GetRequiredService<IQueueScriptSource>(), sp.GetRequiredService<CharacterBook>()));
+        services.AddSingleton(sp => new QueueViewModel(
+            sp.GetRequiredService<ISkuaQueues>(), sp.GetRequiredService<CharacterSelection>(), sp.GetRequiredService<IQueueEditorDialog>(), OnUiThread));
         services.AddSingleton<IAssetSource, EmbeddedAssetSource>();
         services.AddSingleton<ITailscaleProcess, TailscaleProcess>();
         services.AddSingleton<IServeMarker>(sp => new FileServeMarker(sp.GetRequiredService<AppPaths>().PhoneServeMarkerPath));
