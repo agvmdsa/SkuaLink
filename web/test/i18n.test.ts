@@ -192,6 +192,7 @@ const ALLOWED = new Set([
   'HardFarmDrop', // push kind enum value of the protocol, never shown
   'NoProgress', // push kind enum value of the protocol, never shown
   'DyingOften', // push kind enum value of the protocol, never shown
+  'UpdateAvailable', // push kind enum value of the protocol, never shown
   'not found', // a refusal text of the Skua plugin, matched to choose the page's own words
 ]);
 
