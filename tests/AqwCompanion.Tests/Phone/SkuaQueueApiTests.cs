@@ -131,6 +131,63 @@ public sealed class SkuaQueueApiTests : IDisposable
         Assert.Empty(_skua.Sent);
     }
 
+    [Fact]
+    public void GET_reads_one_snapshot_of_the_feed_so_a_vanishing_instance_cannot_throw()
+    {
+        var feed = new VanishingFeed(_skua.Current);
+        var api = new SkuaApi(
+            feed, _skua, new SkuaScriptPrefs(new MemorySkuaScriptFile(), _clock.GetUtcNow), new SkuaOptionCache(new MemorySkuaScriptFile(), _clock.GetUtcNow),
+            CultureInfo.InvariantCulture, _queues);
+        var handler = new PhoneHandler(_registry, _hub, new FakeAssets(), h => h == GoodHost, "9.9.9", api);
+
+        var response = handler.Handle(Request("GET", "/api/skua/a1/queue", "", null, write: false));
+
+        Assert.Equal(200, response.Status);
+        Assert.Equal(1, feed.Reads);
+    }
+
+    [Fact]
+    public void PUT_answers_409_when_another_character_is_logged_in_after_the_script_list_came_back()
+    {
+        _skua.Answer = (_, c) =>
+        {
+            _skua.Current = new SkuaHubView([FakeSkua.Instance("a1", "Hero", status: new SkuaStatus(true, "Other", null, null, null, false, null))]);
+            return Task.FromResult<ResultMessage?>(ScriptList() with { ReqId = c.ReqId });
+        };
+
+        var response = Put(OneStep());
+
+        Assert.Equal(409, response.Status);
+        Assert.Equal(SkuaApi.CharacterChanged, ErrorOf(response));
+        Assert.Empty(_queues.Replaced);
+    }
+
+    [Fact]
+    public void PUT_answers_404_when_the_instance_vanished_during_the_script_list_wait()
+    {
+        _skua.Answer = (_, c) =>
+        {
+            _skua.Current = SkuaHubView.Empty;
+            return Task.FromResult<ResultMessage?>(ScriptList() with { ReqId = c.ReqId });
+        };
+
+        Assert.Equal(404, Put(OneStep()).Status);
+        Assert.Empty(_queues.Replaced);
+    }
+
+    private sealed class VanishingFeed(SkuaHubView first) : ISkuaFeed
+    {
+        public int Reads { get; private set; }
+
+        public SkuaHubView Current => ++Reads == 1 ? first : SkuaHubView.Empty;
+
+        public event EventHandler? Changed
+        {
+            add { }
+            remove { }
+        }
+    }
+
     // ---- request rules -----------------------------------------------------------------------------------------------------
 
     [Fact]

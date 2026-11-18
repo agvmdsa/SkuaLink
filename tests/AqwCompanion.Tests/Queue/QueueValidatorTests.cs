@@ -29,6 +29,23 @@ public class QueueValidatorTests
         Assert.Equal(new QueueStep("00000000000000000000000000000001", A, "Dailies", "Blood Orb", 10), step);
     }
 
+    [Theory]
+    [InlineData("\u202E")]
+    [InlineData("\u2066")]
+    [InlineData("\u200B")]
+    [InlineData("\u2028")]
+    [InlineData("\u2029")]
+    public void Format_and_separator_characters_are_dropped_from_item_and_script_names(string hostile)
+    {
+        IReadOnlyList<SkuaScriptInfo> scripts = [new SkuaScriptInfo(A, "Dai" + hostile + "lies", "Farm")];
+
+        var result = QueueValidator.Validate([Input(item: "Blood" + hostile + "br")], scripts, Ids());
+
+        var step = Assert.Single(result.Steps);
+        Assert.Equal("Bloodbr", step.GoalItem);
+        Assert.Equal("Dailies", step.ScriptName);
+    }
+
     [Fact]
     public void A_valid_unique_client_id_is_kept_and_a_repeated_or_malformed_one_is_replaced()
     {

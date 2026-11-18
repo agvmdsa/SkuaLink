@@ -73,6 +73,62 @@ public class QueueEditorWindowTests
         Assert.Equal("Butler", Assert.Single(queues.Replaced).Steps[0].ScriptName);
     }
 
+    /// <summary>Answers a fresh copy of the current list on every call, like the real source after a new plugin answer.</summary>
+    private sealed class FreshSource(IReadOnlyList<SkuaScriptInfo> list) : IQueueScriptSource
+    {
+        public IReadOnlyList<SkuaScriptInfo> List { get; set; } = list;
+
+        public Task<IReadOnlyList<SkuaScriptInfo>?> ListAsync(string character, CancellationToken ct) =>
+            Task.FromResult<IReadOnlyList<SkuaScriptInfo>?>([.. List.Select(s => s with { })]);
+    }
+
+    private static async Task<(QueueEditorWindow Window, QueueEditorViewModel Vm, FakeQueues Queues)> OpenFreshAsync(FreshSource source)
+    {
+        var queues = new FakeQueues();
+        var vm = new QueueEditorViewModel(Hero, [Step("1", A, "Dailies")], queues, source, ["Blood Orb"]);
+        var window = new QueueEditorWindow { DataContext = vm };
+        window.Show();
+        Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+        await vm.LoadAsync();
+        Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+        return (window, vm, queues);
+    }
+
+    [AvaloniaFact]
+    public async Task A_second_load_keeps_the_script_the_owner_picked_when_it_is_still_listed()
+    {
+        var (window, vm, queues) = await OpenFreshAsync(new FreshSource(Scripts));
+        Pickers(window)[0].SelectedIndex = 1;
+        Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+        Assert.Equal(B, vm.Rows[0].Script?.Id);
+
+        for (var i = 0; i < 2; i++)
+        {
+            await vm.LoadAsync();
+            Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+        }
+
+        Assert.Equal(B, vm.Rows[0].Script?.Id);
+        Assert.Equal(B, ((SkuaScriptInfo?)Pickers(window)[0].SelectedItem)?.Id);
+        vm.SaveCommand.Execute(null);
+        Assert.Equal(B, Assert.Single(queues.Replaced).Steps[0].ScriptId);
+    }
+
+    [AvaloniaFact]
+    public async Task A_second_load_that_no_longer_lists_the_pick_falls_back_to_the_stored_script()
+    {
+        var source = new FreshSource(Scripts);
+        var (window, vm, _) = await OpenFreshAsync(source);
+        Pickers(window)[0].SelectedIndex = 1;
+        Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+
+        source.List = [Scripts[0]];
+        await vm.LoadAsync();
+        Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(A, vm.Rows[0].Script?.Id);
+    }
+
     [AvaloniaFact]
     public async Task An_empty_or_missing_script_list_opens_without_a_crash()
     {

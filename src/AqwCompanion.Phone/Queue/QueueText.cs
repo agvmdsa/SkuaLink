@@ -1,10 +1,11 @@
+using System.Globalization;
 using System.Text;
 
 namespace AqwCompanion.Phone.Queue;
 
 public static class QueueText
 {
-    /// <summary>The text without control characters and lone surrogates, trimmed, and cut to <paramref name="max"/> without splitting a surrogate pair.</summary>
+    /// <summary>The text without control, format and separator characters and lone surrogates, trimmed, and cut to <paramref name="max"/> without splitting a surrogate pair.</summary>
     public static string Clean(string? text, int max)
     {
         if (string.IsNullOrEmpty(text))
@@ -21,7 +22,7 @@ public static class QueueText
                 builder.Append(c).Append(text[i + 1]);
                 i++;
             }
-            else if (!char.IsSurrogate(c) && !char.IsControl(c))
+            else if (!char.IsSurrogate(c) && !char.IsControl(c) && !IsInvisible(c))
             {
                 builder.Append(c);
             }
@@ -36,6 +37,10 @@ public static class QueueText
         var end = max > 0 && char.IsHighSurrogate(clean[max - 1]) ? max - 1 : max;
         return clean[..end].TrimEnd();
     }
+
+    /// <summary>Format characters (bidi controls, zero-width marks) and the line and paragraph separators change how a name renders.</summary>
+    private static bool IsInvisible(char c) =>
+        char.GetUnicodeCategory(c) is UnicodeCategory.Format or UnicodeCategory.LineSeparator or UnicodeCategory.ParagraphSeparator;
 
     /// <summary>Item, faction and script names match when equal after trimming, ignoring case; never when either is null.</summary>
     public static bool SameName(string? a, string? b) =>

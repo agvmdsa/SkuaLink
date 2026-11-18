@@ -154,6 +154,9 @@ public sealed partial class QueueEditorViewModel : ObservableObject
             list = null;
         }
 
+        // What the owner picked so far (a reload must not replace it with the stored script); taken before the lists change,
+        // because the picker may clear its selection when its list does.
+        var picks = Rows.Select(row => row.Script?.Id).ToList();
         Scripts = list ?? [];
         ScriptsLoaded = list is not null;
         // The list first (the picker may clear its selection when the list changes), then the selections, one after the other.
@@ -162,9 +165,12 @@ public sealed partial class QueueEditorViewModel : ObservableObject
             row.Scripts = Scripts;
         }
 
-        foreach (var row in Rows)
+        for (var i = 0; i < Rows.Count; i++)
         {
-            if (row.StoredScriptId is { } id && Scripts.FirstOrDefault(s => s.Id == id) is { } match)
+            var row = Rows[i];
+            var match = (i < picks.Count && picks[i] is { } picked ? Scripts.FirstOrDefault(s => s.Id == picked) : null)
+                ?? (row.StoredScriptId is { } id ? Scripts.FirstOrDefault(s => s.Id == id) : null);
+            if (match is not null)
             {
                 row.Script = match;
             }

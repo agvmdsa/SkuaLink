@@ -106,8 +106,16 @@ public sealed class PhoneHandler(
         };
     }
 
+    /// <summary>The pairing body is two short strings; the host's general cap is larger and this route needs no cookie.</summary>
+    public const int MaxPairBody = 1024;
+
     private PhoneResponse HandlePair(PhoneRequest request)
     {
+        if (Encoding.UTF8.GetByteCount(request.Body) > MaxPairBody)
+        {
+            return Error(413, "body too large");
+        }
+
         PairBody? body = null;
         var parsed = request.Body.Length > 0 && PhoneFileJson.TryParsePair(request.Body, out body);
         var result = registry.TryPair(parsed ? body!.Token : null, parsed ? body!.Name : null);

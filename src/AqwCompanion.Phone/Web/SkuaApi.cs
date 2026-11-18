@@ -45,6 +45,7 @@ public sealed class SkuaApi(ISkuaFeed feed, ISkuaCommandChannel channel, SkuaScr
     public const string InvalidBody = "invalid body";
     public const string NotJson = "body must be json";
     public const string TooLarge = "body too large";
+    public const string CharacterChanged = "The character changed. Try again.";
     public const string Refused = "Skua refused the command";
     public const string Busy = "busy";
 
@@ -337,6 +338,18 @@ public sealed class SkuaApi(ISkuaFeed feed, ISkuaCommandChannel channel, SkuaScr
             return failed;
         }
 
+        // The plugin took its time: the instance may be gone or another character may be logged in by now.
+        var (again, changed) = CharacterOf(instanceId);
+        if (changed is not null)
+        {
+            return changed;
+        }
+
+        if (!QueueText.SameName(again, character))
+        {
+            return PhoneHandler.Error(409, CharacterChanged);
+        }
+
         var validation = QueueValidator.Validate(inputs, result!.Scripts ?? [], () => Guid.NewGuid().ToString("N"), allowEmpty: false);
         if (!validation.Ok)
         {
@@ -358,12 +371,21 @@ public sealed class SkuaApi(ISkuaFeed feed, ISkuaCommandChannel channel, SkuaScr
     /// <summary>The character of the instance (its logged-in character), else the 404, 409 or 409 <see cref="NoCharacter"/>.</summary>
     private (string? Character, PhoneResponse? Error) CharacterOf(string instanceId)
     {
-        if (Lookup(instanceId) is { } missing)
+        // One snapshot: the instance can vanish between two reads of the feed.
+        var instance = instanceId.Length is > 0 and <= MaxInstanceId
+            ? feed.Current.Instances.FirstOrDefault(i => i.InstanceId == instanceId)
+            : null;
+        if (instance is null)
         {
-            return (null, missing);
+            return (null, PhoneHandler.Error(404, UnknownSkua));
         }
 
-        var status = feed.Current.Instances.First(i => i.InstanceId == instanceId).Status;
+        if (instance.Disconnected)
+        {
+            return (null, PhoneHandler.Error(409, DisconnectedSkua));
+        }
+
+        var status = instance.Status;
         return status is { LoggedIn: true, Character: { Length: > 0 } name } ? (name, null) : (null, PhoneHandler.Error(409, NoCharacter));
     }
 

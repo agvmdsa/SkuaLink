@@ -13,6 +13,30 @@ public class QueueTextTests
         Assert.Equal(expected, QueueText.Clean(input, 80));
     }
 
+    [Theory]
+    [InlineData("\u202A")]
+    [InlineData("\u202B")]
+    [InlineData("\u202C")]
+    [InlineData("\u202D")]
+    [InlineData("\u202E")]
+    [InlineData("\u2066")]
+    [InlineData("\u2067")]
+    [InlineData("\u2068")]
+    [InlineData("\u2069")]
+    [InlineData("\u200B")]
+    [InlineData("\u200C")]
+    [InlineData("\u200D")]
+    [InlineData("\u200E")]
+    [InlineData("\u200F")]
+    [InlineData("\u2028")]
+    [InlineData("\u2029")]
+    [InlineData("\uFEFF")]
+    public void Bidi_zero_width_and_line_separator_characters_are_dropped(string hostile)
+    {
+        Assert.Equal("Bloodbr", QueueText.Clean("Blood" + hostile + "br", 80));
+        Assert.Equal("Blood Orb", QueueText.Clean(hostile + "Blood " + hostile + "Orb" + hostile, 80));
+    }
+
     [Fact]
     public void A_lone_surrogate_is_dropped_and_a_valid_pair_is_kept()
     {
