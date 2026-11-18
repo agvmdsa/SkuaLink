@@ -422,6 +422,7 @@ public sealed class SkuaQueueServiceTests
         Assert.True(rig.Service.Replace(Hero, [Step()], 0).Ok);
         var first = ViewOf(rig).Revision;
         Assert.NotEqual(0, first);
+        Assert.InRange(first, 1, (1L << 53) - 1);   // the page reads it as a JSON number, exactly (it parses above 2^31 too)
 
         Assert.True(rig.Service.Replace(Hero, [Step()], first).Ok);   // the same list
         Assert.Equal(first, ViewOf(rig).Revision);

@@ -1,6 +1,6 @@
 import { addMessages, t, type MessageKey } from './i18n';
 import { queueEn } from './i18n/queueEn';
-import { confirmWords, needsConfirm, parseQueues, queueApi, queueCardModel, queueFor, QueueUi, type QueueWord } from './queue';
+import { confirmWords, needsConfirm, parseQueues, queueApi, queueCardModel, queueFor, QueueUi, type QueueModel, type QueueWord } from './queue';
 import { isLive } from './skua';
 import type { SkuaInstance } from './types';
 import { h, mount, type VNode } from './views';
@@ -116,10 +116,14 @@ export function startQueue(
     if (Object.hasOwn(WORDS, action)) {
       const word = WORDS[action]!;
       const instanceId = i.instanceId;
-      const go = (): void => void ui.run(instanceId, word);
-      if (!needsConfirm(word)) return go();
+      if (!needsConfirm(word)) return void ui.run(instanceId, word);
       const character = i.status?.character ?? '';
-      (deps.confirm ?? openConfirm)(confirmWords(word, queueFor(parseQueues(deps.queues()), character), character), go);
+      const current = (): QueueModel | null => queueFor(parseQueues(deps.queues()), character);
+      const stepOf = (q: QueueModel | null): string | undefined => q?.steps[q.cursor]?.id;
+      const seen = stepOf(current());
+      // Skip names the step shown now: if the queue moved on while the sheet was open, it sends nothing.
+      const go = (): void => (word === 'skip' && stepOf(current()) !== seen ? undefined : void ui.run(instanceId, word));
+      (deps.confirm ?? openConfirm)(confirmWords(word, current(), character), go);
     } else if (action === 'queue-edit') {
       const instanceId = i.instanceId;
       const queue = queueFor(parseQueues(deps.queues()), i.status?.character ?? null);

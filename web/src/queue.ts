@@ -83,7 +83,7 @@ function parseQueue(v: unknown): QueueModel | null {
     reason: typeof v.reason === 'string' ? cut(v.reason) : null,
     have: count(v.have),
     canEdit: v.canEdit !== false,
-    revision: count(v.revision) ?? 0,
+    revision: typeof v.revision === 'number' && Number.isSafeInteger(v.revision) && v.revision >= 0 ? v.revision : 0, // a clock-seeded number far above 2^31
   };
 }
 

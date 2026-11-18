@@ -255,6 +255,26 @@ describe('revision', () => {
   });
 });
 
+describe('a clock-seeded revision', () => {
+  const BIG = 1_700_000_000_123;
+  it('is kept exactly; unsafe, negative and fractional ones are 0', () => {
+    expect(model({ revision: BIG }).revision).toBe(BIG);
+    for (const bad of [2 ** 53, -1, 1.5, Infinity, NaN]) expect(model({ revision: bad }).revision).toBe(0);
+  });
+  it('goes from the state through the editor snapshot into the PUT body unchanged', async () => {
+    const q = model({ revision: BIG });
+    const bodies: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (_p: string, init?: RequestInit) => {
+      bodies.push(String(init?.body));
+      return new Response('{}');
+    }));
+    await queueApi.replace('i-1', [], q.revision);
+    vi.unstubAllGlobals();
+    expect(JSON.parse(bodies[0]!).revision).toBe(BIG);
+    expect(bodies[0]).toContain(`"revision":${BIG}`);
+  });
+});
+
 describe('confirmation', () => {
   it('only Skip and Stop ask', () => {
     expect((['start', 'pause', 'continue', 'skip', 'stop'] as QueueWord[]).filter(needsConfirm)).toEqual(['skip', 'stop']);
@@ -323,6 +343,28 @@ describe('the delegated click', () => {
     asked[1]!.go();
     await settle();
     expect(spy.mock.calls.map((c) => c[0])).toEqual(['/api/skua/i-1/queue/skip', '/api/skua/i-1/queue/stop']);
+    vi.unstubAllGlobals();
+  });
+  it('Skip sends nothing when the queue moved on while the sheet was open', async () => {
+    const spy = vi.fn(async (_path: string) => new Response('{}'));
+    vi.stubGlobal('fetch', spy);
+    const app = fakeApp();
+    let cursor = 0;
+    const asked: (() => void)[] = [];
+    const two = [step(), step({ id: 'b'.repeat(32), scriptName: 'Chaos' })];
+    startQueue(app as unknown as HTMLElement, {
+      instance: () => inst(), queues: () => [queue({ state: 'Running', phase: 'Running', steps: two, cursor })], redraw: () => undefined, onUnpaired: () => undefined,
+      confirm: (_w, go) => asked.push(go),
+    });
+    app.handler!(tap('queue-skip'));
+    app.handler!(tap('queue-stop'));
+    cursor = 1;
+    asked[0]!();
+    await settle();
+    expect(spy).not.toHaveBeenCalled();
+    asked[1]!(); // Stop still names the queue, not a step
+    await settle();
+    expect(spy.mock.calls.map((c) => c[0])).toEqual(['/api/skua/i-1/queue/stop']);
     vi.unstubAllGlobals();
   });
   it('a double Confirm while the first is pending sends one command', async () => {
