@@ -10,6 +10,7 @@ using AqwCompanion.App.Infrastructure.AutoStart;
 using AqwCompanion.App.Infrastructure.Persistence;
 using AqwCompanion.App.Phone;
 using AqwCompanion.App.Push;
+using AqwCompanion.App.Queue;
 using AqwCompanion.App.Inventory;
 using AqwCompanion.App.Settings;
 using AqwCompanion.App.Skua;
@@ -24,6 +25,7 @@ using AqwCompanion.Phone.Devices;
 using AqwCompanion.Phone.Hub;
 using AqwCompanion.Phone.Notices;
 using AqwCompanion.Phone.Push;
+using AqwCompanion.Phone.Queue;
 using AqwCompanion.Phone.Skua;
 using AqwCompanion.Phone.Web;
 using AqwCompanion.Core.Wiki;
@@ -134,14 +136,15 @@ public static class CompositionRoot
             skua: sp.GetRequiredService<ISkuaFeed>(),
             characters: sp.GetRequiredService<CharacterBook>(),
             hardFarms: sp.GetRequiredService<IHardFarmsCheck>(),
-            notices: sp.GetRequiredService<PushNotifier>()));
+            notices: sp.GetRequiredService<PushNotifier>(),
+            queues: sp.GetRequiredService<ISkuaQueues>()));
         services.AddSingleton(sp => new SkuaScriptPrefs(
             new SkuaScriptFile(sp.GetRequiredService<AppPaths>().SkuaScriptPrefsPath), () => DateTimeOffset.UtcNow));
         services.AddSingleton(sp => new SkuaOptionCache(
             new SkuaScriptFile(sp.GetRequiredService<AppPaths>().SkuaScriptOptionsPath), () => DateTimeOffset.UtcNow));
         services.AddSingleton(sp => new SkuaApi(
             sp.GetRequiredService<ISkuaFeed>(), sp.GetRequiredService<ISkuaCommandChannel>(), sp.GetRequiredService<SkuaScriptPrefs>(),
-            sp.GetRequiredService<SkuaOptionCache>(), CultureInfo.CurrentCulture));
+            sp.GetRequiredService<SkuaOptionCache>(), CultureInfo.CurrentCulture, sp.GetRequiredService<ISkuaQueues>()));
         services.AddSingleton<ISkuaLogStores>(sp => new SkuaLogStores(sp.GetRequiredService<AppPaths>().Root));
         services.AddSingleton<ICharacterBookStore>(sp => new StoredCharacterBookStore(sp.GetRequiredService<StoredData>()));
         services.AddSingleton(sp => new CharacterBook(sp.GetRequiredService<ICharacterBookStore>(), () => DateTimeOffset.UtcNow));
@@ -154,6 +157,13 @@ public static class CompositionRoot
             sp.GetRequiredService<SkuaHub>(), ex => Log.Warning("Skua pipe failed: {ExceptionType}", ex.GetType().Name)));
         services.AddSingleton(sp => new SkuaSettingsPresenter(
             sp.GetRequiredService<ISkuaFeed>(), sp.GetRequiredService<SettingsViewModel>(), OnUiThread));
+        services.AddSingleton<IQueueStore>(sp => new QueueFileStore(sp.GetRequiredService<AppPaths>().Root));
+        services.AddSingleton(sp => new SkuaQueueService(
+            sp.GetRequiredService<ISkuaFeed>(), sp.GetRequiredService<ISkuaCommandChannel>(), sp.GetRequiredService<CharacterBook>(),
+            sp.GetRequiredService<IQueueStore>(), sp.GetRequiredService<IDelay>(), () => DateTimeOffset.UtcNow,
+            notice => sp.GetRequiredService<PhoneHub>().Announce(notice),   // resolved on the first notice: PhoneHub itself takes the service
+            ex => Log.Warning("Queue failed: {ExceptionType}", ex.GetType().Name)));
+        services.AddSingleton<ISkuaQueues>(sp => sp.GetRequiredService<SkuaQueueService>());
         services.AddSingleton<IAssetSource, EmbeddedAssetSource>();
         services.AddSingleton<ITailscaleProcess, TailscaleProcess>();
         services.AddSingleton<IServeMarker>(sp => new FileServeMarker(sp.GetRequiredService<AppPaths>().PhoneServeMarkerPath));
@@ -221,6 +231,8 @@ public static class CompositionRoot
         // and no key, so nothing is pushed after Forget. The send path only reads the key, so a send in flight cannot recreate it.
         sp.GetRequiredService<PushSubscriptionStore>(),
         sp.GetRequiredService<VapidKeyStore>(),
+        // The queues forget before the book and the hub: a book or hub Forget raises Changed, which would pause the queues and announce notices.
+        sp.GetRequiredService<SkuaQueueService>(),
         // The book forgets before the hub: a re-report arriving between the two is then kept by the book (resumed already)
         // instead of dropped by a still-quiesced one; the plugin reports again only on a change.
         sp.GetRequiredService<CharacterBook>(),

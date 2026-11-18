@@ -37,7 +37,7 @@ public partial class SettingsViewModel : ObservableObject
     public const string DebugDescriptionText = "Shows the Hard Farms entries without a match and the diagnostics export in their own window. It also opens with Ctrl+Shift+D and from the tray icon menu.";
     public const string PrivacyTitleText = "Privacy";
     public const string ForgetText = "Forget my data";
-    public const string ForgetPromptText = "Remove everything the app saved on this computer? Your saved characters, Skua logs and the Hard Farms list are cleared, and so is the game data saved by versions before 0.6.";
+    public const string ForgetPromptText = "Remove everything the app saved on this computer? Your saved characters, Skua logs, script queues and the Hard Farms list are cleared, and so is the game data saved by versions before 0.6.";
     public const string ForgetCompleteText = "Everything the app saved was removed from this computer.";
     public const string ForgetFailedText = "Could not remove the stored data. Close other copies of the app and try again.";
     public const string CreditsTitleText = "Credits";
@@ -46,6 +46,7 @@ public partial class SettingsViewModel : ObservableObject
         "SkuaLink reads, on this computer only, what the SkuaLink plugin inside Skua reports: each character's name, level, experience, gold, AC, class and class rank, class points, " +
         "membership, guild and slot counts, faction reputation, the names and quantities of the items in the inventory, the house and the bank (once opened in Skua), " +
         "and what Skua is doing (server, map, script, active quests, a short log). " +
+        "Your script queues (the script ids, item names and numbers you enter) are saved on this computer only. " +
         "It never reads or keeps your e-mail address, IP address, password, user or character ids, or anything about other players, and it never sends anything to the game. " +
         "Only four things go beyond this computer: the AQW Wiki is contacted when you ask for the Hard Farms list, " +
         "with Phone access on the app serves what it shows to the phones you paired, over your own Tailscale network, " +
