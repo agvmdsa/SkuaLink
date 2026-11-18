@@ -407,4 +407,44 @@ public class QueueEngineControlTests
         Assert.Equal(0, engine.Cursor);
         Assert.Empty(sink.Notices);
     }
+
+    [Theory]
+    [InlineData(true, false, false)]
+    [InlineData(true, false, true)]
+    [InlineData(true, true, false)]
+    [InlineData(true, true, true)]
+    [InlineData(false, false, false)]
+    [InlineData(false, false, true)]
+    [InlineData(false, true, false)]
+    [InlineData(false, true, true)]
+    public void A_paused_queue_with_a_start_in_doubt_can_still_skip_and_stop_without_sending_stop(bool accepted, bool disconnect, bool stopQueue)
+    {
+        var sink = new FakeQueueSink();
+        var e = Engine(sink, Step(), Step("2", B, "Butler", "Gold Voucher", 1));
+        e.Start(Idle(), T0);
+        e.OnScripts(Scripts, T0);
+        e.Evaluate(Idle(), T0);
+        if (accepted)
+        {
+            e.OnStartResult(new QueueOutcome(true, true), T0.AddSeconds(1));
+            e.Evaluate(Idle(), T0.AddSeconds(2));
+        }
+
+        if (disconnect)
+        {
+            e.Evaluate(new QueueInputs(false, null, [], null), T0.AddSeconds(3));
+        }
+        else
+        {
+            Assert.True(e.Pause(T0.AddSeconds(3)).Ok);
+        }
+
+        Assert.Equal(QueueState.Paused, e.State);
+        var result = stopQueue ? e.StopQueue(Idle(), T0.AddSeconds(4)) : e.Skip(Idle(), T0.AddSeconds(4));
+
+        Assert.True(result.Ok);
+        Assert.Equal(0, sink.Count("stop"));
+        Assert.Equal(stopQueue ? QueueState.Stopped : QueueState.Paused, e.State);
+        Assert.Equal(stopQueue ? 0 : 1, e.Cursor);
+    }
 }

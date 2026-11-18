@@ -178,7 +178,7 @@ public sealed partial class QueueEngine
 
     /// <summary>A start is unanswered, or accepted but its script is not visible yet: stopping or skipping now would leave it unattended.</summary>
     private bool StartInFlight(SkuaStatus? status) =>
-        _a.StartSent && (!_a.StartAnswered || (_a.StartOkAt is not null && !_a.Owns && !Alive(status)));
+        _state == QueueState.Running && _phase == QueuePhase.Starting && _a.StartSent && (!_a.StartAnswered || (_a.StartOkAt is not null && !_a.Owns && !Alive(status)));
 
     /// <summary>A reason to pause, or null. Judged before every decision (decision 4: nothing retries, nothing reinstates).</summary>
     private string? Problem(QueueInputs i, QueueStep step)
