@@ -410,4 +410,83 @@ public class QueueEngineFlowTests
         Assert.Equal(0, engine.View.Cursor);
         Assert.Equal(QueueState.Running, engine.View.State);
     }
+
+    // ---- fix round 1 ----
+
+    [Theory]
+    [InlineData(3)]
+    [InlineData(20)]
+    public void A_chain_of_satisfied_steps_gives_each_notice_its_own_id_and_ends_finished(int count)
+    {
+        var sink = new FakeQueueSink();
+        var steps = Enumerable.Range(1, count).Select(n => Step(n.ToString(System.Globalization.CultureInfo.InvariantCulture))).ToArray();
+        var engine = Engine(sink, steps);
+
+        engine.Start(Idle(Bag("Blood Orb", 10)), T0);
+
+        Assert.Equal(QueueState.Finished, engine.View.State);
+        Assert.Equal(count + 1, sink.Notices.Count);
+        Assert.Equal(sink.Notices.Count, sink.Notices.Select(n => n.Id).Distinct().Count());
+    }
+
+    [Fact]
+    public void A_late_first_run_answer_after_the_script_was_seen_alive_pauses_with_the_first_run_text()
+    {
+        var sink = new FakeQueueSink();
+        var engine = Engine(sink, Step());
+        engine.Start(Idle(), T0);
+        engine.OnScripts(Scripts, T0);
+        engine.Evaluate(Idle(), T0);
+        engine.Evaluate(Running(), T0.AddSeconds(1));
+        Assert.Equal(QueuePhase.Running, engine.View.Phase);
+
+        engine.OnStartResult(new QueueOutcome(true, true, FirstRun: true), T0.AddSeconds(2));
+
+        Assert.Equal(QueueState.Paused, engine.View.State);
+        Assert.Equal(QueueEngine.FirstRunReason, engine.View.Reason);
+    }
+
+    [Fact]
+    public void A_late_refusal_after_the_script_was_seen_alive_pauses_with_its_text()
+    {
+        var sink = new FakeQueueSink();
+        var engine = Engine(sink, Step());
+        engine.Start(Idle(), T0);
+        engine.OnScripts(Scripts, T0);
+        engine.Evaluate(Idle(), T0);
+        engine.Evaluate(Running(), T0.AddSeconds(1));
+
+        engine.OnStartResult(new QueueOutcome(true, false, "already running"), T0.AddSeconds(2));
+
+        Assert.Equal(QueueState.Paused, engine.View.State);
+        Assert.Equal("Skua refused to start the script: already running", engine.View.Reason);
+    }
+
+    [Fact]
+    public void A_script_of_another_name_running_after_our_start_is_never_adopted_or_stopped()
+    {
+        var sink = new FakeQueueSink();
+        var engine = Engine(sink, Step());
+        engine.Start(Idle(), T0);
+        engine.OnScripts(Scripts, T0);
+        engine.Evaluate(Idle(), T0);
+
+        engine.Evaluate(Running(script: "Butler", inventory: Bag("Blood Orb", 10)), T0.AddSeconds(1));
+
+        Assert.Equal(QueueState.Paused, engine.View.State);
+        Assert.Equal("You changed the script.", engine.View.Reason);
+        Assert.Equal(0, sink.Count("stop"));
+    }
+
+    [Fact]
+    public void A_step_reached_by_reputation_alone_is_skipped_without_claiming_the_item()
+    {
+        var sink = new FakeQueueSink();
+        var engine = Engine(sink, Step(rep: new ReputationGoal("ebilcorp", 10)), Step("2", B, "Butler", "Gold Voucher", 1));
+        var factions = new[] { new SkuaFaction(1, "Ebilcorp", 10, 5, 0, 0) };
+
+        engine.Start(new QueueInputs(true, Status(factions: factions), [], null), T0);
+
+        Assert.Equal("Already reached the reputation goal. Skipped Dailies.", Assert.Single(sink.Notices).Body);
+    }
 }

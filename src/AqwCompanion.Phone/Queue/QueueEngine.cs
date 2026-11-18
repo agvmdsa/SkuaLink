@@ -176,7 +176,7 @@ public sealed partial class QueueEngine
     /// <summary>The answer to <c>start</c>. Call <see cref="Evaluate"/> afterwards.</summary>
     public void OnStartResult(QueueOutcome outcome, DateTimeOffset now)
     {
-        if (_state != QueueState.Running || _phase != QueuePhase.Starting || !_a.StartSent || _a.StartAnswered)
+        if (_state != QueueState.Running || (_phase != QueuePhase.Starting && _phase != QueuePhase.Running) || !_a.StartSent || _a.StartAnswered)
         {
             return;
         }
@@ -249,7 +249,11 @@ public sealed partial class QueueEngine
         var status = i.Status;
         if (Alive(status))
         {
-            if (_a.StartSent)
+            if (_a.StartSent && status!.ScriptRunning && !QueueText.SameName(status.Script, step.ScriptName))
+            {
+                PauseWith("You changed the script.", now);   // not ours: never adopted, never stopped
+            }
+            else if (_a.StartSent)
             {
                 _a.Owns = true;
                 SetPhase(QueuePhase.Running);
@@ -284,7 +288,7 @@ public sealed partial class QueueEngine
 
         if (GoalReached(i, step))
         {
-            _sink.Notify(QueueNotices.AlreadyHad(_character, step, now));
+            _sink.Notify(QueueNotices.AlreadyHad(_character, step, now, Have(i.Inventory, step) >= step.GoalQuantity));
             Advance(now, pauseAfter: false);
             return;
         }
