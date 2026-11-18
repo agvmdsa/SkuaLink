@@ -227,6 +227,12 @@ public sealed partial class QueueEngine
 
     private void Step(QueueInputs i, QueueStep step, DateTimeOffset now)
     {
+        if (Problem(i, step) is { } problem)
+        {
+            PauseWith(problem, now);
+            return;
+        }
+
         switch (_phase)
         {
             case QueuePhase.Starting:
@@ -268,7 +274,7 @@ public sealed partial class QueueEngine
             }
             else
             {
-                PauseWith("Another script is running.", now);
+                PauseWith(AnotherScriptReason, now);
             }
 
             return;
@@ -327,6 +333,11 @@ public sealed partial class QueueEngine
             if (GoalReached(i, step))
             {
                 BeginStop(new Exit(ExitKind.Advance), now);
+            }
+            else if (step.MaxMinutes is { } minutes && now - _a.StartedAt >= TimeSpan.FromMinutes(minutes))
+            {
+                _sink.Notify(QueueNotices.TimeLimit(_character, step, now));
+                BeginStop(new Exit(ExitKind.Pause, step.ScriptName + " hit its time limit."), now);
             }
 
             return;
