@@ -77,7 +77,8 @@ public static class CompositionRoot
             sp.GetRequiredService<IMainWindowHost>(),
             sp.GetRequiredService<IApplicationExit>(),
             debug: sp.GetRequiredService<DebugModeController>(),
-            skua: sp.GetRequiredService<ISkuaFeed>()));
+            skua: sp.GetRequiredService<ISkuaFeed>(),
+            updates: sp.GetRequiredService<IUpdateState>()));
         services.AddSingleton(sp => new CharacterSelection(sp.GetRequiredService<CharacterBook>(), sp.GetRequiredService<ISkuaFeed>()));
         services.AddSingleton<IActiveInventory>(sp => new ActiveInventory(
             sp.GetRequiredService<CharacterBook>(), sp.GetRequiredService<CharacterSelection>(), OnUiThread));

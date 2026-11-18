@@ -1,6 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:AqwCompanion.App.Shell"
+        xmlns:up="using:AqwCompanion.App.Updates"
         xmlns:local="using:AqwCompanion.App"
         xmlns:dashboard="using:AqwCompanion.App.Dashboard"
         x:Class="AqwCompanion.App.Shell.MainWindow"
@@ -96,6 +97,35 @@
         </Button>
       </DockPanel>
     </Border>
+
+    <!-- The update banner, under the top bar: shown while a newer release is on offer and not dismissed. The outer panel only supplies the
+         Updates view model (null where the app wired none; FallbackValue keeps the banner hidden). -->
+    <StackPanel DockPanel.Dock="Top" DataContext="{Binding Settings.Updates}">
+      <Border x:Name="UpdateBanner" x:DataType="up:UpdatesViewModel" IsVisible="{Binding IsBannerVisible, FallbackValue=False}"
+              Background="{DynamicResource AqwHeader}" BorderBrush="{DynamicResource AqwBorder}" BorderThickness="0,0,0,1" Padding="16,8">
+        <StackPanel Spacing="6">
+          <Grid ColumnDefinitions="*,Auto">
+            <TextBlock x:Name="UpdateBannerText" Text="{Binding BannerText}" FontWeight="SemiBold" TextWrapping="Wrap"
+                       Foreground="{DynamicResource AqwTextBright}" VerticalAlignment="Center" AutomationProperties.Name="{Binding BannerText}" />
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+              <Button x:Name="UpdateBannerUpdate" Content="{x:Static up:UpdatesViewModel.UpdateNowText}" Command="{Binding UpdateNowCommand}"
+                      AutomationProperties.Name="Update SkuaLink now" />
+              <Button x:Name="UpdateBannerNotes" Content="{x:Static up:UpdatesViewModel.ReleaseNotesText}" Command="{Binding ReleaseNotesCommand}"
+                      AutomationProperties.Name="Open the release notes" />
+              <Button x:Name="UpdateBannerCancel" Content="{x:Static up:UpdatesViewModel.CancelText}" Command="{Binding CancelUpdateCommand}"
+                      IsVisible="{Binding IsBusy}" AutomationProperties.Name="Cancel the update download" />
+              <Button x:Name="UpdateBannerDismiss" Content="{x:Static up:UpdatesViewModel.DismissText}" Command="{Binding DismissBannerCommand}"
+                      AutomationProperties.Name="Dismiss the update banner" />
+            </StackPanel>
+          </Grid>
+          <TextBlock x:Name="UpdateBannerProgress" Text="{Binding ProgressText}" IsVisible="{Binding HasProgress}"
+                     Foreground="{DynamicResource AqwTextSecondary}" AutomationProperties.Name="{Binding ProgressText}" />
+          <TextBlock x:Name="UpdateBannerStatus" Text="{Binding StatusText}" IsVisible="{Binding HasStatus}" TextWrapping="Wrap"
+                     AutomationProperties.Name="{Binding StatusText}" />
+          <up:PluginRequirementView x:Name="UpdateBannerPlugin" />
+        </StackPanel>
+      </Border>
+    </StackPanel>
 
     <!-- The footer: how many Skua are connected, and whether the selected character is live or remembered. -->
     <Border x:Name="Footer" DockPanel.Dock="Bottom" Background="{DynamicResource AqwHeader}"
