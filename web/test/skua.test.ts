@@ -307,3 +307,10 @@ describe('the Skua notice kinds', () => {
     expect(noticeLine(n('SkuaDisconnected', null), NOW).title).toBe('server title');
   });
 });
+
+describe('the update notice', () => {
+  const n = { id: 'update:0.8.0', kind: 'UpdateAvailable', character: '', title: 'SkuaLink update available', body: 'SkuaLink 0.8.0 is available. Update it on the PC.', atUtc: new Date(NOW - 120_000).toISOString() } as never;
+  it('shows the text the PC wrote', () => {
+    expect(noticeLine(n, NOW)).toMatchObject({ title: 'SkuaLink update available', body: 'SkuaLink 0.8.0 is available. Update it on the PC.' });
+  });
+});

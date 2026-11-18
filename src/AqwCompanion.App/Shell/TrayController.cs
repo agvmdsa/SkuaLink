@@ -1,5 +1,6 @@
 using AqwCompanion.App.Debug;
 using AqwCompanion.App.Feed;
+using AqwCompanion.App.Updates;
 using AqwCompanion.Phone.Skua;
 
 namespace AqwCompanion.App.Shell;
@@ -12,23 +13,35 @@ public sealed class TrayController
 {
     private const string Name = "SkuaLink";
 
+    public const string UpdateAvailableText = "Update available";
+
+    private readonly IUpdateState? _updates;
     private readonly IMainWindowHost _window;
     private readonly IApplicationExit _exit;
     private readonly DebugModeController? _debug;
     private readonly ISkuaFeed? _skua;
     private int _exiting;
 
-    public TrayController(IMainWindowHost window, IApplicationExit exit, DebugModeController? debug = null, ISkuaFeed? skua = null)
+    public TrayController(IMainWindowHost window, IApplicationExit exit, DebugModeController? debug = null, ISkuaFeed? skua = null, IUpdateState? updates = null)
     {
         _window = window;
         _exit = exit;
         _debug = debug;
         _skua = skua;
+        _updates = updates;
         if (_skua is not null)
         {
             _skua.Changed += (_, _) => Changed?.Invoke(this, EventArgs.Empty);
         }
+
+        if (_updates is not null)
+        {
+            _updates.Changed += (_, _) => Changed?.Invoke(this, EventArgs.Empty);
+        }
     }
+
+    /// <summary>True while a newer release is on offer; the tray menu then shows "Update available".</summary>
+    public bool UpdateAvailable => _updates?.Current.IsAvailable == true;
 
     /// <summary>The Skua connections changed (the feed's event, re-raised; may come from any thread).</summary>
     public event EventHandler? Changed;

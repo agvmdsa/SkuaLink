@@ -1,0 +1,14 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:up="using:AqwCompanion.App.Updates"
+             x:Class="AqwCompanion.App.Updates.PluginRequirementView"
+             x:DataType="up:UpdatesViewModel">
+  <StackPanel x:Name="PluginPanel" Spacing="4" IsVisible="{Binding HasPluginRequirement, FallbackValue=False}">
+    <TextBlock x:Name="PluginRequirementText" FontWeight="SemiBold" TextWrapping="Wrap"
+               Text="{Binding PluginRequirementText}" AutomationProperties.Name="{Binding PluginRequirementText}" />
+    <Button x:Name="DownloadPluginButton" HorizontalAlignment="Left" Content="{x:Static up:UpdatesViewModel.DownloadPluginText}"
+            Command="{Binding DownloadPluginCommand}" AutomationProperties.Name="{x:Static up:UpdatesViewModel.DownloadPluginText}" />
+    <TextBlock x:Name="PluginStatus" TextWrapping="Wrap" Foreground="{DynamicResource AqwTextSecondary}"
+               Text="{Binding PluginStatusText}" IsVisible="{Binding HasPluginStatus}" AutomationProperties.Name="{Binding PluginStatusText}" />
+  </StackPanel>
+</UserControl>

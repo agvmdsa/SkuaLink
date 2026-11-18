@@ -4,6 +4,7 @@ public enum NoticeKind
 {
     RankUp, HardFarmDrop, ActivityStopped, NewLogin, SkuaDisconnected, SkuaReconnected, SkuaOptionsWaiting,
     ScriptStopped, ScriptError, CharacterKicked, NoProgress, DyingOften,
+    UpdateAvailable,
 }
 
 public sealed record Notice(string Id, NoticeKind Kind, string Character, string Title, string Body, DateTimeOffset AtUtc);

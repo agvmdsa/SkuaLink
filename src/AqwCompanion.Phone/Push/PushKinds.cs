@@ -6,7 +6,7 @@ public static class PushKinds
     private static readonly string[] Names =
     [
         "ScriptStopped", "ScriptError", "SkuaDisconnected", "CharacterKicked", "SkuaOptionsWaiting",
-        "RankUp", "HardFarmDrop", "NoProgress", "DyingOften",
+        "RankUp", "HardFarmDrop", "NoProgress", "DyingOften", "UpdateAvailable",
     ];
 
     private static readonly HashSet<string> Known = new(Names, StringComparer.Ordinal);

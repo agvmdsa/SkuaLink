@@ -47,9 +47,11 @@ public partial class SettingsViewModel : ObservableObject
         "membership, guild and slot counts, faction reputation, the names and quantities of the items in the inventory, the house and the bank (once opened in Skua), " +
         "and what Skua is doing (server, map, script, active quests, a short log). " +
         "It never reads or keeps your e-mail address, IP address, password, user or character ids, or anything about other players, and it never sends anything to the game. " +
-        "Only three things go beyond this computer, and only when you ask for them: the AQW Wiki is contacted when you ask for the Hard Farms list, " +
+        "Only four things go beyond this computer: the AQW Wiki is contacted when you ask for the Hard Farms list, " +
         "with Phone access on the app serves what it shows to the phones you paired, over your own Tailscale network, " +
-        "and with Notifications on, encrypted notification text goes to the push service of your phone's browser (Apple, Google, Mozilla or Microsoft). " +
+        "with Notifications on, encrypted notification text goes to the push service of your phone's browser (Apple, Google, Mozilla or Microsoft), " +
+        "and with Check for updates on, the app asks GitHub for the latest SkuaLink release (a plain request with no data about you) 30 seconds after it starts and every 6 hours, " +
+        "and downloads an update from GitHub only when you press Update now or Download plugin. " +
         "The data is saved locally so the app opens with it, and Forget my data removes it.";
 
     public const string CreditsText =
@@ -68,6 +70,7 @@ public partial class SettingsViewModel : ObservableObject
     private readonly string _skuaPluginsPath;
     private readonly Func<string, bool> _directoryExists;
     private AppSettings _settings;
+    private readonly object _settingsLock = new();
     private bool _startWithWindows;
 
     public SettingsViewModel(IAppSettingsStore store, ForgetCoordinator forgetting, IAutoStart? autoStart = null, FeedSecretStore? feedSecret = null,
@@ -116,8 +119,7 @@ public partial class SettingsViewModel : ObservableObject
                 return;
             }
 
-            _settings = _settings with { LocalFeed = value };
-            _store.Save(_settings);
+            UpdateSettings(s => s with { LocalFeed = value });
             OnPropertyChanged();
             LocalFeedChanged?.Invoke(this, EventArgs.Empty);
         }
@@ -182,8 +184,7 @@ public partial class SettingsViewModel : ObservableObject
                 return;
             }
 
-            _settings = _settings with { PhoneAccess = value };
-            _store.Save(_settings);
+            UpdateSettings(s => s with { PhoneAccess = value });
             OnPropertyChanged();
             PhoneAccessChanged?.Invoke(this, EventArgs.Empty);
         }
@@ -219,6 +220,62 @@ public partial class SettingsViewModel : ObservableObject
     private string _skuaStatusText = AqwCompanion.Phone.Skua.SkuaStatusText.For(AqwCompanion.Phone.Skua.SkuaView.Empty);
 
     public void SetSkuaStatus(string text) => SkuaStatusText = text;
+
+    // One writer at a time: the update checker saves from a pool thread while the UI saves from its own.
+    private void UpdateSettings(Func<AppSettings, AppSettings> change)
+    {
+        lock (_settingsLock)
+        {
+            _settings = change(_settings);
+            _store.Save(_settings);
+        }
+    }
+
+    /// <summary>Raised after <see cref="CheckForUpdatesEnabled"/> changed and was saved.</summary>
+    public event EventHandler? CheckForUpdatesChanged;
+
+    /// <summary>Whether SkuaLink asks GitHub for new releases. Saved; on by default. Off means no request to GitHub at all.</summary>
+    public bool CheckForUpdatesEnabled
+    {
+        get => _settings.CheckForUpdates;
+        set
+        {
+            if (_settings.CheckForUpdates == value)
+            {
+                return;
+            }
+
+            UpdateSettings(s => s with { CheckForUpdates = value });
+            OnPropertyChanged();
+            CheckForUpdatesChanged?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
+    /// <summary>The update check and installer; null where the app wired none.</summary>
+    public AqwCompanion.App.Updates.UpdatesViewModel? Updates { get; private set; }
+
+    public bool HasUpdates => Updates is not null;
+
+    internal void AttachUpdates(AqwCompanion.App.Updates.UpdatesViewModel updates)
+    {
+        Updates = updates;
+        OnPropertyChanged(nameof(Updates));
+        OnPropertyChanged(nameof(HasUpdates));
+    }
+
+    /// <summary>The release version already announced to the phones; empty when none.</summary>
+    public string AnnouncedUpdate => _settings.AnnouncedUpdate ?? string.Empty;
+
+    /// <summary>Saves that this version was announced, so a restart does not announce it again.</summary>
+    public void RememberAnnouncedUpdate(string version)
+    {
+        if (AnnouncedUpdate == version)
+        {
+            return;
+        }
+
+        UpdateSettings(s => s with { AnnouncedUpdate = version });
+    }
 
     /// <summary>Opens Skua's plugins folder when it exists. Never creates, writes or deletes anything there.</summary>
     [RelayCommand]
@@ -302,8 +359,7 @@ public partial class SettingsViewModel : ObservableObject
             return;
         }
 
-        _settings = _settings with { AutoStartMigrated = true };
-        _store.Save(_settings);
+        UpdateSettings(s => s with { AutoStartMigrated = true });
     }
 
     [ObservableProperty]
@@ -342,8 +398,7 @@ public partial class SettingsViewModel : ObservableObject
                 return;
             }
 
-            _settings = _settings with { DebugMode = value };
-            _store.Save(_settings);
+            UpdateSettings(s => s with { DebugMode = value });
             OnPropertyChanged();
             OnPropertyChanged(nameof(IsLocalPairingLinkVisible));
             CopyLocalPairingLinkCommand.NotifyCanExecuteChanged();

@@ -13,6 +13,7 @@ public sealed class TrayIconSetup : IDisposable
 {
     private readonly TrayController _controller;
     private readonly TrayIcon _icon;
+    private readonly NativeMenuItem _update;
     private bool _disposed;
 
     public TrayIconSetup(TrayController controller)
@@ -22,11 +23,14 @@ public sealed class TrayIconSetup : IDisposable
         open.Click += (_, _) => controller.Open();
         var debug = new NativeMenuItem("Debug mode");
         debug.Click += (_, _) => controller.ToggleDebug();
+        _update = new NativeMenuItem(TrayController.UpdateAvailableText) { IsVisible = controller.UpdateAvailable };
+        _update.Click += (_, _) => controller.Open();
         var exit = new NativeMenuItem("Exit");
         exit.Click += (_, _) => _ = controller.ExitAsync();
 
         var menu = new NativeMenu();
         menu.Items.Add(open);
+        menu.Items.Add(_update);
         menu.Items.Add(debug);
         menu.Items.Add(new NativeMenuItemSeparator());
         menu.Items.Add(exit);
@@ -78,5 +82,6 @@ public sealed class TrayIconSetup : IDisposable
         }
 
         _icon.ToolTipText = _controller.ToolTip;
+        _update.IsVisible = _controller.UpdateAvailable;
     }
 }

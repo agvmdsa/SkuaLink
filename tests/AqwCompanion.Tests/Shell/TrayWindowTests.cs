@@ -69,6 +69,6 @@ public class TrayWindowTests
         using var setup = new TrayIconSetup(services.GetRequiredService<TrayController>());
 
         Assert.Equal("SkuaLink - Skua not connected", setup.Icon.ToolTipText);
-        Assert.Equal(["Open", "Debug mode", "-", "Exit"], setup.Icon.Menu!.Items.Select(i => i is NativeMenuItem item ? item.Header : "-"));
+        Assert.Equal(["Open", "Update available", "Debug mode", "-", "Exit"], setup.Icon.Menu!.Items.Select(i => i is NativeMenuItem item ? item.Header : "-"));
     }
 }

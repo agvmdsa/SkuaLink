@@ -1,5 +1,6 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:up="using:AqwCompanion.App.Updates"
         xmlns:st="using:AqwCompanion.App.Settings"
         x:Class="AqwCompanion.App.Settings.SettingsWindow"
         x:DataType="st:SettingsViewModel"
@@ -101,6 +102,10 @@
         <TextBlock x:Name="SettingsSkuaSteps" Classes="muted" TextWrapping="Wrap" Text="{x:Static st:SettingsViewModel.SkuaStepsText}" />
         <TextBlock x:Name="SettingsSkuaStatus" Text="{Binding SkuaStatusText}" FontWeight="SemiBold" TextWrapping="Wrap"
                    AutomationProperties.Name="{Binding SkuaStatusText}" />
+        <!-- The wrapper keeps the part hidden where the app wired no Updates: a null DataContext skips the part's own bindings. -->
+        <StackPanel IsVisible="{Binding HasUpdates}">
+          <up:PluginRequirementView x:Name="SettingsSkuaPlugin" DataContext="{Binding Updates}" />
+        </StackPanel>
         <StackPanel Orientation="Horizontal" Spacing="12">
           <Button x:Name="SettingsSkuaOpenFolder" Content="{x:Static st:SettingsViewModel.OpenSkuaPluginsFolderText}"
                   Command="{Binding OpenSkuaPluginsFolderCommand}" AutomationProperties.Name="{x:Static st:SettingsViewModel.OpenSkuaPluginsFolderText}" />
@@ -108,6 +113,40 @@
                   Command="{Binding OpenReleasePageCommand}" AutomationProperties.Name="{x:Static st:SettingsViewModel.OpenReleasePageText}" />
         </StackPanel>
       </StackPanel>
+    </Border>
+
+    <Border x:Name="SettingsUpdatesSection" Classes="divider" IsVisible="{Binding HasUpdates}">
+     <StackPanel DataContext="{Binding Updates}">
+      <StackPanel x:DataType="up:UpdatesViewModel" Spacing="4">
+        <Grid ColumnDefinitions="*,Auto">
+          <StackPanel Spacing="2" Margin="0,0,16,0">
+            <TextBlock Classes="sectionTitle" Text="{x:Static up:UpdatesViewModel.CheckSwitchTitleText}" />
+            <TextBlock Classes="muted" TextWrapping="Wrap" Text="{x:Static up:UpdatesViewModel.CheckSwitchDescriptionText}" />
+          </StackPanel>
+          <ToggleSwitch x:Name="SettingsUpdatesSwitch" Grid.Column="1" IsChecked="{Binding CheckForUpdates, Mode=TwoWay}"
+                        OnContent="" OffContent="" VerticalAlignment="Center" AutomationProperties.Name="Check for updates" />
+        </Grid>
+        <TextBlock x:Name="SettingsUpdatesCurrent" Text="{Binding CurrentVersionText}" AutomationProperties.Name="{Binding CurrentVersionText}" />
+        <TextBlock x:Name="SettingsUpdatesLatest" Text="{Binding LatestVersionText}" AutomationProperties.Name="{Binding LatestVersionText}" />
+        <TextBlock x:Name="SettingsUpdatesLast" Classes="muted" TextWrapping="Wrap" Text="{Binding LastCheckText}"
+                   AutomationProperties.Name="{Binding LastCheckText}" />
+        <StackPanel Orientation="Horizontal" Spacing="12">
+          <Button x:Name="SettingsUpdatesCheckNow" Content="{x:Static up:UpdatesViewModel.CheckNowText}" Command="{Binding CheckNowCommand}"
+                  AutomationProperties.Name="Check for updates now" />
+          <Button x:Name="SettingsUpdatesUpdateNow" Content="{x:Static up:UpdatesViewModel.UpdateNowText}" Command="{Binding UpdateNowCommand}"
+                  AutomationProperties.Name="Update SkuaLink now" />
+          <Button x:Name="SettingsUpdatesCancel" Content="{x:Static up:UpdatesViewModel.CancelText}" Command="{Binding CancelUpdateCommand}"
+                  IsVisible="{Binding IsBusy}" AutomationProperties.Name="Cancel the update download" />
+          <Button x:Name="SettingsUpdatesNotes" Content="{x:Static up:UpdatesViewModel.ReleaseNotesText}" Command="{Binding ReleaseNotesCommand}"
+                  AutomationProperties.Name="Open the release notes" />
+        </StackPanel>
+        <TextBlock x:Name="SettingsUpdatesProgress" Text="{Binding ProgressText}" IsVisible="{Binding HasProgress}"
+                   AutomationProperties.Name="{Binding ProgressText}" />
+        <TextBlock x:Name="SettingsUpdatesStatus" Text="{Binding StatusText}" IsVisible="{Binding HasStatus}" TextWrapping="Wrap"
+                   AutomationProperties.Name="{Binding StatusText}" />
+        <up:PluginRequirementView x:Name="SettingsUpdatesPlugin" />
+      </StackPanel>
+     </StackPanel>
     </Border>
 
     <Border Classes="divider">

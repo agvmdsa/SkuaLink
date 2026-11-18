@@ -14,6 +14,7 @@ using AqwCompanion.App.Inventory;
 using AqwCompanion.App.Settings;
 using AqwCompanion.App.Skua;
 using AqwCompanion.App.Shell;
+using AqwCompanion.App.Updates;
 using AqwCompanion.Core.Diagnostics;
 using AqwCompanion.Core.Feed;
 using AqwCompanion.Core.Forgetting;
@@ -76,7 +77,8 @@ public static class CompositionRoot
             sp.GetRequiredService<IMainWindowHost>(),
             sp.GetRequiredService<IApplicationExit>(),
             debug: sp.GetRequiredService<DebugModeController>(),
-            skua: sp.GetRequiredService<ISkuaFeed>()));
+            skua: sp.GetRequiredService<ISkuaFeed>(),
+            updates: sp.GetRequiredService<IUpdateState>()));
         services.AddSingleton(sp => new CharacterSelection(sp.GetRequiredService<CharacterBook>(), sp.GetRequiredService<ISkuaFeed>()));
         services.AddSingleton<IActiveInventory>(sp => new ActiveInventory(
             sp.GetRequiredService<CharacterBook>(), sp.GetRequiredService<CharacterSelection>(), OnUiThread));
@@ -172,6 +174,29 @@ public static class CompositionRoot
             sp.GetRequiredService<ITailscale>(), sp.GetRequiredService<IServeMarker>(), onUiThread: OnUiThread));
         services.AddSingleton<IPairingLinkSource>(sp => sp.GetRequiredService<PhoneController>());
         services.AddSingleton<ISettingsDialog>(sp => new AvaloniaSettingsDialog(sp.GetRequiredService<IPairingLinkSource>(), sp.GetRequiredService<PhoneRegistry>()));
+        services.AddSingleton<IReleasePageLauncher, ProcessReleasePageLauncher>();
+        services.AddSingleton<IGitHubReleases>(sp => new GitHubReleases(UpdateHttp.CreateApi(), SettingsViewModel.DisplayVersion(AppInfo.Version)));
+        services.AddSingleton(sp =>
+        {
+            var settings = sp.GetRequiredService<SettingsViewModel>();
+            return new UpdateChecker(
+                sp.GetRequiredService<IGitHubReleases>(), AppInfo.Version, () => settings.CheckForUpdatesEnabled, sp.GetRequiredService<IDelay>(),
+                () => DateTimeOffset.UtcNow, () => settings.AnnouncedUpdate, settings.RememberAnnouncedUpdate,
+                notice => sp.GetRequiredService<PhoneHub>().Announce(notice),
+                ex => Log.Warning("Update check failed: {ExceptionType}", ex.GetType().Name));
+        });
+        services.AddSingleton<IUpdateState>(sp => sp.GetRequiredService<UpdateChecker>());
+        services.AddSingleton(sp => new GuardedDownloader(UpdateHttp.CreateDownload()));
+        services.AddSingleton(sp => new InstallerDownloader(sp.GetRequiredService<GuardedDownloader>(), Path.GetTempPath()));
+        services.AddSingleton(sp => new PluginInstaller(
+            sp.GetRequiredService<GuardedDownloader>(), Path.GetTempPath(),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Skua", "plugins")));
+        services.AddSingleton<IInstallerLauncher, ProcessInstallerLauncher>();
+        services.AddSingleton(sp => new UpdatesViewModel(
+            sp.GetRequiredService<SettingsViewModel>(), sp.GetRequiredService<UpdateChecker>(), sp.GetRequiredService<IGitHubReleases>(),
+            sp.GetRequiredService<InstallerDownloader>(), sp.GetRequiredService<IInstallerLauncher>(), sp.GetRequiredService<PluginInstaller>(),
+            sp.GetRequiredService<IReleasePageLauncher>(), sp.GetRequiredService<IApplicationExit>(), sp.GetRequiredService<ISkuaFeed>(),
+            AppInfo.Version, OnUiThread));
         services.AddSingleton<IDebugWindowHost, AvaloniaDebugWindowHost>();
         services.AddSingleton<DebugModeController>();
         services.AddSingleton(sp => new ForgetCoordinator(

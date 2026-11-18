@@ -155,6 +155,26 @@ public sealed class PhoneHub : IDisposable
         }
     }
 
+    /// <summary>
+    /// Publishes a notice that did not come from the engine (the update check): it is logged, offered to the notice sink (the push
+    /// notifier) and sent to every connected phone with the new state. The caller decides when a notice is new (once per version).
+    /// </summary>
+    public void Announce(Notice notice)
+    {
+        lock (_lock)
+        {
+            try
+            {
+                PublishNotices([notice]);
+                PublishState();
+            }
+            catch (Exception ex)
+            {
+                Report(ex);
+            }
+        }
+    }
+
     public void Dispose()
     {
         _source.Changed -= OnSourceChanged;
