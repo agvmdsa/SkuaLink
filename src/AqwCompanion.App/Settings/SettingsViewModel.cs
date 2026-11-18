@@ -220,6 +220,42 @@ public partial class SettingsViewModel : ObservableObject
 
     public void SetSkuaStatus(string text) => SkuaStatusText = text;
 
+    /// <summary>Raised after <see cref="CheckForUpdatesEnabled"/> changed and was saved.</summary>
+    public event EventHandler? CheckForUpdatesChanged;
+
+    /// <summary>Whether SkuaLink asks GitHub for new releases. Saved; on by default. Off means no request to GitHub at all.</summary>
+    public bool CheckForUpdatesEnabled
+    {
+        get => _settings.CheckForUpdates;
+        set
+        {
+            if (_settings.CheckForUpdates == value)
+            {
+                return;
+            }
+
+            _settings = _settings with { CheckForUpdates = value };
+            _store.Save(_settings);
+            OnPropertyChanged();
+            CheckForUpdatesChanged?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
+    /// <summary>The release version already announced to the phones; empty when none.</summary>
+    public string AnnouncedUpdate => _settings.AnnouncedUpdate ?? string.Empty;
+
+    /// <summary>Saves that this version was announced, so a restart does not announce it again.</summary>
+    public void RememberAnnouncedUpdate(string version)
+    {
+        if (AnnouncedUpdate == version)
+        {
+            return;
+        }
+
+        _settings = _settings with { AnnouncedUpdate = version };
+        _store.Save(_settings);
+    }
+
     /// <summary>Opens Skua's plugins folder when it exists. Never creates, writes or deletes anything there.</summary>
     [RelayCommand]
     private void OpenSkuaPluginsFolder()
