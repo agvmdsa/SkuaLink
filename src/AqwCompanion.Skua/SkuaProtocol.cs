@@ -48,6 +48,18 @@ public static class SkuaProtocol
     /// <summary>A command line (app to plugin) over this many UTF-8 bytes is dropped.</summary>
     public const int MaxCommandLineBytes = 4 * 1024;
 
+    /// <summary>At most this many boost items of the bag travel in the status.</summary>
+    public const int MaxBoostItems = 12;
+
+    /// <summary>A boost item name is cut to this many characters.</summary>
+    public const int MaxBoostNameLength = 100;
+
+    /// <summary>The seconds-left value of a boost type that is active with the elapsed time unknown.</summary>
+    public const int BoostTimeUnknown = -1;
+
+    /// <summary>The values of <see cref="SkuaBoostItem.Type"/>; anything else travels as <c>unknown</c>.</summary>
+    public static readonly IReadOnlyList<string> BoostTypes = ["gold", "class", "rep", "xp", "unknown"];
+
     /// <summary>At most this many plugins are connected at once.</summary>
     public const int MaxInstances = 8;
 
