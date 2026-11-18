@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using AqwCompanion.Core.Feed;
 using AqwCompanion.Phone.Characters;
 using AqwCompanion.Phone.Notices;
+using AqwCompanion.Phone.Queue;
 using AqwCompanion.Phone.Skua;
 
 namespace AqwCompanion.Phone.Hub;
@@ -11,14 +12,16 @@ namespace AqwCompanion.Phone.Hub;
 /// What a phone sees: the last snapshot and the recent notices. <paramref name="Skua"/> is the first connected Skua (as
 /// before several Skua were known); <paramref name="SkuaInstances"/> lists every Skua in order of arrival. Both are null
 /// when no Skua feed is wired. <paramref name="Characters"/> is every character the PC knows, live or remembered, with Skua
-/// instances that have no character; null when no character book is wired.
+/// instances that have no character; null when no character book is wired. <paramref name="Queues"/> is every script queue
+/// the PC holds; null when no queue feed is wired.
 /// </summary>
 public sealed record PhoneState(
     FeedSnapshot Snapshot,
     IReadOnlyList<Notice> Notices,
     SkuaView? Skua = null,
     IReadOnlyList<SkuaInstanceState>? SkuaInstances = null,
-    IReadOnlyList<PhoneCharacter>? Characters = null);
+    IReadOnlyList<PhoneCharacter>? Characters = null,
+    IReadOnlyList<QueueView>? Queues = null);
 
 [JsonSourceGenerationOptions(JsonSerializerDefaults.Web, DefaultIgnoreCondition = JsonIgnoreCondition.Never, UseStringEnumConverter = true)]
 [JsonSerializable(typeof(PhoneState))]

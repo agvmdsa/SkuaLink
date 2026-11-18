@@ -2,6 +2,7 @@ using System.Threading.Channels;
 using AqwCompanion.Core.Feed;
 using AqwCompanion.Phone.Characters;
 using AqwCompanion.Phone.Notices;
+using AqwCompanion.Phone.Queue;
 using AqwCompanion.Phone.Skua;
 
 namespace AqwCompanion.Phone.Hub;
@@ -39,6 +40,7 @@ public sealed class PhoneHub : IDisposable
     private readonly CharacterBook? _characters;
     private readonly IHardFarmsCheck? _hardFarms;
     private readonly INoticeSink? _notices;
+    private readonly ISkuaQueues? _queues;
     private readonly object _lock = new();
     private readonly List<HubSubscription> _subscribers = [];
     private FeedSnapshot _snapshot;
@@ -46,8 +48,10 @@ public sealed class PhoneHub : IDisposable
 
     public PhoneHub(
         IFeedSource source, NoticeEngine engine, NoticeLog log, Func<DateTimeOffset> now, Action<Exception>? onError = null, ISkuaFeed? skua = null,
-        CharacterBook? characters = null, IHardFarmsCheck? hardFarms = null, INoticeSink? notices = null)
+        CharacterBook? characters = null, IHardFarmsCheck? hardFarms = null, INoticeSink? notices = null,
+        ISkuaQueues? queues = null)
     {
+        _queues = queues;
         _notices = notices;
         _source = source;
         _engine = engine;
@@ -70,6 +74,11 @@ public sealed class PhoneHub : IDisposable
         if (hardFarms is not null)
         {
             hardFarms.Changed += OnCharactersChanged;
+        }
+
+        if (queues is not null)
+        {
+            queues.Changed += OnCharactersChanged;
         }
 
         source.Changed += OnSourceChanged;   // before the read: a change in between is not lost, an equal one is skipped
@@ -193,6 +202,11 @@ public sealed class PhoneHub : IDisposable
             _hardFarms.Changed -= OnCharactersChanged;
         }
 
+        if (_queues is not null)
+        {
+            _queues.Changed -= OnCharactersChanged;
+        }
+
         lock (_lock)
         {
             foreach (var subscriber in _subscribers.ToList())
@@ -314,7 +328,8 @@ public sealed class PhoneHub : IDisposable
     private PhoneState State(SkuaHubView? skua) =>
         new(
             _snapshot, _log.Recent, skua?.Primary, skua is null ? null : SkuaInstanceState.From(skua),
-            _characters is null ? null : PhoneCharacters.Build(_characters.All, skua ?? SkuaHubView.Empty, _hardFarms));
+            _characters is null ? null : PhoneCharacters.Build(_characters.All, skua ?? SkuaHubView.Empty, _hardFarms),
+            _queues?.Views);
 
     /// <summary>Under the lock: the Skua instances as they are now raise no notice (a Skua already disconnected is not announced).</summary>
     private void SkuaBaseline()

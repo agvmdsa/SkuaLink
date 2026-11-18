@@ -851,7 +851,7 @@ public sealed class SkuaApiTests : IDisposable
     [Fact]
     public void A_state_without_a_skua_feed_has_no_instances()
     {
-        Assert.Contains("\"skua\":null,\"skuaInstances\":null,\"characters\":null}", _hub.CurrentJson);
+        Assert.Contains("\"skua\":null,\"skuaInstances\":null,\"characters\":null,\"queues\":null}", _hub.CurrentJson);
     }
 
     [Fact]
