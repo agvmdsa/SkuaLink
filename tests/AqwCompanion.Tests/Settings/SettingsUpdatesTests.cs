@@ -98,4 +98,35 @@ public class SettingsUpdatesTests : IDisposable
 
         Assert.Equal(string.Empty, vm.AnnouncedUpdate);
     }
+
+    private sealed class SlowStore : IAppSettingsStore
+    {
+        private AppSettings _saved = new();
+
+        public AppSettings Load() => _saved;
+
+        public void Save(AppSettings settings)
+        {
+            Thread.Sleep(2); // widens the window in which a second writer would interleave
+            _saved = settings;
+        }
+    }
+
+    [Fact]
+    public async Task Concurrent_saves_of_the_switch_and_the_announced_version_do_not_overwrite_each_other()
+    {
+        for (var round = 0; round < 20; round++)
+        {
+            var store = new SlowStore();
+            var vm = new SettingsViewModel(store, new ForgetCoordinator(() => true, () => []));
+
+            var a = Task.Run(() => vm.RememberAnnouncedUpdate("0.8.0"));
+            var b = Task.Run(() => vm.CheckForUpdatesEnabled = false);
+            await Task.WhenAll(a, b);
+
+            var saved = store.Load();
+            Assert.Equal("0.8.0", saved.AnnouncedUpdate);
+            Assert.False(saved.CheckForUpdates);
+        }
+    }
 }

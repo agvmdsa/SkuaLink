@@ -68,6 +68,7 @@ public partial class SettingsViewModel : ObservableObject
     private readonly string _skuaPluginsPath;
     private readonly Func<string, bool> _directoryExists;
     private AppSettings _settings;
+    private readonly object _settingsLock = new();
     private bool _startWithWindows;
 
     public SettingsViewModel(IAppSettingsStore store, ForgetCoordinator forgetting, IAutoStart? autoStart = null, FeedSecretStore? feedSecret = null,
@@ -116,8 +117,7 @@ public partial class SettingsViewModel : ObservableObject
                 return;
             }
 
-            _settings = _settings with { LocalFeed = value };
-            _store.Save(_settings);
+            UpdateSettings(s => s with { LocalFeed = value });
             OnPropertyChanged();
             LocalFeedChanged?.Invoke(this, EventArgs.Empty);
         }
@@ -182,8 +182,7 @@ public partial class SettingsViewModel : ObservableObject
                 return;
             }
 
-            _settings = _settings with { PhoneAccess = value };
-            _store.Save(_settings);
+            UpdateSettings(s => s with { PhoneAccess = value });
             OnPropertyChanged();
             PhoneAccessChanged?.Invoke(this, EventArgs.Empty);
         }
@@ -220,6 +219,16 @@ public partial class SettingsViewModel : ObservableObject
 
     public void SetSkuaStatus(string text) => SkuaStatusText = text;
 
+    // One writer at a time: the update checker saves from a pool thread while the UI saves from its own.
+    private void UpdateSettings(Func<AppSettings, AppSettings> change)
+    {
+        lock (_settingsLock)
+        {
+            _settings = change(_settings);
+            _store.Save(_settings);
+        }
+    }
+
     /// <summary>Raised after <see cref="CheckForUpdatesEnabled"/> changed and was saved.</summary>
     public event EventHandler? CheckForUpdatesChanged;
 
@@ -234,8 +243,7 @@ public partial class SettingsViewModel : ObservableObject
                 return;
             }
 
-            _settings = _settings with { CheckForUpdates = value };
-            _store.Save(_settings);
+            UpdateSettings(s => s with { CheckForUpdates = value });
             OnPropertyChanged();
             CheckForUpdatesChanged?.Invoke(this, EventArgs.Empty);
         }
@@ -252,8 +260,7 @@ public partial class SettingsViewModel : ObservableObject
             return;
         }
 
-        _settings = _settings with { AnnouncedUpdate = version };
-        _store.Save(_settings);
+        UpdateSettings(s => s with { AnnouncedUpdate = version });
     }
 
     /// <summary>Opens Skua's plugins folder when it exists. Never creates, writes or deletes anything there.</summary>
@@ -338,8 +345,7 @@ public partial class SettingsViewModel : ObservableObject
             return;
         }
 
-        _settings = _settings with { AutoStartMigrated = true };
-        _store.Save(_settings);
+        UpdateSettings(s => s with { AutoStartMigrated = true });
     }
 
     [ObservableProperty]
@@ -378,8 +384,7 @@ public partial class SettingsViewModel : ObservableObject
                 return;
             }
 
-            _settings = _settings with { DebugMode = value };
-            _store.Save(_settings);
+            UpdateSettings(s => s with { DebugMode = value });
             OnPropertyChanged();
             OnPropertyChanged(nameof(IsLocalPairingLinkVisible));
             CopyLocalPairingLinkCommand.NotifyCanExecuteChanged();

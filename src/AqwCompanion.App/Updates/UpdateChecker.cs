@@ -52,6 +52,7 @@ public sealed class UpdateChecker : IUpdateState, IDisposable
     private UpdateState _state = UpdateState.Initial;
     private ReleaseInfo? _latest;
     private string? _etag;
+    private int _generation;
     private int _busy;
     private int _started;
 
@@ -99,6 +100,7 @@ public sealed class UpdateChecker : IUpdateState, IDisposable
             return;
         }
 
+        var generation = 0;
         try
         {
             if (!_enabled())
@@ -107,16 +109,25 @@ public sealed class UpdateChecker : IUpdateState, IDisposable
                 return;
             }
 
-            var before = Current;
-            Set(before with { Status = UpdateStatus.Checking });
+            UpdateState before;
+            string? etag;
+            lock (_lock)
+            {
+                generation = _generation;
+                before = _state;
+                etag = _etag;
+                _state = before with { Status = UpdateStatus.Checking };
+            }
+
+            RaiseChanged();
             ReleaseCheck result;
             try
             {
-                result = await _releases.GetLatestAsync(_etag, ct).ConfigureAwait(false);
+                result = await _releases.GetLatestAsync(etag, ct).ConfigureAwait(false);
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
-                Set(before);
+                SetIfCurrent(generation, before);
                 return;
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
@@ -125,7 +136,12 @@ public sealed class UpdateChecker : IUpdateState, IDisposable
                 result = new ReleaseCheck(ReleaseCheckStatus.Failed);
             }
 
-            Apply(result);
+            Apply(result, generation);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            Report(ex);
+            FailIfChecking(generation);
         }
         finally
         {
@@ -154,7 +170,15 @@ public sealed class UpdateChecker : IUpdateState, IDisposable
             await _delay.DelayAsync(FirstCheckDelay, _stop.Token).ConfigureAwait(false);
             while (!_stop.IsCancellationRequested)
             {
-                await CheckNowAsync(_stop.Token).ConfigureAwait(false);
+                try
+                {
+                    await CheckNowAsync(_stop.Token).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException)
+                {
+                    Report(ex); // A tick must never end the loop.
+                }
+
                 await _delay.DelayAsync(Interval, _stop.Token).ConfigureAwait(false);
             }
         }
@@ -168,7 +192,7 @@ public sealed class UpdateChecker : IUpdateState, IDisposable
         }
     }
 
-    private void Apply(ReleaseCheck result)
+    private void Apply(ReleaseCheck result, int generation)
     {
         if (!_enabled())
         {
@@ -177,26 +201,38 @@ public sealed class UpdateChecker : IUpdateState, IDisposable
         }
 
         var now = _now();
-        if (result.Status == ReleaseCheckStatus.Failed)
+        ReleaseInfo? newer = null;
+        lock (_lock)
         {
-            Set(Current with { Status = UpdateStatus.CouldNotCheck, LastCheckUtc = now });
-            return;
+            if (generation != _generation)
+            {
+                return; // The switch went off while the request ran.
+            }
+
+            if (result.Status == ReleaseCheckStatus.Failed)
+            {
+                _state = _state with { Status = UpdateStatus.CouldNotCheck, LastCheckUtc = now };
+            }
+            else
+            {
+                if (result.Status == ReleaseCheckStatus.Found)
+                {
+                    _latest = result.Release;
+                    _etag = result.ETag;
+                }
+                else if (result.Status == ReleaseCheckStatus.NotReady)
+                {
+                    _latest = null;
+                    _etag = result.ETag;
+                }
+
+                // NotModified keeps both. Never a downgrade, never the same version; a pre-release app compares by its numeric version.
+                newer = _latest is { } latest && ReleaseVersion.TryParseApp(_appVersion, out var app, out _) && latest.Version > app ? _latest : null;
+                _state = new UpdateState(newer is null ? UpdateStatus.UpToDate : UpdateStatus.Available, newer, _latest?.Version, now);
+            }
         }
 
-        if (result.Status == ReleaseCheckStatus.Found)
-        {
-            _latest = result.Release;
-            _etag = result.ETag;
-        }
-        else if (result.Status == ReleaseCheckStatus.NotReady)
-        {
-            _latest = null;
-            _etag = result.ETag;
-        }
-
-        // NotModified keeps both. Never a downgrade, never the same version; a pre-release app compares by its numeric version.
-        var newer = _latest is { } latest && ReleaseVersion.TryParseApp(_appVersion, out var app, out _) && latest.Version > app ? _latest : null;
-        Set(new UpdateState(newer is null ? UpdateStatus.UpToDate : UpdateStatus.Available, newer, _latest?.Version, now));
+        RaiseChanged();
         if (newer is not null)
         {
             Announce(newer, now);
@@ -205,14 +241,14 @@ public sealed class UpdateChecker : IUpdateState, IDisposable
 
     private void Announce(ReleaseInfo release, DateTimeOffset now)
     {
-        var version = release.Version.ToString();
-        if (_announce is null || _announced() == version)
-        {
-            return;
-        }
-
         try
         {
+            var version = release.Version.ToString();
+            if (_announce is null || _announced() == version)
+            {
+                return;
+            }
+
             _announce(UpdateNotice.For(release.Version, now));
             _remember(version);
         }
@@ -224,19 +260,67 @@ public sealed class UpdateChecker : IUpdateState, IDisposable
 
     private void SetOff()
     {
-        _latest = null;
-        _etag = null;
-        Set(new UpdateState(UpdateStatus.Off, null, null, Current.LastCheckUtc));
+        lock (_lock)
+        {
+            _generation++;
+            _latest = null;
+            _etag = null;
+            _state = new UpdateState(UpdateStatus.Off, null, null, _state.LastCheckUtc);
+        }
+
+        RaiseChanged();
     }
 
-    private void Set(UpdateState state)
+    private void SetIfCurrent(int generation, UpdateState state)
     {
         lock (_lock)
         {
+            if (generation != _generation)
+            {
+                return;
+            }
+
             _state = state;
         }
 
-        Changed?.Invoke(this, EventArgs.Empty);
+        RaiseChanged();
+    }
+
+    private void FailIfChecking(int generation)
+    {
+        lock (_lock)
+        {
+            if (generation != _generation || _state.Status != UpdateStatus.Checking)
+            {
+                return;
+            }
+
+            _state = _state with { Status = UpdateStatus.CouldNotCheck };
+        }
+
+        RaiseChanged();
+    }
+
+    // Each subscriber on its own, outside the lock: a throwing one must not break the checker or the others.
+    private void RaiseChanged()
+    {
+        var handlers = Changed;
+        if (handlers is null)
+        {
+            return;
+        }
+
+        foreach (var handler in handlers.GetInvocationList())
+        {
+            try
+            {
+                ((EventHandler)handler)(this, EventArgs.Empty);
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                Report(ex);
+            }
+        }
     }
 
     private void Report(Exception ex)

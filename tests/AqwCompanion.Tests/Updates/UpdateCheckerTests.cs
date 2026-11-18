@@ -305,4 +305,104 @@ public class UpdateCheckerTests
         Assert.Equal(2, rig.Releases.Etags.Count);
         checker.Dispose();
     }
+
+    [Fact]
+    public async Task A_throwing_changed_subscriber_does_not_break_the_check_or_the_others()
+    {
+        var rig = new Rig();
+        rig.Releases.Default = FakeGitHubReleases.Found("0.8.0");
+        var checker = rig.Checker();
+        var seen = 0;
+        checker.Changed += (_, _) => throw new InvalidOperationException("subscriber");
+        checker.Changed += (_, _) => seen++;
+
+        await checker.CheckNowAsync();
+
+        Assert.Equal(UpdateStatus.Available, checker.Current.Status);
+        Assert.Equal(2, seen);
+        Assert.Equal(2, rig.Errors.Count);
+        Assert.Single(rig.Notices);
+    }
+
+    [Fact]
+    public async Task A_throwing_remember_is_reported_and_does_not_throw()
+    {
+        var rig = new Rig();
+        rig.Releases.Default = FakeGitHubReleases.Found("0.8.0");
+        var checker = new UpdateChecker(rig.Releases, "0.7.0", () => true, new FakeDelay(), () => T0, () => string.Empty,
+            _ => throw new InvalidOperationException("save"), rig.Notices.Add, rig.Errors.Add);
+
+        await checker.CheckNowAsync();
+
+        Assert.Equal(UpdateStatus.Available, checker.Current.Status);
+        Assert.Single(rig.Errors);
+    }
+
+    [Fact]
+    public void A_throwing_dependency_in_one_tick_leaves_the_loop_alive_for_the_next_interval()
+    {
+        var rig = new Rig();
+        rig.Releases.Default = FakeGitHubReleases.Found("0.7.0");
+        var enabledCalls = 0;
+        var delay = new LimitedDelay(free: 2);
+        var checker = new UpdateChecker(rig.Releases, "0.7.0",
+            () => Interlocked.Increment(ref enabledCalls) == 1 ? throw new InvalidOperationException("enabled") : true,
+            delay, () => T0, () => string.Empty, _ => { }, null, rig.Errors.Add);
+
+        checker.Start();
+
+        Assert.True(SpinWait.SpinUntil(() => delay.Delays.Count >= 3, TimeSpan.FromSeconds(10)));
+        Assert.Single(rig.Errors);
+        Assert.True(SpinWait.SpinUntil(() => rig.Releases.Etags.Count == 1, TimeSpan.FromSeconds(10)));
+        checker.Dispose();
+    }
+
+    [Fact]
+    public async Task Turning_the_switch_off_while_a_request_runs_leaves_off_and_nothing_available()
+    {
+        var rig = new Rig();
+        var gate = new TaskCompletionSource();
+        rig.Releases.Gate = () => gate.Task;
+        rig.Releases.Default = FakeGitHubReleases.Found("0.8.0");
+        var checker = rig.Checker();
+
+        var running = checker.CheckNowAsync();
+        rig.Enabled = false;
+        await checker.ReconfigureAsync();
+        gate.SetResult();
+        await running;
+
+        Assert.Equal(UpdateStatus.Off, checker.Current.Status);
+        Assert.Null(checker.Current.Available);
+        Assert.Empty(rig.Notices);
+    }
+
+    [Fact]
+    public async Task Switch_turned_off_then_the_request_fails_still_ends_off()
+    {
+        var rig = new Rig();
+        var gate = new TaskCompletionSource();
+        rig.Releases.Gate = () => gate.Task;
+        var checker = rig.Checker();
+
+        var running = checker.CheckNowAsync();
+        rig.Enabled = false;
+        await checker.ReconfigureAsync();
+        gate.SetException(new InvalidOperationException("late"));
+        await running;
+
+        Assert.Equal(UpdateStatus.Off, checker.Current.Status);
+    }
+
+    [Fact]
+    public async Task A_timeout_cancellation_not_asked_by_the_caller_shows_could_not_check()
+    {
+        var rig = new Rig();
+        rig.Releases.Gate = () => throw new TaskCanceledException("timeout");
+        var checker = rig.Checker();
+
+        await checker.CheckNowAsync();
+
+        Assert.Equal(UpdateStatus.CouldNotCheck, checker.Current.Status);
+    }
 }
