@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using AqwCompanion.Phone.Queue;
 using AqwCompanion.Phone.Skua;
 using AqwCompanion.Skua;
 
@@ -23,7 +24,7 @@ namespace AqwCompanion.Phone.Web;
 /// plugin then writes the text as it is). Types are checked here from the definitions (the plugin's, else the cached ones);
 /// a plugin without definitions checks only that the names are in the file.
 /// </remarks>
-public sealed class SkuaApi(ISkuaFeed feed, ISkuaCommandChannel channel, SkuaScriptPrefs prefs, SkuaOptionCache cache, CultureInfo? fileCulture = null)
+public sealed class SkuaApi(ISkuaFeed feed, ISkuaCommandChannel channel, SkuaScriptPrefs prefs, SkuaOptionCache cache, CultureInfo? fileCulture = null, ISkuaQueues? queues = null)
 {
     public const string Prefix = "/api/skua";
 
@@ -33,6 +34,10 @@ public sealed class SkuaApi(ISkuaFeed feed, ISkuaCommandChannel channel, SkuaScr
     /// <summary>The body cap of <c>POST .../options</c>.</summary>
     public const int MaxOptionsBody = 4096;
 
+    /// <summary>The body cap of <c>PUT .../queue</c>.</summary>
+    public const int MaxQueueBody = QueueLimits.MaxBodyBytes;
+
+    public const string NoCharacter = "Skua has no character";
     public const string UnknownSkua = "unknown Skua";
     public const string DisconnectedSkua = "Skua is disconnected";
     public const string NoAnswer = "Skua did not answer";
@@ -43,6 +48,7 @@ public sealed class SkuaApi(ISkuaFeed feed, ISkuaCommandChannel channel, SkuaScr
     public const string Refused = "Skua refused the command";
     public const string Busy = "busy";
 
+    private static readonly string[] QueueWords = ["start", "pause", "continue", "skip", "stop"];
     private const int MaxInstanceId = SkuaProtocol.MaxTextLength;
     private static readonly JsonDocumentOptions BodyOptions = new() { MaxDepth = 8 };
 
@@ -54,7 +60,7 @@ public sealed class SkuaApi(ISkuaFeed feed, ISkuaCommandChannel channel, SkuaScr
 
     /// <summary>True for a request that sends a command and may wait for Skua (a start up to 45 s); the host gives it longer.</summary>
     public static bool IsCommand(string method, string path) =>
-        method.Equals("POST", StringComparison.OrdinalIgnoreCase) && path.StartsWith(Prefix + "/", StringComparison.Ordinal);
+        (method.Equals("POST", StringComparison.OrdinalIgnoreCase) || method.Equals("PUT", StringComparison.OrdinalIgnoreCase)) && path.StartsWith(Prefix + "/", StringComparison.Ordinal);
 
     public async Task<PhoneResponse> HandleAsync(PhoneRequest request, string path, CancellationToken ct)
     {
@@ -72,6 +78,8 @@ public sealed class SkuaApi(ISkuaFeed feed, ISkuaCommandChannel channel, SkuaScr
             [_, "scripts", _, "prefs"] => Route.Prefs,
             [_, "start"] => Route.Start,
             [_, "stop"] => Route.Stop,
+            [_, "queue"] => Route.Queue,
+            [_, "queue", var word] when QueueWords.Contains(word) => Route.QueueCommand,
             _ => Route.None,
         };
         if (route == Route.None)
@@ -83,6 +91,7 @@ public sealed class SkuaApi(ISkuaFeed feed, ISkuaCommandChannel channel, SkuaScr
         {
             Route.Scripts => method == "GET",
             Route.Options => method is "GET" or "POST",
+            Route.Queue => method is "GET" or "PUT",
             _ => method == "POST",
         };
         if (!allowed)
@@ -90,17 +99,23 @@ public sealed class SkuaApi(ISkuaFeed feed, ISkuaCommandChannel channel, SkuaScr
             return PhoneHandler.Error(405, "method not allowed");
         }
 
-        JsonElement? body = null;
-        if (method == "POST")
+        if (route is Route.Queue or Route.QueueCommand && queues is null)
         {
-            if (Body(request, route == Route.Options ? MaxOptionsBody : MaxBody, optional: route == Route.Stop, out body) is { } refused)
+            return PhoneHandler.Error(404, "not found");
+        }
+
+        JsonElement? body = null;
+        if (method is "POST" or "PUT")
+        {
+            var cap = route switch { Route.Options => MaxOptionsBody, Route.Queue => MaxQueueBody, _ => MaxBody };
+            if (Body(request, cap, optional: route is Route.Stop or Route.QueueCommand, out body) is { } refused)
             {
                 return refused;
             }
         }
 
         var instanceId = Uri.UnescapeDataString(parts[0]);
-        var scriptId = parts.Length > 2 ? parts[2] : null;
+        var scriptId = route is Route.Options or Route.Prefs ? parts[2] : null;
         if (scriptId is not null && !SkuaOptionCache.IsScriptId(scriptId))
         {
             return PhoneHandler.Error(400, InvalidScriptId);
@@ -112,6 +127,9 @@ public sealed class SkuaApi(ISkuaFeed feed, ISkuaCommandChannel channel, SkuaScr
             (Route.Options, "GET") => await GetOptionsAsync(instanceId, scriptId!, ct).ConfigureAwait(false),
             (Route.Options, _) => await GatedAsync(instanceId, () => SetOptionsAsync(instanceId, scriptId!, body!.Value, ct)).ConfigureAwait(false),
             (Route.Prefs, _) => SetPrefs(instanceId, scriptId!, body!.Value),
+            (Route.Queue, "GET") => QueueGet(instanceId),
+            (Route.Queue, _) => await GatedAsync(instanceId, () => QueuePutAsync(instanceId, body!.Value, ct)).ConfigureAwait(false),
+            (Route.QueueCommand, _) => QueueCommand(instanceId, parts[2]),
             (Route.Start, _) => await GatedAsync(instanceId, () => StartAsync(instanceId, body!.Value, ct)).ConfigureAwait(false),
             _ => await GatedAsync(instanceId, () => StopAsync(instanceId, ct)).ConfigureAwait(false),
         };
@@ -282,6 +300,126 @@ public sealed class SkuaApi(ISkuaFeed feed, ISkuaCommandChannel channel, SkuaScr
         return error ?? Json(JsonSerializer.Serialize(new SkuaOkBody(true), SkuaApiJson.Default.SkuaOkBody));
     }
 
+    private PhoneResponse QueueGet(string instanceId)
+    {
+        var (character, error) = CharacterOf(instanceId);
+        return error ?? QueueJson(queues!.Find(character!) ?? QueueView.Empty(character!));
+    }
+
+    private PhoneResponse QueueCommand(string instanceId, string word)
+    {
+        var (character, error) = CharacterOf(instanceId);
+        if (error is not null)
+        {
+            return error;
+        }
+
+        var command = Enum.Parse<QueueCommand>(word, ignoreCase: true);
+        return Answer(character!, queues!.Command(character!, command));
+    }
+
+    private async Task<PhoneResponse> QueuePutAsync(string instanceId, JsonElement body, CancellationToken ct)
+    {
+        var (character, error) = CharacterOf(instanceId);
+        if (error is not null)
+        {
+            return error;
+        }
+
+        if (!TryReadSteps(body, out var inputs, out var invalid))
+        {
+            return PhoneHandler.Error(400, invalid!);
+        }
+
+        var (result, failed) = await SendAsync(instanceId, new ListScriptsCommand(""), ct).ConfigureAwait(false);
+        if (failed is not null)
+        {
+            return failed;
+        }
+
+        var validation = QueueValidator.Validate(inputs, result!.Scripts ?? [], () => Guid.NewGuid().ToString("N"), allowEmpty: false);
+        if (!validation.Ok)
+        {
+            return PhoneHandler.Error(400, validation.Error!);
+        }
+
+        // The phone cannot edit a reputation goal: a step with a known id keeps the stored one, a new step has none.
+        var stored = (queues!.Find(character!)?.Steps ?? []).ToDictionary(s => s.Id, s => s.Reputation, StringComparer.Ordinal);
+        var steps = validation.Steps.Select(s => stored.TryGetValue(s.Id, out var goal) ? s with { Reputation = goal } : s).ToList();
+        return Answer(character!, queues.Replace(character!, steps));
+    }
+
+    private PhoneResponse Answer(string character, QueueResult result) =>
+        result.Ok ? QueueJson(queues!.Find(character) ?? QueueView.Empty(character)) : PhoneHandler.Error(409, result.Error ?? Refused);
+
+    private static PhoneResponse QueueJson(QueueView view) =>
+        Json(JsonSerializer.Serialize(new SkuaQueueBody(view), SkuaApiJson.Default.SkuaQueueBody));
+
+    /// <summary>The character of the instance (its logged-in character), else the 404, 409 or 409 <see cref="NoCharacter"/>.</summary>
+    private (string? Character, PhoneResponse? Error) CharacterOf(string instanceId)
+    {
+        if (Lookup(instanceId) is { } missing)
+        {
+            return (null, missing);
+        }
+
+        var status = feed.Current.Instances.First(i => i.InstanceId == instanceId).Status;
+        return status is { LoggedIn: true, Character: { Length: > 0 } name } ? (name, null) : (null, PhoneHandler.Error(409, NoCharacter));
+    }
+
+    /// <summary>Reads only <c>id</c>, <c>scriptId</c>, <c>goalItem</c>, <c>goalQuantity</c> and <c>maxMinutes</c>; whole JSON numbers only.</summary>
+    private static bool TryReadSteps(JsonElement body, out List<QueueStepInput> inputs, out string? error)
+    {
+        inputs = [];
+        error = InvalidBody;
+        if (!body.TryGetProperty("steps", out var array) || array.ValueKind != JsonValueKind.Array)
+        {
+            return false;
+        }
+
+        if (array.GetArrayLength() is 0 or > QueueLimits.MaxSteps)
+        {
+            error = QueueValidator.BadCount;
+            return false;
+        }
+
+        foreach (var item in array.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.Object
+                || Text(item, "scriptId") is not { } scriptId
+                || Text(item, "goalItem") is not { } goalItem
+                || !item.TryGetProperty("goalQuantity", out var quantity) || quantity.ValueKind != JsonValueKind.Number || !quantity.TryGetInt32(out var goalQuantity))
+            {
+                return false;
+            }
+
+            string? id = null;
+            if (item.TryGetProperty("id", out var idElement) && idElement.ValueKind != JsonValueKind.Null)
+            {
+                if ((id = idElement.ValueKind == JsonValueKind.String ? idElement.GetString() : null) is null)
+                {
+                    return false;
+                }
+            }
+
+            int? minutes = null;
+            if (item.TryGetProperty("maxMinutes", out var cap) && cap.ValueKind != JsonValueKind.Null)
+            {
+                if (cap.ValueKind != JsonValueKind.Number || !cap.TryGetInt32(out var value))
+                {
+                    return false;
+                }
+
+                minutes = value;
+            }
+
+            inputs.Add(new QueueStepInput(id, scriptId, goalItem, goalQuantity, null, minutes));
+        }
+
+        error = null;
+        return true;
+    }
+
     /// <summary>A getOptions or setOptions answer merged with the cached definitions.</summary>
     private SkuaOptionsBody Options(string scriptId, ResultMessage result)
     {
@@ -432,7 +570,7 @@ public sealed class SkuaApi(ISkuaFeed feed, ISkuaCommandChannel channel, SkuaScr
 
     private static PhoneResponse Json(string json) => PhoneHandler.Json(200, json);
 
-    private enum Route { None, Scripts, Options, Prefs, Start, Stop }
+    private enum Route { None, Scripts, Options, Prefs, Start, Stop, Queue, QueueCommand }
 }
 
 /// <summary>Answer of <c>GET /api/skua</c>.</summary>
@@ -462,6 +600,9 @@ public sealed record SkuaOkBody(bool Ok);
 /// <summary>Answer of <c>POST /api/skua/{instanceId}/scripts/{scriptId}/prefs</c>.</summary>
 public sealed record SkuaPrefsBody(string Id, bool AskOptions);
 
+/// <summary>Answer of every <c>/api/skua/{instanceId}/queue</c> route.</summary>
+public sealed record SkuaQueueBody(QueueView Queue);
+
 public sealed record ErrorBody(string Error);
 
 [JsonSourceGenerationOptions(JsonSerializerDefaults.Web, DefaultIgnoreCondition = JsonIgnoreCondition.Never, UseStringEnumConverter = true)]
@@ -471,6 +612,7 @@ public sealed record ErrorBody(string Error);
 [JsonSerializable(typeof(SkuaStartBody))]
 [JsonSerializable(typeof(SkuaOkBody))]
 [JsonSerializable(typeof(SkuaPrefsBody))]
+[JsonSerializable(typeof(SkuaQueueBody))]
 [JsonSerializable(typeof(ErrorBody))]
 internal sealed partial class SkuaApiJson : JsonSerializerContext
 {
