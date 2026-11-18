@@ -29,7 +29,7 @@ SkuaLink puts your Skua bots on your phone. See what each Skua is doing and its 
 - **Characters:** every character you play in Skua, with its level, experience, gold, AC, class, reputation and the Hard Farms you already own (from its inventory, house and bank), kept on the PC when Skua is closed, with how old the data is.
 - **Several Skua at once:** each character shows its own bot: state, active quests, log and controls.
 - **Hands off the game:** through the [Skua plugin](#skua-plugin), and only when you ask from the phone, it can start and stop Skua scripts and read or write the options file of a script in Skua's scripts list. It never sends anything to the game.
-- **Local:** everything stays on your computer. No telemetry. **Forget my data** (in **Settings**) removes it. Nothing leaves the PC except the Wiki request you start and, if you turn them on, [Notifications](#notifications) (encrypted text to the push service of your phone's browser: Apple, Google, Mozilla or Microsoft), [Phone access](#watch-and-control-from-your-phone) and the [Skua plugin](#skua-plugin).
+- **Local:** everything stays on your computer. No telemetry. **Forget my data** (in **Settings**) removes it. Nothing leaves the PC except the Wiki request you start, the update check (a plain request to GitHub for the latest release while **Check for updates** is on) and, if you turn them on, [Notifications](#notifications) (encrypted text to the push service of your phone's browser: Apple, Google, Mozilla or Microsoft), [Phone access](#watch-and-control-from-your-phone) and the [Skua plugin](#skua-plugin).
 
 ## Install
 
@@ -37,6 +37,7 @@ You need 64-bit Windows, [Skua](https://github.com/auqw/Skua) with the [SkuaLink
 
 1. Download `SkuaLink-Setup-vX.Y.Z.exe` from the [latest release](https://github.com/agvmdsa/SkuaLink/releases/latest) and run it.
 2. Start SkuaLink from the Start menu. It runs as your normal Windows user.
+   SkuaLink checks for new versions itself (see [Updates](#updates)); you can also install a new `SkuaLink-Setup-vX.Y.Z.exe` over the old one.
 3. The builds are not code-signed yet, so SmartScreen may warn you: choose **More info**, then **Run anyway**, if you trust the file. You can compare the download with `SHA256SUMS.txt` (`Get-FileHash .\SkuaLink-Setup-vX.Y.Z.exe -Algorithm SHA256` in PowerShell).
 4. Set up the [Skua plugin](#skua-plugin) (everything SkuaLink shows comes from it) and [phone access](#watch-and-control-from-your-phone).
 
@@ -81,7 +82,7 @@ It reports each character's **reputation** live and groups repeated drops in the
 Besides reporting, the plugin does exactly five things for SkuaLink: list the scripts in Skua's scripts folder, read and write the options file of one of them, start a chosen script, and stop the running one. It never accepts a file path or code from the phone, and it sends nothing to the game. Skua may open a script's options window on the PC when it starts; the plugin closes that window itself, and if it cannot, the phone says "Waiting for you on the PC".
 
 1. Download `SkuaLink.SkuaBridge.dll` from the [latest release](https://github.com/agvmdsa/SkuaLink/releases/latest) (check it against `SHA256SUMS.txt`).
-2. Copy it into `%AppData%\Skua\plugins` (the **Skua** block in **Settings** opens that folder) and reopen Skua. With SkuaLink running, that block reads "Skua connected".
+2. Copy it into `%AppData%\Skua\plugins` (the **Skua** block in **Settings** opens that folder) and reopen Skua. With SkuaLink running, that block reads "Skua connected". Or press **Download plugin** in **Settings** (the **Skua** and **Updates** blocks) with Skua closed: SkuaLink downloads the plugin of the right release, checks it against `SHA256SUMS.txt` and puts it in that folder for you.
 3. To remove it, close Skua and delete the file.
 
 The plugin and SkuaLink must come from the same release: with a plugin from 0.5 the Bot section works but the Overview has no numbers or Hard Farms, and an even older plugin shows the state but cannot start or stop anything. Tested with Skua 1.4.5.0. Up to 8 Skua at once; log lines appear while a script is running; Skua started as administrator is not supported. Skua publishes no license: the plugin only references its interfaces and copies none of its code.
@@ -103,6 +104,18 @@ SkuaLink reads, on this computer only, what the SkuaLink plugin inside Skua repo
 The bank is only known after you open it in the Skua session; until then the Hard Farms use the bank saved last time, if any.
 
 Updating from 0.5: the game data the old traffic reading saved is no longer read; **Forget my data** removes it.
+
+### Updates
+
+**Check for updates** (Settings, on by default) asks GitHub for the latest SkuaLink release 30 seconds after the app starts and every 6 hours, and when you press **Check now**. Only the latest finished release is considered (never a draft or a pre-release), and an update is offered only when it is newer than the version you run. Turn the switch off and SkuaLink makes no request to GitHub at all. Nothing is sent except the plain request and a `User-Agent` that says `SkuaLink` and its version. If GitHub cannot be reached SkuaLink says "Could not check" and tries again at the next interval.
+
+When there is an update, a banner "SkuaLink X.Y.Z is available" appears at the top of the window with **Update now** and **Release notes**, the tray icon menu shows **Update available**, and your paired phones get a notice once per version (and a push notification if you turned that kind on in **Notifications**; the notification only tells you, the update is done on the PC).
+
+**Update now** downloads `SkuaLink-Setup-vX.Y.Z.exe` and `SHA256SUMS.txt` from the release into a new temporary folder, checks the installer's SHA-256 against the line for that exact file name, and only then starts the installer through the normal Windows administrator prompt (it is never silent, and never automatic). SkuaLink then closes so the installer can replace it; if you cancel the Windows prompt, SkuaLink keeps running and says so. If the check fails, the download is deleted and nothing is started. Downloads are accepted only from `github.com` and GitHub's release asset hosts over https.
+
+**The builds are not code-signed.** The SHA-256 check protects against a corrupted download or one swapped by another server; it does not protect against a compromised release in the GitHub repository itself.
+
+**New DLL required.** The Skua plugin must be the same version as the app. Before an update, the banner, the **Updates** block and the **Skua** block of Settings say "New DLL required" with the version that matches the one you are about to install; after an update, they say it again whenever a connected Skua reports a plugin version that differs from the app's. **Download plugin** downloads that `SkuaLink.SkuaBridge.dll`, checks it and puts it in `%AppData%\Skua\plugins` when Skua is not using the file; if Skua has it loaded, nothing is touched and SkuaLink says "Close Skua and press the button again". Reopen Skua afterwards. **Open plugins folder** and **Open release page** stay available for a manual install.
 
 ## For developers
 
