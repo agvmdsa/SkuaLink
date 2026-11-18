@@ -31,6 +31,8 @@ export const pushEn = {
   'push.kind.NoProgress': 'No progress for 10 minutes',
   'push.kind.DyingOften': 'Dying too often',
   'push.kind.UpdateAvailable': 'A SkuaLink update is available',
+  'push.kind.QueueAttention': 'The queue needs you',
+  'push.kind.QueueFinished': 'The queue finished',
   'push.retryLater': 'The PC is busy. Try again in a moment.',
   'push.testUnreachable': 'The PC could not reach the push service: {error}',
   'push.statusN': 'status {n}',

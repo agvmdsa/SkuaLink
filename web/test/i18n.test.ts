@@ -193,6 +193,8 @@ const ALLOWED = new Set([
   'NoProgress', // push kind enum value of the protocol, never shown
   'DyingOften', // push kind enum value of the protocol, never shown
   'UpdateAvailable', // push kind enum value of the protocol, never shown
+  'QueueAttention', // push kind enum value of the protocol, never shown
+  'QueueFinished', // push kind enum value of the protocol, never shown
   'not found', // a refusal text of the Skua plugin, matched to choose the page's own words
 ]);
 

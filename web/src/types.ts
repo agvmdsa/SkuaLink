@@ -47,7 +47,7 @@ export interface Snapshot {
   hardFarms: HardFarms | null;
 }
 
-export type NoticeKind = 'RankUp' | 'HardFarmDrop' | 'ActivityStopped' | 'NewLogin' | 'SkuaDisconnected' | 'SkuaReconnected' | 'SkuaOptionsWaiting' | 'ScriptStopped' | 'ScriptError' | 'CharacterKicked' | 'NoProgress' | 'DyingOften' | 'UpdateAvailable';
+export type NoticeKind = 'RankUp' | 'HardFarmDrop' | 'ActivityStopped' | 'NewLogin' | 'SkuaDisconnected' | 'SkuaReconnected' | 'SkuaOptionsWaiting' | 'ScriptStopped' | 'ScriptError' | 'CharacterKicked' | 'NoProgress' | 'DyingOften' | 'UpdateAvailable' | 'QueueAttention' | 'QueueFinished';
 
 export interface Notice {
   id: string;
