@@ -447,4 +447,61 @@ public class QueueEngineControlTests
         Assert.Equal(stopQueue ? QueueState.Stopped : QueueState.Paused, e.State);
         Assert.Equal(stopQueue ? 0 : 1, e.Cursor);
     }
+
+    private static (QueueEngine Engine, FakeQueueSink Sink) UnansweredButSeen()
+    {
+        var sink = new FakeQueueSink();
+        var e = Engine(sink, Step(), Step("2", B, "Butler", "Gold Voucher", 1));
+        e.Start(Idle(), T0);
+        e.OnScripts(Scripts, T0);
+        e.Evaluate(Idle(), T0);
+        e.Evaluate(Running(), T0.AddSeconds(1));   // a same-name script is alive, the start is still unanswered
+        Assert.Equal(QueuePhase.Running, e.View.Phase);
+        return (e, sink);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void An_unanswered_start_with_a_same_name_script_alive_refuses_skip_and_stop_queue(bool stopQueue)
+    {
+        var (e, sink) = UnansweredButSeen();
+
+        var result = stopQueue ? e.StopQueue(Running(), T0.AddSeconds(2)) : e.Skip(Running(), T0.AddSeconds(2));
+
+        Assert.False(result.Ok);
+        Assert.Equal(0, sink.Count("stop"));
+        Assert.Equal(QueueState.Running, e.State);
+        Assert.Equal(0, e.Cursor);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void The_same_after_pause_moves_the_queue_but_sends_no_stop(bool stopQueue)
+    {
+        var (e, sink) = UnansweredButSeen();
+        Assert.True(e.Pause(T0.AddSeconds(2)).Ok);
+
+        var result = stopQueue ? e.StopQueue(Running(), T0.AddSeconds(3)) : e.Skip(Running(), T0.AddSeconds(3));
+
+        Assert.True(result.Ok);
+        Assert.Equal(0, sink.Count("stop"));
+        Assert.Equal(stopQueue ? QueueState.Stopped : QueueState.Paused, e.State);
+        Assert.Equal(stopQueue ? 0 : 1, e.Cursor);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Once_the_start_is_answered_the_owned_running_script_is_stopped_normally(bool stopQueue)
+    {
+        var (e, sink) = UnansweredButSeen();
+        e.OnStartResult(new QueueOutcome(true, true), T0.AddSeconds(2));
+
+        var result = stopQueue ? e.StopQueue(Running(), T0.AddSeconds(3)) : e.Skip(Running(), T0.AddSeconds(3));
+
+        Assert.True(result.Ok);
+        Assert.Equal(1, sink.Count("stop"));
+    }
 }
