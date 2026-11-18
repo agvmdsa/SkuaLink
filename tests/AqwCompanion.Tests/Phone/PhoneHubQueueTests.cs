@@ -36,6 +36,16 @@ public class PhoneHubQueueTests
     }
 
     [Fact]
+    public void The_state_carries_the_revision_of_each_queue()
+    {
+        var fake = new FakeQueues();
+        fake.Items.Add(View() with { Revision = 1_700_000_000_123 });
+        var (hub, _) = NewHub(fake);
+
+        Assert.Contains("\"revision\":1700000000123", hub.CurrentJson, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void The_state_carries_the_queues_as_text_enums()
     {
         var fake = new FakeQueues();

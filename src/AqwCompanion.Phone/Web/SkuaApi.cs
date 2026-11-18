@@ -43,6 +43,7 @@ public sealed class SkuaApi(ISkuaFeed feed, ISkuaCommandChannel channel, SkuaScr
     public const string NoAnswer = "Skua did not answer";
     public const string InvalidScriptId = "invalid script id";
     public const string InvalidBody = "invalid body";
+    public const string InvalidRevision = "invalid revision";
     public const string NotJson = "body must be json";
     public const string TooLarge = "body too large";
     public const string CharacterChanged = "The character changed. Try again.";
@@ -332,6 +333,12 @@ public sealed class SkuaApi(ISkuaFeed feed, ISkuaCommandChannel channel, SkuaScr
             return PhoneHandler.Error(400, invalid!);
         }
 
+        // A save quotes the revision the page saw; without a whole number it cannot be judged, so the plugin is not even asked.
+        if (!body.TryGetProperty("revision", out var revisionElement) || revisionElement.ValueKind != JsonValueKind.Number || !revisionElement.TryGetInt64(out var revision))
+        {
+            return PhoneHandler.Error(400, InvalidRevision);
+        }
+
         var (result, failed) = await SendAsync(instanceId, new ListScriptsCommand(""), ct).ConfigureAwait(false);
         if (failed is not null)
         {
@@ -359,7 +366,7 @@ public sealed class SkuaApi(ISkuaFeed feed, ISkuaCommandChannel channel, SkuaScr
         // The phone cannot edit a reputation goal: a step with a known id keeps the stored one, a new step has none.
         var stored = (queues!.Find(character!)?.Steps ?? []).ToDictionary(s => s.Id, s => s.Reputation, StringComparer.Ordinal);
         var steps = validation.Steps.Select(s => stored.TryGetValue(s.Id, out var goal) ? s with { Reputation = goal } : s).ToList();
-        return Answer(character!, queues.Replace(character!, steps));
+        return Answer(character!, queues.Replace(character!, steps, revision));
     }
 
     private PhoneResponse Answer(string character, QueueResult result) =>

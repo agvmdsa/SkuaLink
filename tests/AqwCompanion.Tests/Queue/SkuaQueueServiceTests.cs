@@ -396,13 +396,132 @@ public sealed class SkuaQueueServiceTests
     {
         using var rig = new Rig();
 
-        Parallel.For(1, 51, n => rig.Service.Replace(Hero, [Step("1", quantity: n), Step("2", quantity: n)]));
+        Parallel.For(1, 51, n =>
+        {
+            while (!rig.Service.Replace(Hero, [Step("1", quantity: n), Step("2", quantity: n)]).Ok)
+            {
+                // another thread saved between the read of the revision and the save: read again
+            }
+        });
 
         var view = ViewOf(rig);
         var last = rig.Store.Saved.Last();
         Assert.Equal(view.Steps, last.Steps);
         Assert.Equal(50, rig.Store.Saved.Count);
         Assert.Empty(rig.Errors);
+    }
+
+    // ---- revision ----
+
+    [Fact]
+    public void The_revision_changes_when_the_steps_change_and_not_when_they_stay_the_same()
+    {
+        using var rig = new Rig();
+        Assert.Null(rig.Service.Find(Hero));
+
+        Assert.True(rig.Service.Replace(Hero, [Step()], 0).Ok);
+        var first = ViewOf(rig).Revision;
+        Assert.NotEqual(0, first);
+
+        Assert.True(rig.Service.Replace(Hero, [Step()], first).Ok);   // the same list
+        Assert.Equal(first, ViewOf(rig).Revision);
+
+        Assert.True(rig.Service.Replace(Hero, [Step(), Step("2", B, "Butler", "Gold", 5)], first).Ok);
+        var second = ViewOf(rig).Revision;
+        Assert.NotEqual(first, second);
+
+        Assert.True(rig.Service.Replace(Hero, [Step(quantity: 11), Step("2", B, "Butler", "Gold", 5)], second).Ok);   // an edited step
+        Assert.NotEqual(second, ViewOf(rig).Revision);
+    }
+
+    [Fact]
+    public async Task The_revision_does_not_change_with_the_state_the_cursor_or_the_inventory()
+    {
+        using var rig = await StartedAsync(Step(), Step("2", B, "Butler", "Gold", 5));
+        var revision = ViewOf(rig).Revision;
+
+        rig.Book.OnInventory(Hero, Bag("Blood Orb", 3));
+        rig.Service.Pump();
+        Assert.True(rig.Service.Command(Hero, QueueCommand.Pause).Ok);
+        Assert.Equal(revision, ViewOf(rig).Revision);
+        Assert.True(rig.Service.Command(Hero, QueueCommand.Skip).Ok);
+        await rig.Settle();
+        Assert.Equal(1, ViewOf(rig).Cursor);
+        Assert.True(rig.Service.Command(Hero, QueueCommand.Stop).Ok);
+        await rig.Settle();
+
+        Assert.Equal(revision, ViewOf(rig).Revision);
+    }
+
+    [Fact]
+    public void A_save_with_a_revision_the_queue_no_longer_has_is_refused_and_changes_nothing()
+    {
+        using var rig = new Rig();
+        rig.Service.Replace(Hero, [Step()], 0);
+        var seen = ViewOf(rig).Revision;
+        Assert.True(rig.Service.Replace(Hero, [Step("2")], seen).Ok);   // another editor saved first
+        var saves = rig.Store.Saved.Count;
+        var changes = rig.Changes;
+        var after = ViewOf(rig);
+
+        var result = rig.Service.Replace(Hero, [Step("3"), Step("4")], seen);
+
+        Assert.False(result.Ok);
+        Assert.Equal("The queue changed on the PC. Open the editor again.", result.Error);
+        Assert.Equal(after.Steps, ViewOf(rig).Steps);
+        Assert.Equal(after.Revision, ViewOf(rig).Revision);
+        Assert.Equal(saves, rig.Store.Saved.Count);
+        Assert.Equal(changes, rig.Changes);
+        Assert.Empty(rig.Errors);
+    }
+
+    [Fact]
+    public void A_save_quoting_zero_is_refused_once_the_queue_has_steps()
+    {
+        using var rig = new Rig();
+        rig.Service.Replace(Hero, [Step()], 0);
+
+        Assert.False(rig.Service.Replace(Hero, [Step("2")], 0).Ok);
+        Assert.Equal([Step()], ViewOf(rig).Steps);
+    }
+
+    [Fact]
+    public void Of_many_saves_quoting_the_same_revision_exactly_one_wins()
+    {
+        using var rig = new Rig();
+        rig.Service.Replace(Hero, [Step()], 0);
+        var seen = ViewOf(rig).Revision;
+        var winners = 0;
+
+        Parallel.For(1, 41, new ParallelOptions { MaxDegreeOfParallelism = 16 }, n =>
+        {
+            if (rig.Service.Replace(Hero, [Step("2", quantity: n)], seen).Ok)
+            {
+                Interlocked.Increment(ref winners);
+            }
+        });
+
+        Assert.Equal(1, winners);
+        Assert.Equal(2, rig.Store.Saved.Count);
+        Assert.Equal(rig.Store.Saved.Last().Steps, ViewOf(rig).Steps);
+    }
+
+    [Fact]
+    public void After_a_restart_a_revision_the_page_held_before_is_never_current()
+    {
+        using var before = new Rig();
+        before.Service.Replace(Hero, [Step()], 0);
+        before.Service.Replace(Hero, [Step("2")], ViewOf(before).Revision);
+        var held = ViewOf(before).Revision;
+
+        using var after = new Rig { Now = T0.AddSeconds(30) };   // the app was down for a while
+        after.Store.Stored = [before.Store.Saved.Last()];
+        var revision = ViewOf(after).Revision;
+
+        Assert.NotEqual(held, revision);
+        Assert.NotEqual(0, revision);
+        Assert.False(after.Service.Replace(Hero, [Step("3")], held).Ok);
+        Assert.Equal([Step("2")], ViewOf(after).Steps);
     }
 
     [Fact]

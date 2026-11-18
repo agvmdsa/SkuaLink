@@ -120,7 +120,7 @@ public sealed class SkuaQueueService : ISkuaQueues, IForgettable, IDisposable
         }
     }
 
-    public QueueResult Replace(string character, IReadOnlyList<QueueStep> steps)
+    public QueueResult Replace(string character, IReadOnlyList<QueueStep> steps, long revision)
     {
         var result = QueueResult.Refused(TryAgain);
         if (!TryWorld(out var world))
@@ -131,7 +131,7 @@ public sealed class SkuaQueueService : ISkuaQueues, IForgettable, IDisposable
         Run(() =>
         {
             var slot = GetSlot(character);
-            result = slot.Engine.Replace(steps, _now());
+            result = slot.Engine.Replace(steps, _now(), revision);
             Evaluate(slot, world);
         });
         return result;
@@ -419,10 +419,15 @@ public sealed class SkuaQueueService : ISkuaQueues, IForgettable, IDisposable
         }
     }
 
+    /// <summary>
+    /// A queue's revision starts at the clock (Unix milliseconds) when its slot is made, which is after every start of the app and after
+    /// Forget, so a value a page still holds from before is never the current one. Nothing is stored, and the number stays below 2^53,
+    /// so the page reads it exactly.
+    /// </summary>
     private Slot NewSlot(string character, IReadOnlyList<QueueStep> steps, int cursor, bool finished)
     {
         var slot = new Slot(this);
-        slot.Engine = new QueueEngine(character, slot, steps, cursor, finished);
+        slot.Engine = new QueueEngine(character, slot, steps, cursor, finished, _now().ToUnixTimeMilliseconds());
         return slot;
     }
 

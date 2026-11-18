@@ -75,7 +75,7 @@ public class CompositionRootQueueTests
             Assert.NotNull(services.GetRequiredService<SkuaApi>());
 
             var result = services.GetRequiredService<SkuaQueueService>().Replace(
-                "Fictional Hero", [new QueueStep("00000000000000000000000000000001", "0123456789abcdef", "Farm", "Blood Orb", 5)]);
+                "Fictional Hero", [new QueueStep("00000000000000000000000000000001", "0123456789abcdef", "Farm", "Blood Orb", 5)], 0);
 
             Assert.True(result.Ok);
             Assert.Contains("\"queues\":[{", hub.CurrentJson, StringComparison.Ordinal);
@@ -97,7 +97,7 @@ public class CompositionRootQueueTests
             File.WriteAllText(paths.SettingsPath, "{}");
             var service = services.GetRequiredService<SkuaQueueService>();
             Assert.True(service.Replace(
-                "Fictional Hero", [new QueueStep("00000000000000000000000000000001", "0123456789abcdef", "Farm", "Blood Orb", 5)]).Ok);
+                "Fictional Hero", [new QueueStep("00000000000000000000000000000001", "0123456789abcdef", "Farm", "Blood Orb", 5)], 0).Ok);
             Assert.NotEmpty(Directory.GetFiles(paths.Root, "skua-queue.*"));
 
             var participants = CompositionRoot.ForgetParticipants(services).Where(p => p is not PhoneController).ToList();

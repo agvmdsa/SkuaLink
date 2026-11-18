@@ -79,11 +79,13 @@ public sealed partial class QueueEngine
     private Attempt _a = new();
     private IReadOnlyList<SkuaScriptInfo>? _scripts;
     private bool _dirty;
+    private long _revision;
 
-    public QueueEngine(string character, IQueueSink sink, IReadOnlyList<QueueStep>? steps = null, int cursor = 0, bool finished = false)
+    public QueueEngine(string character, IQueueSink sink, IReadOnlyList<QueueStep>? steps = null, int cursor = 0, bool finished = false, long revision = 0)
     {
         _character = character;
         _sink = sink;
+        _revision = revision;
         _steps = [.. steps ?? []];
         _state = finished && _steps.Count > 0 ? QueueState.Finished : QueueState.Stopped;
         _cursor = _state == QueueState.Finished ? _steps.Count : Math.Clamp(cursor, 0, Math.Max(0, _steps.Count - 1));
@@ -99,6 +101,12 @@ public sealed partial class QueueEngine
 
     public IReadOnlyList<QueueStep> Steps => _steps;
 
+    /// <summary>
+    /// Changes whenever the step list changes (an edit that really changes it, the repair of a step's script id); never with the state,
+    /// the cursor or the inventory. An empty queue always reads 0, so a page that saw no queue quotes 0.
+    /// </summary>
+    public long Revision => _steps.Count == 0 ? 0 : _revision;
+
     public int Cursor => _cursor;
 
     public QueueState State => _state;
@@ -106,7 +114,7 @@ public sealed partial class QueueEngine
     /// <summary>False while a step is starting, stopping or settling: the step list is then not replaced.</summary>
     public bool CanEdit => !(_state == QueueState.Running && _phase != QueuePhase.Running);
 
-    public QueueView View => new(_character, [.. _steps], _cursor, _state, _state == QueueState.Running ? _phase : null, _reason, _have, CanEdit);
+    public QueueView View => new(_character, [.. _steps], _cursor, _state, _state == QueueState.Running ? _phase : null, _reason, _have, CanEdit, Revision: Revision);
 
     /// <summary>Begins at the cursor step (at the first step after <c>Finished</c>). Only from <c>Stopped</c> or <c>Finished</c>.</summary>
     public QueueResult Start(QueueInputs inputs, DateTimeOffset now)
@@ -553,6 +561,7 @@ public sealed partial class QueueEngine
 
         var fixedStep = step with { ScriptId = named[0].Id };
         _steps[_cursor] = fixedStep;
+        _revision++;
         Mark();
         return fixedStep;
     }

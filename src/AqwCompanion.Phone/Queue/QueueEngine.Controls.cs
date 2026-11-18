@@ -128,15 +128,28 @@ public sealed partial class QueueEngine
         return QueueResult.Done;
     }
 
-    /// <summary>Replaces the step list (R8). Refused while a step is starting, stopping or settling.</summary>
-    public QueueResult Replace(IReadOnlyList<QueueStep> steps, DateTimeOffset now)
+    /// <summary>
+    /// Replaces the step list (R8). Refused while a step is starting, stopping or settling, and, when <paramref name="expectedRevision"/>
+    /// is given, when the queue has another revision (nothing changes then). A list equal to the current one keeps the revision.
+    /// </summary>
+    public QueueResult Replace(IReadOnlyList<QueueStep> steps, DateTimeOffset now, long? expectedRevision = null)
     {
+        if (expectedRevision is { } expected && expected != Revision)
+        {
+            return QueueResult.Refused(QueueRevision.ChangedText);
+        }
+
         if (!CanEdit)
         {
             return QueueResult.Refused(BusyText);
         }
 
         var currentId = _cursor < _steps.Count ? _steps[_cursor].Id : null;
+        if (!_steps.SequenceEqual(steps))
+        {
+            _revision++;
+        }
+
         _steps = [.. steps];
         if (_steps.Count == 0)
         {

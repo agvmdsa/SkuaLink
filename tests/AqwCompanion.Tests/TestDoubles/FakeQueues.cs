@@ -22,9 +22,12 @@ public sealed class FakeQueues : ISkuaQueues
 
     public QueueView? Find(string character) => Items.FirstOrDefault(v => string.Equals(v.Character, character, StringComparison.OrdinalIgnoreCase));
 
-    public QueueResult Replace(string character, IReadOnlyList<QueueStep> steps)
+    public List<long> ReplacedRevisions { get; } = [];
+
+    public QueueResult Replace(string character, IReadOnlyList<QueueStep> steps, long revision)
     {
         Replaced.Add((character, steps));
+        ReplacedRevisions.Add(revision);
         return ReplaceResult;
     }
 

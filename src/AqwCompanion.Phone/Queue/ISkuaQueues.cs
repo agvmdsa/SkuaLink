@@ -10,7 +10,11 @@ public interface ISkuaQueues
 
     QueueView? Find(string character);
 
-    QueueResult Replace(string character, IReadOnlyList<QueueStep> steps);
+    /// <summary>
+    /// Replaces the step list. <paramref name="revision"/> is the <see cref="QueueView.Revision"/> the caller saw: when the queue has
+    /// another one the call is refused (<see cref="QueueRevision.ChangedText"/>) and nothing changes.
+    /// </summary>
+    QueueResult Replace(string character, IReadOnlyList<QueueStep> steps, long revision);
 
     QueueResult Command(string character, QueueCommand command);
 
