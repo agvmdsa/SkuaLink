@@ -198,6 +198,11 @@ public sealed partial class QueueViewModel : ObservableObject, IDisposable
         var steps = view?.Steps ?? [];
         var state = view?.State ?? QueueState.Stopped;
         var marked = state is QueueState.Running or QueueState.Paused;
+        if (!string.Equals(Character, character, StringComparison.Ordinal))
+        {
+            ErrorText = string.Empty;
+        }
+
         HasCharacter = character is not null;
         Character = character;
         Steps = [.. steps.Select((s, i) => Row(s, i, marked && i == view!.Cursor))];

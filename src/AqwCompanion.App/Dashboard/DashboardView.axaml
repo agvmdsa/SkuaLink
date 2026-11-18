@@ -137,16 +137,18 @@
                      IsVisible="{Binding HasError}" AutomationProperties.Name="{Binding ErrorText}" />
           <TextBlock x:Name="QueueEmptyText" Text="{Binding EmptyStateText}" TextWrapping="Wrap" Classes="muted"
                      IsVisible="{Binding HasEmptyState}" AutomationProperties.Name="{Binding EmptyStateText}" />
-          <ItemsControl x:Name="QueueSteps" ItemsSource="{Binding Steps}" AutomationProperties.Name="{x:Static q:QueueViewModel.StepsAutomation}">
-            <ItemsControl.ItemTemplate>
-              <DataTemplate x:DataType="q:QueueStepRow">
-                <Grid ColumnDefinitions="18,*" Margin="0,2">
-                  <TextBlock Text="{Binding Marker}" FontWeight="Bold" Foreground="{DynamicResource AqwTextBright}" />
-                  <TextBlock Grid.Column="1" Text="{Binding Text}" TextWrapping="Wrap" AutomationProperties.Name="{Binding Text}" />
-                </Grid>
-              </DataTemplate>
-            </ItemsControl.ItemTemplate>
-          </ItemsControl>
+          <ScrollViewer x:Name="QueueStepsScroll" MaxHeight="140" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+            <ItemsControl x:Name="QueueSteps" ItemsSource="{Binding Steps}" AutomationProperties.Name="{x:Static q:QueueViewModel.StepsAutomation}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="q:QueueStepRow">
+                  <Grid ColumnDefinitions="18,*" Margin="0,2">
+                    <TextBlock Text="{Binding Marker}" FontWeight="Bold" Foreground="{DynamicResource AqwTextBright}" />
+                    <TextBlock Grid.Column="1" Text="{Binding Text}" TextWrapping="Wrap" AutomationProperties.Name="{Binding Text}" />
+                  </Grid>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </ScrollViewer>
           <WrapPanel Margin="0,4,0,0">
             <Button x:Name="QueueStartButton" Content="{x:Static q:QueueViewModel.StartText}" Command="{Binding StartCommand}" Margin="0,0,8,0"
                     AutomationProperties.Name="{x:Static q:QueueViewModel.StartText}" />

@@ -171,4 +171,40 @@ public class QueueCardTests
         Assert.True(scanned > 10);
         Assert.DoesNotMatch(@">\s*[A-Za-z][^<{]*<", card.Replace("<!--", "").Replace("-->", ""));
     }
+
+    [AvaloniaFact]
+    public void At_the_minimum_window_size_a_long_queue_keeps_the_buttons_reachable()
+    {
+        var steps = Enumerable.Range(1, 20).Select(n => Step(n.ToString(), item: "Item " + n)).ToArray();
+        var c = Open(true, new QueueView(Hero, steps, 0, QueueState.Running, QueuePhase.Running, null, 1, true));
+        c.Window.Width = 900;
+        c.Window.Height = 600;
+        Dispatcher.UIThread.RunJobs();
+        c.Window.UpdateLayout();
+
+        var scroll = c.Named<ScrollViewer>("QueueStepsScroll");
+        Assert.Equal(140, scroll.MaxHeight);
+        Assert.True(c.Named<Border>("DashboardQueueCard").Bounds.Height < 300);
+        foreach (var n in new[] { "Start", "Pause", "Continue", "Skip", "Stop", "Edit" })
+        {
+            var b = c.Named<Button>("Queue" + n + "Button");
+            var bottom = Avalonia.VisualExtensions.TranslatePoint(b, new Avalonia.Point(0, b.Bounds.Height), c.Window)!.Value.Y;
+            Assert.True(bottom <= c.Window.Bounds.Height, n + " bottom " + bottom);
+        }
+    }
+
+    [AvaloniaFact]
+    public void A_refusal_does_not_follow_a_change_of_the_selected_character()
+    {
+        var c = Open(true, View(QueueState.Stopped));
+        c.Queues.CommandResult = QueueResult.Refused("nope");
+        c.Named<Button>("QueueStartButton").Command!.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal("nope", c.Named<TextBlock>("QueueErrorText").Text);
+
+        c.Built.Book.OnStatus(new SkuaStatus(true, "Other Hero", null, "map", null, false, null, null, null, "idle", null, false));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(string.Empty, c.Named<TextBlock>("QueueErrorText").Text);
+    }
 }
