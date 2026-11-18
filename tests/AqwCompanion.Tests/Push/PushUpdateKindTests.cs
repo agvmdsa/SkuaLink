@@ -24,8 +24,8 @@ public class PushUpdateKindTests
     [Fact]
     public void The_update_kind_is_known_last_and_on_by_default_for_a_new_subscription()
     {
-        Assert.Equal("UpdateAvailable", PushKinds.All[^1]);
-        Assert.Equal(10, PushKinds.All.Count);
+        Assert.Equal("UpdateAvailable", PushKinds.All[9]);
+        Assert.Equal(12, PushKinds.All.Count);
         var store = new PushSubscriptionStore(new MemoryPushFileStore(), () => Now);
 
         var sub = store.Set("d1", Fcm, "P", "A", null);
