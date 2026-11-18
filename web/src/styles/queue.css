@@ -6,3 +6,10 @@
 .queue-step, .queue-progress { overflow-wrap: anywhere; }
 .queue-reason { overflow-wrap: anywhere; font-weight: 600; }
 .queue-error { margin-top: 0.5rem; color: var(--danger); font-weight: 600; overflow-wrap: anywhere; }
+.queue-row { display: grid; gap: 0.5rem; padding: 0.5rem 0; border-top: 1px solid var(--border); overflow-wrap: anywhere; }
+.queue-field { display: grid; gap: 0.25rem; }
+.queue-field select, .queue-field input { min-height: 3rem; width: 100%; box-sizing: border-box; }
+.queue-fields { display: grid; gap: 0.5rem; }
+.queue-row-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.queue-row-actions button { min-height: 3rem; flex: 1 1 6rem; }
+.queue-search { overflow-wrap: anywhere; }

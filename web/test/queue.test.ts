@@ -141,17 +141,22 @@ const fakeApi = (answer: CallResult | (() => Promise<CallResult>)) => ({
 
 describe('queueCard view', () => {
   const ui = new QueueUi(fakeApi({ status: 200, data: {} }), () => undefined, () => undefined);
-  it('is a card with a title, five buttons and the hostile text only as text', () => {
+  it('is a card with a title, five buttons, the Edit button and the hostile text only as text', () => {
     const hostile = '<img src=x onerror=alert(1)>';
     const v = queueCard(inst(), ui, [queue({ state: 'Paused', reason: hostile })], 0)!;
     expect(v.tag).toBe('section');
     expect(v.className).toBe('card queue-card');
     expect(all(v).find((n) => n.tag === 'h2')!.text).toBe(t('queue.title'));
     const b = all(v).filter((n) => n.tag === 'button');
-    expect(b.map((x) => x.attrs!['data-action'])).toEqual(['queue-start', 'queue-pause', 'queue-continue', 'queue-skip', 'queue-stop']);
-    expect(b.map((x) => 'disabled' in x.attrs!)).toEqual([true, true, false, false, false]);
+    expect(b.map((x) => x.attrs!['data-action'])).toEqual(['queue-start', 'queue-pause', 'queue-continue', 'queue-skip', 'queue-stop', 'queue-edit']);
+    expect(b.map((x) => 'disabled' in x.attrs!)).toEqual([true, true, false, false, false, false]);
     expect(texts(v)).toContain(hostile);
     for (const n of all(v)) for (const val of Object.values(n.attrs ?? {})) expect(val).not.toContain(hostile);
+  });
+  it('turns the Edit button off when the queue cannot be edited', () => {
+    const v = queueCard(inst(), ui, [queue({ state: 'Running', phase: 'Starting' })], 0)!;
+    const edit = all(v).find((n) => n.attrs?.['data-action'] === 'queue-edit')!;
+    expect('disabled' in edit.attrs!).toBe(true);
   });
   it('null for a Skua that is not live or has no character', () => {
     expect(queueCard(inst({ disconnected: true }), ui, [queue()], 0)).toBeNull();

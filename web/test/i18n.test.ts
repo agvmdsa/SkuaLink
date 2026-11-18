@@ -214,6 +214,7 @@ const EXCLUDED = new Set([
   'i18n/en.ts', // the catalog itself
   'i18n/pushEn.ts', // the catalog of the lazily loaded Notifications block
   'i18n/queueEn.ts', // the catalog of the lazily loaded queue card
+  'i18n/queueEditEn.ts', // the catalog of the lazily loaded queue editor
   'i18n/index.ts', // the i18n module: locale codes, Intl options and key plumbing
 ]);
 

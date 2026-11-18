@@ -177,6 +177,12 @@ export class QueueUi {
     return this.pending.has(instanceId);
   }
 
+  /** Shows words in the card's error line (a failure that did not come from a command). */
+  setError(instanceId: string, words: string): void {
+    this.errors.set(instanceId, words);
+    this.changed();
+  }
+
   errorOf(instanceId: string): string | null {
     return this.errors.get(instanceId) ?? null;
   }

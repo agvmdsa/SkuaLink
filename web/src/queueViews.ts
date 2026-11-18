@@ -36,6 +36,7 @@ export function queueCard(i: SkuaInstance, ui: QueueUi, queues: unknown, _nowMs:
       'div',
       { className: 'queue-actions' },
       ...BUTTONS.map((b) => h('button', { text: t(b.label), attrs: { type: 'button', 'data-action': b.action, ...(b.on(c) ? {} : { disabled: '' }), ...(pending ? { 'aria-busy': 'true' } : {}) } })),
+      h('button', { text: t('queue.edit'), attrs: { type: 'button', 'data-action': 'queue-edit', ...(c.edit ? {} : { disabled: '' }) } }),
     ),
     pending ? h('p', { className: 'muted', text: t('queue.working'), attrs: { role: 'status' } }) : null,
     c.error ? h('p', { className: 'queue-error', text: c.error, attrs: { role: 'alert' } }) : null,
@@ -64,7 +65,15 @@ export function startQueue(
     const button = (event.target as HTMLElement).closest<HTMLElement>('[data-action^="queue-"]');
     const action = button?.getAttribute('data-action') ?? '';
     const i = deps.instance();
-    if (button && i && Object.hasOwn(WORDS, action)) void ui.run(i.instanceId, WORDS[action]!);
+    if (!button || !i) return;
+    if (Object.hasOwn(WORDS, action)) void ui.run(i.instanceId, WORDS[action]!);
+    else if (action === 'queue-edit') {
+      const instanceId = i.instanceId;
+      const queue = queueFor(parseQueues(deps.queues()), i.status?.character ?? null);
+      import('./queueEdit')
+        .then((m) => m.openQueueEditor({ instanceId, queue, onSaved: deps.redraw, onUnpaired: deps.onUnpaired }))
+        .catch(() => ui.setError(instanceId, t('control.error.generic')));
+    }
   });
   return ui;
 }
