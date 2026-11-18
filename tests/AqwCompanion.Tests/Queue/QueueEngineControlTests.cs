@@ -504,4 +504,25 @@ public class QueueEngineControlTests
         Assert.True(result.Ok);
         Assert.Equal(1, sink.Count("stop"));
     }
+
+    [Fact]
+    public void A_fresh_stop_attempt_is_not_poisoned_by_an_earlier_refusal()
+    {
+        var (engine, sink) = Started();
+        engine.Evaluate(Running(Bag("Blood Orb", 10)), T0.AddSeconds(10));
+        engine.OnStopResult(new QueueOutcome(true, false, "busy"), T0.AddSeconds(11));
+        engine.Evaluate(Running(), T0.AddSeconds(12));
+        Assert.Equal(QueueState.Paused, engine.State);
+
+        Assert.True(engine.Skip(Running(), T0.AddSeconds(20)).Ok);
+        engine.Evaluate(Running(), T0.AddSeconds(21));
+
+        Assert.Equal(2, sink.Count("stop"));
+        Assert.Equal(QueueState.Running, engine.State);
+        Assert.Equal(QueuePhase.Stopping, engine.View.Phase);
+        engine.OnStopResult(new QueueOutcome(true, true), T0.AddSeconds(22));
+        engine.Evaluate(Ended(), T0.AddSeconds(23));
+        engine.Evaluate(Idle(), T0.AddSeconds(36));
+        Assert.Equal(1, engine.Cursor);
+    }
 }

@@ -86,6 +86,12 @@ public sealed partial class QueueEngine
 
     public string Character => _character;
 
+    /// <summary>
+    /// Identifies the current attempt: a new object for every attempt. The caller takes it when the engine asks for a command and drops the
+    /// answer when the engine has moved on to another attempt.
+    /// </summary>
+    public object AttemptToken => _a;
+
     public IReadOnlyList<QueueStep> Steps => _steps;
 
     public int Cursor => _cursor;
@@ -408,6 +414,8 @@ public sealed partial class QueueEngine
     {
         _a.Exit = exit;
         _a.StopSent = true;
+        _a.StopAnswered = false;   // a fresh stop attempt must not inherit an earlier answer or refusal
+        _a.StopRefused = null;
         _a.ExitAt = now;
         SetPhase(QueuePhase.Stopping);
         _sink.SendStop();
