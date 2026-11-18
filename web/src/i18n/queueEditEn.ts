@@ -26,4 +26,5 @@ export const queueEditEn = {
   'queueEdit.error.tooMany': 'A queue can have at most 20 steps.',
   'queueEdit.error.tooBig': 'The queue is too big to send.',
   'queueEdit.error.refused': 'The queue was not saved: {reason}',
+  'queueEdit.error.changed': 'The queue changed on the PC. Open the editor again.',
 } as const;

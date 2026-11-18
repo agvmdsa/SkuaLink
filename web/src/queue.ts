@@ -28,6 +28,8 @@ export interface QueueModel {
   reason: string | null;
   have: number | null;
   canEdit: boolean;
+  /** The PC's number for these steps; a save quotes the one the editor opened with. */
+  revision: number;
 }
 
 /** What the page sends for a step (the PC keeps the reputation goal and names the script itself). */
@@ -81,6 +83,7 @@ function parseQueue(v: unknown): QueueModel | null {
     reason: typeof v.reason === 'string' ? cut(v.reason) : null,
     have: count(v.have),
     canEdit: v.canEdit !== false,
+    revision: count(v.revision) ?? 0,
   };
 }
 
@@ -103,7 +106,7 @@ export function queueFor(queues: readonly QueueModel[], character: string | null
 
 export const queueApi = {
   get: (instanceId: string) => skuaCall(skuaPath(instanceId, 'queue')),
-  replace: (instanceId: string, steps: QueueDraft[]) => skuaCall(skuaPath(instanceId, 'queue'), { steps }, 'PUT'),
+  replace: (instanceId: string, steps: QueueDraft[], revision: number) => skuaCall(skuaPath(instanceId, 'queue'), { revision, steps }, 'PUT'),
   command: (instanceId: string, word: QueueWord) => skuaCall(skuaPath(instanceId, 'queue', word), {}),
 };
 
@@ -162,6 +165,17 @@ export function queueCardModel(q: QueueModel | null, pending: boolean, error: st
     pending,
     empty: q.steps.length === 0,
   };
+}
+
+/** Skip and Stop ask first; Start, Pause and Continue go at once. */
+export const needsConfirm = (word: QueueWord): word is 'skip' | 'stop' => word === 'skip' || word === 'stop';
+
+/** The words of the confirmation sheet: the character and the current step (Skip) or the queue (Stop). */
+export function confirmWords(word: 'skip' | 'stop', q: QueueModel | null, character: string): { title: string; body: string; confirm: string } {
+  const script = q?.steps[q.cursor]?.scriptName ?? '';
+  return word === 'skip'
+    ? { title: t('queue.skipTitle', { script, character }), body: t('queue.skipBody'), confirm: t('queue.skip') }
+    : { title: t('queue.stopTitle', { character }), body: t('queue.stopBody'), confirm: t('queue.stop') };
 }
 
 type Command = Pick<typeof queueApi, 'command'>;
