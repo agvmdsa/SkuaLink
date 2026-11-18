@@ -37,9 +37,13 @@ public sealed partial class QueueEngine
     public static readonly TimeSpan EndGrace = TimeSpan.FromSeconds(15);
     public static readonly TimeSpan SettleTimeout = TimeSpan.FromMinutes(2);
 
+    /// <summary>How long a step may wait, before its start is sent, for Skua to be idle. Separate from <see cref="StartGrace"/>, which only follows an accepted start.</summary>
+    public static readonly TimeSpan StartReadyTimeout = TimeSpan.FromSeconds(90);
+
     public const string ChangedReason = "You changed the script.";
     public const string NotFoundReason = "Script not found. Choose it again in the queue.";
     public const string NoAnswerReason = "Skua did not answer.";
+    public const string NotReadyReason = "Skua did not become ready.";
     public const string FirstRunReason = "This script has options that were never saved. Start it once from the phone, set its options, then press Continue.";
 
     private enum ExitKind { Advance, AdvanceThenPause, Pause, Halt }
@@ -53,6 +57,7 @@ public sealed partial class QueueEngine
         public bool StartSent;
         public bool StartAnswered;
         public DateTimeOffset StartedAt;
+        public DateTimeOffset? WaitingSince;
         public DateTimeOffset? StartOkAt;
         public bool Owns;
         public DateTimeOffset? EndedSeenAt;
@@ -314,6 +319,7 @@ public sealed partial class QueueEngine
             return;
         }
 
+        _a.WaitingSince ??= now;
         if (GoalReached(i, step))
         {
             _sink.Notify(QueueNotices.AlreadyHad(_character, step, now, Have(i.Inventory, step) >= step.GoalQuantity));
@@ -344,6 +350,10 @@ public sealed partial class QueueEngine
             _a.StartSent = true;
             _a.StartedAt = now;
             _sink.SendStart(resolved.ScriptId);
+        }
+        else if (now - _a.WaitingSince!.Value >= StartReadyTimeout)
+        {
+            PauseWith(NotReadyReason, now);   // never became ready to start: same pause as any other problem, nothing is retried
         }
     }
 
