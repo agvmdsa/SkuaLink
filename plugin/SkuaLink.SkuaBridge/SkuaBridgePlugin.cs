@@ -12,11 +12,13 @@ namespace SkuaLink.SkuaBridge;
 /// <summary>
 /// Adapter inside Skua. It reads properties and subscribes to events, and reports what it sees to SkuaLink over the pipe.
 /// One of those properties, <c>Quests.Active</c>, writes Skua's own quest tree cache when read (Skua's getter, not a game
-/// action), so it is read at most every 15 s. From SkuaLink it accepts exactly five commands: list the scripts in Skua's
-/// scripts folder, read and write a script's options file, start a script by id (closing its options dialog), and stop the
-/// running script (<see cref="SkuaCommandHandler"/>, through <see cref="ScriptControl"/> and <see cref="ScriptOptions"/>);
-/// those are the only things it does that change Skua's state, and it never sends anything to the game. Besides the status it
-/// reports the character's numbers (eight plain getters per status) and an inventory snapshot (bag, house and the bank once
+/// action), so it is read at most every 15 s. From SkuaLink it accepts exactly seven commands: list the scripts in Skua's
+/// scripts folder, read and write a script's options file, start a script by id (closing its options dialog), stop the
+/// running script (<see cref="SkuaCommandHandler"/>, through <see cref="ScriptControl"/> and <see cref="ScriptOptions"/>), use
+/// a boost by item id and log in again (<see cref="SkuaBoostCommands"/>, through <see cref="BoostControl"/>). The only things
+/// that reach the game are <c>Boosts.UseBoost(itemId)</c> on a tap and Skua's own login (<c>Servers.Relogin</c>, on a tap); the
+/// plugin never reads or sends a password and never calls <c>GetBoostID</c>. Besides the status it reports the character's
+/// numbers and the four boost values (twelve plain getters per status in all) and an inventory snapshot (bag, house and the bank once
 /// opened in Skua; at most one pass per 5 s, more when a pass is slow, and one every 5 min). It never lets an exception reach
 /// Skua. See README.md for the audited list of Skua members.
 /// </summary>
@@ -75,6 +77,11 @@ public sealed class SkuaBridgePlugin : ISkuaPlugin
     private SkuaClassFacts? _class;
     private SkuaSlotFacts? _slots;
     private SkuaInventory? _lastInventorySent;
+    private readonly SkuaBoostSampler _boostSampler = new(Now);
+    private readonly SkuaBoostReset _boostReset = new();
+    private IReadOnlyList<SkuaBoostItem> _boostItems = [];
+    private SkuaBoosts? _publishedBoosts; // Written by the worker, read by the command worker (Volatile).
+    private BoostControl? _boostControl;
     private string? _lastCharacter;
     private bool _bagSeen; // An inventory pass found a bag for this character: its profile may be reported.
     private List<(string? Name, int Quantity)>? _lastBankRead; // The last bank read that counted, and whose it was.
@@ -125,7 +132,7 @@ public sealed class SkuaBridgePlugin : ISkuaPlugin
 
     public string Name => "SkuaLink Bridge";
     public string Author => "SkuaLink";
-    public string Description => "Shows what Skua is doing in SkuaLink, and lets SkuaLink list, start and stop scripts and set their options.";
+    public string Description => "Shows what Skua is doing in SkuaLink, and lets SkuaLink list, start and stop scripts, set their options, use a boost and log in again.";
     public List<IOption>? Options => null;
 
     public void Load(IServiceProvider provider, IPluginHelper helper)
@@ -155,7 +162,10 @@ public sealed class SkuaBridgePlugin : ISkuaPlugin
             var dispatcher = provider.GetService(typeof(IDispatcherService)) as IDispatcherService;
             _catalog = ScriptControl.Catalog();
             _commands = new SkuaCommandHandler(
-                new ScriptControl(manager), _catalog, _control, Now, new ScriptOptions(manager, dispatcher));
+                new ScriptControl(manager), _catalog, _control, Now, new ScriptOptions(manager, dispatcher),
+                boosts: new SkuaBoostCommands(
+                    _boostControl = new BoostControl(bot), () => Volatile.Read(ref _publishedBoosts), Now,
+                    onChanged: () => { _inventorySchedule.Request(); RequestStatus(); }));
 
             var skuaVersion = Assembly.GetEntryAssembly()?.GetName().Version?.ToString() ?? "unknown";
             _client = new PipeClient(
@@ -164,6 +174,7 @@ public sealed class SkuaBridgePlugin : ISkuaPlugin
                 onConnected: () =>
                 {
                     // hello and the last known status are already written; read the current state now.
+                    _boostSampler.NoteGap();
                     _questsForced = true;
                     _inventoryResend = true;
                     _inventorySchedule.Request();
@@ -545,6 +556,14 @@ public sealed class SkuaBridgePlugin : ISkuaPlugin
         _lastStatusStart = Stopwatch.GetTimestamp();
         var loggedIn = bot.Player.LoggedIn;
         var character = loggedIn ? bot.Player.Username?.Trim() : null;
+        if (_boostReset.Observe(loggedIn, character))
+        {
+            // Debounced: a single logged-out poll (a map change) keeps the boost state.
+            _boostSampler.Reset();
+            _boostItems = [];
+            Volatile.Write(ref _publishedBoosts, null);
+        }
+
         if (!loggedIn || !string.Equals(character, _lastCharacter, StringComparison.OrdinalIgnoreCase))
         {
             // A logout or another character: nothing of the previous one may be reported for this one.
@@ -561,6 +580,11 @@ public sealed class SkuaBridgePlugin : ISkuaPlugin
         // No profile while the character is still loading (no bag seen yet and level 0): never a status of zeros.
         var profile = loggedIn ? SkuaProfileRead.Report(ReadProfile(bot), _bagSeen) : null;
         var map = loggedIn ? bot.Map.Name : null;
+        var boosts = loggedIn ? _boostSampler.Sample(_boostControl?.ReadBoostValues(), true, _boostItems) : null;
+        if (loggedIn)
+        {
+            Volatile.Write(ref _publishedBoosts, boosts);
+        }
 
         // Skua raises MapChanged only while a script runs, so the settle after a stop sees map changes here (every 3 s).
         if (_mapRead && map != _lastMap)
@@ -591,7 +615,8 @@ public sealed class SkuaBridgePlugin : ISkuaPlugin
             _control?.State,
             _control?.SettleSecondsLeft,
             _control?.OptionsStuck ?? false,
-            profile);
+            profile,
+            boosts);
 
         // Sent only when something changed, quests, ready flags and reputation included (SkuaStatus compares both lists by content).
         if (status != _lastStatus)
@@ -687,6 +712,7 @@ public sealed class SkuaBridgePlugin : ISkuaPlugin
         _inventorySchedule.Finished(watch.Elapsed);
         ReplaceSnapshot(bag);
         _bagSeen = true;
+        _boostItems = SkuaBoostItems.Build(bag.Where(i => i is not null).Select(i => (i.ID, (string?)i.Name, i.Quantity, i.Category == ItemCategory.ServerUse)));
         _class = SkuaInventoryRead.EquippedClass(bag.Where(i => i is not null).Select(i => (i.ID, (string?)i.Name, i.Quantity, i.Equipped, (string?)i.CategoryString)));
         _slots = slots ?? _slots;
 

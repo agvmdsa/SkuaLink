@@ -47,9 +47,22 @@ Exactly this, nothing else:
 6. **Write a script's options** (`setOptions {id, values}`): only names the script declares, only values that fit their
    type, only into that script's options file inside Skua's options folder, only while no script runs.
 7. **Close a started script's options dialog** on the PC (part of `start`), so Skua saves the values already in the file.
+8. **Use a boost** (`useBoost {itemId}`): refused unless the character is logged in ("The character is not logged in."),
+   the id is in the plugin's own last boost list with a quantity above 0 ("That boost is not in the bag."), its type is
+   gold, class, reputation or XP ("That boost is not a gold, class, reputation or XP boost."), the four values can be read
+   ("Could not read the boosts.") and that type is not already active ("A boost of that type is already active."). Then it
+   sends `serverUseItem` to the game through `Boosts.UseBoost(itemId)`, once, never retrying, and re-reads the four values
+   every 500 ms for up to 3 s: it answers ok at the first value above 0, else "The game did not activate the boost.". It
+   never calls `GetBoostID` (and never with a bank search, which would load the bank).
+9. **Log in again** (`relogin`): refused while the character is logged in ("The character is already logged in."), within
+   15 s of the last attempt ("Wait a moment before trying again."), while an earlier login is still running ("A login is
+   already in progress.") and when Skua has no last server ("There is no server to log in to."). Otherwise it answers ok at
+   once and calls `Servers.Relogin(Servers.LastName)` on a pool thread (it can block for about 30 s). That is Skua's own
+   login with the credentials Skua already holds: the plugin never reads, stores or sends a password.
 
 It never accepts a path, code or a script name from SkuaLink, and option values only for options the script itself
-declared; it never sends anything to the game.
+declared; nothing but an item id for a boost. The only things that reach the game are `Boosts.UseBoost(itemId)` and Skua's
+own login, each only on a command, never automatically.
 
 ## Corrections to the plan (verified against the 1.4.5.0 DLLs and the 1.4.5.0 tag source)
 
@@ -117,7 +130,15 @@ throwaway project and read in the tag source.
   logged out; read on every status, so about every 3 s). A change in either list, a ready flag or a reputation number
   sends a new status; nothing changed sends nothing. Also `control` (`idle`, `running`, `stopping`, `settling`,
   `awaitingOptions`) with `settleSecondsLeft` while settling and `optionsStuck` (see "Commands and control state").
-  Also `profile` (AQW-0110), only while logged in, see below.
+  Also `profile` (AQW-0110), only while logged in, see below, and `boosts`, only while logged in, see below.
+- `status.boosts`: `gold`, `class`, `rep`, `xp` are the seconds left as of `readAt` (unix ms): 0 inactive, -1 active with the
+  elapsed time unknown, otherwise a positive number; plus `items`, the boost items of the bag (item id, name, type, quantity;
+  at most 12). Four plain reads per poll (about every 3 s), one Flash call each: `world.myAvatar.objData.iBoostG`,
+  `iBoostCP`, `iBoostRep`, `iBoostXP`, through `Flash.GetGameObject<int>`. A read that throws gives no reading (the last
+  values stay); Skua's getter answers 0 for a value it cannot read and offers no way to tell that from a real 0, so a drop
+  to 0 is believed only on the second read in a row (about 3 s later). The sampler is reset when another character logs in
+  or after three polls in a row see the character logged out, not on a single logged-out poll (a map change). Sent only
+  when a value or the item list changed (and after a reconnect).
 - `status.profile` (AQW-0110): the character's numbers, read on every status (eight plain getters of `IScriptPlayer`, one
   Flash call each; sent only when something in the status changed, as before):
   - `level` = `Player.Level` (`world.myAvatar.dataLeaf.intLevel`), `xp` = `XP` (`objData.intExp`), `xpToLevel` =
@@ -416,6 +437,11 @@ Generated from the compiled DLL's member references (System.Reflection.Metadata)
 | the options file `%AppData%\Skua\options\{Storage}.cfg` | **written** (file, not a Skua member) | `setOptions`, only while no script runs |
 | a listed script's `.cs` file | read as text (file, not a Skua member; never compiled or run by the plugin) | its `OptionsStorage` name, when the definitions are not learnt |
 | `IScriptStatus.StopScript()` | **changes Skua state** | `stop`, on a pool thread; a first start with options (discovery) |
+| `IScriptInterface.Flash` -> `Flash.GetGameObject<int>("world.myAvatar.objData.iBoostG" / "iBoostCP" / "iBoostRep" / "iBoostXP")` | read (one Flash call each, every status poll, and while a boost use is checked) | `status.boosts`, `useBoost` |
+| `IScriptInterface.Boosts` -> `Boosts.UseBoost(int itemId)` | **sends `serverUseItem` to the game** | `useBoost`, only on that command |
+| `IScriptServers.LastName` | read (also read for the status server) | `relogin` |
+| `IScriptServers.Relogin(string)` | **logs in through Skua** (blocks up to about 30 s; Skua's own credentials) | `relogin`, on a pool thread, only on that command |
+| `InventoryItem.Category`, `ItemCategory.ServerUse` | read | which bag items are boost items |
 
 Framework WPF members (not Skua's): `Application.Current`, `Application.Windows`, `FrameworkElement.DataContext`, and
 `Window.Close()` on the one window matched as the started script's options dialog (which makes Skua save the values it
@@ -433,7 +459,7 @@ is written directly, in Skua's format. Some getters above are implemented by Sku
 `world.questTree`, `loginInfo.strUsername`, the `world.myAvatar.objData` / `dataLeaf` numbers); they read game objects and
 change nothing.
 
-Apart from the commands (load, start and stop a script, on SkuaLink's request), the plugin never calls anything that
+Apart from the commands (load, start and stop a script, use a boost and log in again, on SkuaLink's request), the plugin never calls anything that
 sends a packet or changes game or script state. One side effect inside Skua remains: `IScriptQuest.Active` goes through `IScriptQuest.Tree`, which
 is not a pure getter. It writes Skua's own shared 100 ms cache of the quest tree it just read (`_cachedTree`,
 `_lastTreeUpdate`, no lock), and Skua clears that cache itself after accepting or turning in a quest. So a plugin read
@@ -495,6 +521,15 @@ Only the owner's Windows can prove these; the full step-by-step list is kept out
     only the 5 min pass.
   - U15. An older 0.5 plugin with SkuaLink 0.6: the character appears, the Overview says the plugin does not report the
     numbers or the inventory, and the Bot section works as before.
+- **Boosts and log in again (not yet verified; only a real Skua can prove them):**
+  - That `Boosts.UseBoost(itemId)` activates a boost from the bag and that the value turns above 0 within 3 s; that a
+    refused use (a boost of that type already active) consumes nothing.
+  - That the four values read as the remaining seconds in a real game, are 0 when no boost is active, and drop to 0 at the
+    end of a boost; that a failed Flash read does not show up as a false end.
+  - That the boost items of the bag are listed with the right type (the reputation and XP boost names are unknown).
+  - That `Servers.Relogin(Servers.LastName)` logs in from the login screen and after a kick, and that Skua's UI does not
+    freeze during the blocking call.
+  - That a map change (one logged-out poll) does not reset the boost reading.
 - **Control (AQW-0088):**
   - The two-way pipe connects to the new SkuaLink; that Windows refuses the `InOut` client of an older SkuaLink's
     inbound-only pipe with `UnauthorizedAccessException` (so the plugin falls back to send-only) is from the Win32 rules,
