@@ -193,3 +193,17 @@ describe('parseOpenMessage and isIos', () => {
     expect(isIos('Mozilla/5.0 (Windows NT 10.0; Win64; x64)')).toBe(false);
   });
 });
+
+describe('queues field', () => {
+  const base = { snapshot: null, notices: [] };
+  it('keeps queues as a bounded raw array', () => {
+    const many = Array.from({ length: 21 }, (_, i) => ({ character: 'C' + i }));
+    expect(parseState(JSON.stringify({ ...base, queues: many }))!.queues).toHaveLength(20);
+  });
+  it('a non-array is undefined and other fields are unchanged', () => {
+    const s = parseState(JSON.stringify({ ...base, queues: 'x' }))!;
+    expect(s.queues).toBeUndefined();
+    expect(s.notices).toEqual([]);
+    expect(s.snapshot).toBeNull();
+  });
+});

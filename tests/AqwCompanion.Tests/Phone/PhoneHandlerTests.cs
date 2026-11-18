@@ -259,6 +259,23 @@ public class PhoneHandlerTests : IDisposable
     }
 
     [Fact]
+    public void A_pairing_body_over_1024_bytes_is_413_and_does_not_count_as_a_wrong_attempt()
+    {
+        var token = _registry.CreatePairingToken();
+        var big = $"{{\"token\":\"{token}\",\"name\":\"{new string('x', 1100)}\"}}";
+
+        for (var i = 0; i < 10; i++)
+        {
+            Assert.Equal(413, _handler.Handle(Req("POST", "/api/pair", [Write], big)).Status);
+        }
+
+        Assert.Equal(204, Pair(token).Status);
+        var exact = $"{{\"token\":\"x\",\"name\":\"{new string('y', 1024 - 23)}\"}}";
+        Assert.Equal(1024, Encoding.UTF8.GetByteCount(exact));
+        Assert.Equal(401, _handler.Handle(Req("POST", "/api/pair", [Write], exact)).Status);
+    }
+
+    [Fact]
     public void Five_wrong_attempts_lock_pairing_even_for_a_good_token_and_the_429_is_fixed()
     {
         var good = _registry.CreatePairingToken();

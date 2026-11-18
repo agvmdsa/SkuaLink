@@ -3,6 +3,7 @@
              xmlns:shell="using:AqwCompanion.App.Shell"
              xmlns:ch="using:AqwCompanion.App.Characters"
              xmlns:hf="using:AqwCompanion.App.HardFarms"
+             xmlns:q="using:AqwCompanion.App.Queue"
              x:Class="AqwCompanion.App.Dashboard.DashboardView"
              x:DataType="shell:MainViewModel">
   <UserControl.Styles>
@@ -60,7 +61,7 @@
     </DataTemplate>
   </UserControl.Resources>
 
-  <Grid RowDefinitions="Auto,*" ColumnDefinitions="*,*" Margin="12">
+  <Grid RowDefinitions="Auto,*,Auto" ColumnDefinitions="*,*" Margin="12">
     <!-- The character: name, level and class on the band, then the numbers Skua reported, wrapping when they do not fit. -->
     <Border x:Name="DashboardProfileCard" Grid.ColumnSpan="2" Classes="card" Margin="0,0,0,12"
             IsVisible="{Binding Characters.HasCharacters}">
@@ -116,6 +117,56 @@
         </Border>
         <hf:HardFarmsView x:Name="DashboardHardFarms" Grid.Row="1" DataContext="{Binding HardFarms}" />
       </Grid>
+    </Border>
+
+    <!-- The script queue of the selected character: state, progress, steps and the five controls, plus the editor. -->
+    <Border x:Name="DashboardQueueCard" Grid.Row="2" Grid.ColumnSpan="2" Classes="card" Margin="0,12,0,0"
+            IsVisible="{Binding Queue, Converter={x:Static ObjectConverters.IsNotNull}}">
+      <StackPanel DataContext="{Binding Queue}" x:DataType="q:QueueViewModel">
+        <Border Classes="cardHeader">
+          <TextBlock Text="{x:Static q:QueueViewModel.TitleText}" Classes="cardTitle" />
+        </Border>
+        <StackPanel Margin="14,8,14,10" Spacing="6">
+          <TextBlock x:Name="QueueStateText" Text="{Binding StateText}" FontWeight="SemiBold" Foreground="{DynamicResource AqwTextBright}"
+                     AutomationProperties.Name="{Binding StateText}" />
+          <TextBlock x:Name="QueueProgressText" Text="{Binding ProgressText}" Classes="muted" IsVisible="{Binding HasProgress}"
+                     AutomationProperties.Name="{Binding ProgressText}" />
+          <TextBlock x:Name="QueueReasonText" Text="{Binding ReasonText}" TextWrapping="Wrap" IsVisible="{Binding HasReason}"
+                     AutomationProperties.Name="{Binding ReasonText}" />
+          <TextBlock x:Name="QueueNoticeText" Text="{Binding NoticeText}" TextWrapping="Wrap" Classes="muted"
+                     IsVisible="{Binding HasNotice}" AutomationProperties.Name="{Binding NoticeText}" />
+          <TextBlock x:Name="QueueErrorText" Text="{Binding ErrorText}" TextWrapping="Wrap" Foreground="{DynamicResource AqwDangerText}"
+                     IsVisible="{Binding HasError}" AutomationProperties.Name="{Binding ErrorText}" />
+          <TextBlock x:Name="QueueEmptyText" Text="{Binding EmptyStateText}" TextWrapping="Wrap" Classes="muted"
+                     IsVisible="{Binding HasEmptyState}" AutomationProperties.Name="{Binding EmptyStateText}" />
+          <ScrollViewer x:Name="QueueStepsScroll" MaxHeight="140" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+            <ItemsControl x:Name="QueueSteps" ItemsSource="{Binding Steps}" AutomationProperties.Name="{x:Static q:QueueViewModel.StepsAutomation}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="q:QueueStepRow">
+                  <Grid ColumnDefinitions="18,*" Margin="0,2">
+                    <TextBlock Text="{Binding Marker}" FontWeight="Bold" Foreground="{DynamicResource AqwTextBright}" />
+                    <TextBlock Grid.Column="1" Text="{Binding Text}" TextWrapping="Wrap" AutomationProperties.Name="{Binding Text}" />
+                  </Grid>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </ScrollViewer>
+          <WrapPanel Margin="0,4,0,0">
+            <Button x:Name="QueueStartButton" Content="{x:Static q:QueueViewModel.StartText}" Command="{Binding StartCommand}" Margin="0,0,8,0"
+                    AutomationProperties.Name="{x:Static q:QueueViewModel.StartText}" />
+            <Button x:Name="QueuePauseButton" Content="{x:Static q:QueueViewModel.PauseText}" Command="{Binding PauseCommand}" Margin="0,0,8,0"
+                    AutomationProperties.Name="{x:Static q:QueueViewModel.PauseText}" />
+            <Button x:Name="QueueContinueButton" Content="{x:Static q:QueueViewModel.ContinueText}" Command="{Binding ContinueCommand}" Margin="0,0,8,0"
+                    AutomationProperties.Name="{x:Static q:QueueViewModel.ContinueText}" />
+            <Button x:Name="QueueSkipButton" Content="{x:Static q:QueueViewModel.SkipText}" Command="{Binding SkipCommand}" Margin="0,0,8,0"
+                    AutomationProperties.Name="{x:Static q:QueueViewModel.SkipText}" />
+            <Button x:Name="QueueStopButton" Content="{x:Static q:QueueViewModel.StopText}" Command="{Binding StopCommand}" Margin="0,0,8,0"
+                    AutomationProperties.Name="{x:Static q:QueueViewModel.StopText}" />
+            <Button x:Name="QueueEditButton" Content="{x:Static q:QueueViewModel.EditText}" Command="{Binding EditCommand}"
+                    AutomationProperties.Name="{x:Static q:QueueViewModel.EditText}" />
+          </WrapPanel>
+        </StackPanel>
+      </StackPanel>
     </Border>
   </Grid>
 </UserControl>

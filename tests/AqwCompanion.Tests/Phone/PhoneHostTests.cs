@@ -410,7 +410,7 @@ public sealed class PhoneHostTests : IDisposable
     }
 
     [Fact]
-    public async Task A_body_over_4096_bytes_gets_413()
+    public async Task A_body_over_8192_bytes_gets_413()
     {
         // Binding is denied in some sandboxes; then there is nothing to test here.
         if (!_host.TryStart())
@@ -420,7 +420,7 @@ public sealed class PhoneHostTests : IDisposable
 
         using var request = new HttpRequestMessage(HttpMethod.Post, Url("/api/pair"))
         {
-            Content = new StringContent(new string('a', 5000), Encoding.UTF8, "application/json"),
+            Content = new StringContent(new string('a', 9000), Encoding.UTF8, "application/json"),
         };
         request.Headers.Add("X-Remote", "1");
         using var response = await _client.SendAsync(request);

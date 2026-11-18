@@ -31,7 +31,7 @@ public class UpdatesCompositionTests
         Assert.DoesNotContain("Only three things", SettingsViewModel.PrivacyText, StringComparison.Ordinal);
         Assert.Contains("the push service of your phone's browser (Apple, Google, Mozilla or Microsoft)", SettingsViewModel.PrivacyText, StringComparison.Ordinal);
         Assert.Equal(
-            "Remove everything the app saved on this computer? Your saved characters, Skua logs and the Hard Farms list are cleared, and so is the game data saved by versions before 0.6.",
+            "Remove everything the app saved on this computer? Your saved characters, Skua logs, script queues and the Hard Farms list are cleared, and so is the game data saved by versions before 0.6.",
             SettingsViewModel.ForgetPromptText);
     }
 }

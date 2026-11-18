@@ -14,13 +14,16 @@ public static class SkuaLogFiles
 
     private const int MaxNameLength = 48;
 
+    /// <summary><c>skua-log.&lt;slug&gt;.json</c>; see <see cref="Slug"/>.</summary>
+    public static string FileName(string character) => Prefix + Slug(character) + Suffix;
+
     /// <summary>
-    /// <c>skua-log.&lt;name&gt;.json</c>: the character name in lower case (names are case-insensitive in the game) with only
+    /// The part of the file name between prefix and suffix: the character name in lower case (names are case-insensitive in the game) with only
     /// ASCII letters, digits, <c>-</c> and <c>_</c>. Any other character becomes <c>_</c>, a long name is cut, and when
     /// anything was changed a short hash of the whole name is added, so two names never share a file in practice. The result
     /// is a bare file name: no separators, no dots inside the name part.
     /// </summary>
-    public static string FileName(string character)
+    public static string Slug(string character)
     {
         var lower = character.ToLowerInvariant();
         var name = new StringBuilder(Math.Min(lower.Length, MaxNameLength));
@@ -43,6 +46,6 @@ public static class SkuaLogFiles
             name.Append('-').Append(Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(lower)))[..8]);
         }
 
-        return Prefix + name + Suffix;
+        return name.ToString();
     }
 }

@@ -3,6 +3,7 @@ using AqwCompanion.App.Infrastructure;
 using AqwCompanion.App.Phone;
 using AqwCompanion.App.Settings;
 using AqwCompanion.App.Shell;
+using AqwCompanion.App.Queue;
 using AqwCompanion.App.Updates;
 using AqwCompanion.App.Skua;
 using AqwCompanion.Phone.Characters;
@@ -53,6 +54,7 @@ public partial class CompanionApp : Application
             services.GetRequiredService<SkuaBridgeHost>().Start();
             services.GetRequiredService<SkuaSettingsPresenter>().Start();
             services.GetRequiredService<UpdateChecker>().Start();
+            services.GetRequiredService<SkuaQueueService>().Start();
             _ = services.GetRequiredService<SettingsViewModel>().MigrateAutoStartAsync();
             desktop.Exit += (_, _) =>
             {

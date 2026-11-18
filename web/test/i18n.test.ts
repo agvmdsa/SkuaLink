@@ -159,6 +159,15 @@ const ALLOWED = new Set([
   'The attribute ${name} is not allowed.', // a programming error thrown by mount(), caught by draw(); never shown
   'muted hint', // CSS class names
   'card now-card', // CSS class names
+  'Skua is disconnected', // the PC's 409 text, compared to pick the page's own words, never shown
+  'card queue-card', // CSS class names
+  'Stopped', // queue state enum value of the protocol, never shown
+  'Running', // queue state or phase enum value of the protocol, never shown
+  'Paused', // queue state enum value of the protocol, never shown
+  'Finished', // queue state enum value of the protocol, never shown
+  'Starting', // queue phase enum value of the protocol, never shown
+  'Stopping', // queue phase enum value of the protocol, never shown
+  'Settling', // queue phase enum value of the protocol, never shown
   'Browser', // deviceName() fallback: the name stored on the PC for this phone, not page text
   'iPhone', // deviceName(): a device name stored on the PC
   'iPad', // deviceName(): a device name stored on the PC
@@ -193,6 +202,8 @@ const ALLOWED = new Set([
   'NoProgress', // push kind enum value of the protocol, never shown
   'DyingOften', // push kind enum value of the protocol, never shown
   'UpdateAvailable', // push kind enum value of the protocol, never shown
+  'QueueAttention', // push kind enum value of the protocol, never shown
+  'QueueFinished', // push kind enum value of the protocol, never shown
   'not found', // a refusal text of the Skua plugin, matched to choose the page's own words
 ]);
 
@@ -202,6 +213,8 @@ const EXCLUDED = new Set([
   'types.ts', // type declarations only: protocol enum values such as RankUp, never shown
   'i18n/en.ts', // the catalog itself
   'i18n/pushEn.ts', // the catalog of the lazily loaded Notifications block
+  'i18n/queueEn.ts', // the catalog of the lazily loaded queue card
+  'i18n/queueEditEn.ts', // the catalog of the lazily loaded queue editor
   'i18n/index.ts', // the i18n module: locale codes, Intl options and key plumbing
 ]);
 

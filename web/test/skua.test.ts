@@ -314,3 +314,11 @@ describe('the update notice', () => {
     expect(noticeLine(n, NOW)).toMatchObject({ title: 'SkuaLink update available', body: 'SkuaLink 0.8.0 is available. Update it on the PC.' });
   });
 });
+
+describe('the queue notices', () => {
+  const q = (kind: string, title: string, body: string) => ({ id: `queue:${kind}`, kind, character: 'Hero', title, body, atUtc: new Date(NOW - 120_000).toISOString() }) as never;
+  it('show the text the PC wrote', () => {
+    expect(noticeLine(q('QueueAttention', 'Queue paused', 'Hero: You changed the script.'), NOW)).toMatchObject({ title: 'Queue paused', body: 'Hero: You changed the script.' });
+    expect(noticeLine(q('QueueFinished', 'Queue finished', 'Hero: the queue finished.'), NOW)).toMatchObject({ title: 'Queue finished', body: 'Hero: the queue finished.' });
+  });
+});

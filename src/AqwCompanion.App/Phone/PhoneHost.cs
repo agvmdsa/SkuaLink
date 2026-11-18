@@ -9,7 +9,7 @@ namespace AqwCompanion.App.Phone;
 
 /// <summary>
 /// The sockets around <see cref="PhoneHandler"/>: an <see cref="HttpListener"/> on <c>http://127.0.0.1:{port}/</c> only. All the rules
-/// live in the handler; this class moves bytes, drops any peer that is not loopback, caps the body at 4096 characters, refuses a
+/// live in the handler; this class moves bytes, drops any peer that is not loopback, caps the body at 8192 characters, refuses a
 /// repeated Host or Origin header, allows at most <see cref="MaxStreams"/> event streams (and <see cref="MaxStreamsPerDevice"/> per
 /// device: one more ends that device's oldest), gives an ordinary request 30 seconds (a Skua command 60) and closes the streams of a revoked device. Event streams stay open until the client leaves, the device is revoked or <see cref="Stop"/>.
 /// </summary>
@@ -18,7 +18,8 @@ public sealed class PhoneHost : IPhoneHost, IDisposable
     public const int DefaultPort = 47822;
     public const int MaxStreams = 8;
     public const int MaxStreamsPerDevice = 3;
-    public const int MaxBody = 4096;
+    /// <summary>The most the host reads of any body; every API still enforces its own, smaller cap (the queue PUT uses all of it).</summary>
+    public const int MaxBody = 8192;
 
     private static readonly TimeSpan PingEvery = TimeSpan.FromSeconds(25);
     private static readonly TimeSpan DefaultRequestTimeout = TimeSpan.FromSeconds(30);

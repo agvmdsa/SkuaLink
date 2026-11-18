@@ -2,6 +2,7 @@ using AqwCompanion.App.Characters;
 using AqwCompanion.App.Debug;
 using AqwCompanion.App.Diagnostics;
 using AqwCompanion.App.HardFarms;
+using AqwCompanion.App.Queue;
 using AqwCompanion.App.Settings;
 using CommunityToolkit.Mvvm.Input;
 
@@ -13,7 +14,8 @@ public sealed partial class MainViewModel(
     CharactersViewModel characters,
     SettingsViewModel settings,
     ISettingsDialog settingsDialog,
-    DebugModeController debug)
+    DebugModeController debug,
+    QueueViewModel? queue = null)
 {
     public string Title { get; } = AppInfo.ProductName;
     public DiagnosticsViewModel Diagnostics { get; } = diagnostics;
@@ -21,6 +23,9 @@ public sealed partial class MainViewModel(
     public CharactersViewModel Characters { get; } = characters;
     public SettingsViewModel Settings { get; } = settings;
     public DebugModeController Debug { get; } = debug;
+
+    /// <summary>The script queue card; null when the app was built without it (the card is then hidden).</summary>
+    public QueueViewModel? Queue { get; } = queue;
 
     /// <summary>Opens the Settings dialog over the window.</summary>
     [RelayCommand]
