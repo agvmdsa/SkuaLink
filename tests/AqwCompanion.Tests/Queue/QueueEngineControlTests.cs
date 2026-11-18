@@ -75,7 +75,7 @@ public class QueueEngineControlTests
 
         Assert.Equal(QueueResult.Refused(QueueEngine.AnotherScriptReason), result);
         Assert.Equal(QueueState.Paused, engine.State);
-        Assert.Equal(QueueEngine.AnotherScriptReason, engine.View.Reason);
+        Assert.Equal(QueueEngine.PausedByYou, engine.View.Reason);   // a refused Continue keeps the original reason
         Assert.Equal(before, sink.Calls);
     }
 
@@ -343,5 +343,68 @@ public class QueueEngineControlTests
         engine.Evaluate(Running(Bag("Blood Orb", 5)), T0.AddSeconds(3));
 
         Assert.Equal(1, sink.Count("stop"));
+    }
+
+    // ---- never stop what the owner started ----
+
+    private static void Swapped(QueueEngine engine, bool byPause, DateTimeOffset at)
+    {
+        if (byPause)
+        {
+            engine.Pause(at);
+        }
+        else
+        {
+            engine.Evaluate(Running(script: "Butler"), at);   // "You changed the script."
+            Assert.Equal("You changed the script.", engine.View.Reason);
+        }
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public void Skip_and_stop_queue_never_stop_a_script_the_owner_started_by_hand(bool byPause, bool stopQueue)
+    {
+        var (engine, sink) = Started();
+        Swapped(engine, byPause, T0.AddSeconds(5));
+
+        var result = stopQueue ? engine.StopQueue(Running(script: "Butler"), T0.AddSeconds(10)) : engine.Skip(Running(script: "Butler"), T0.AddSeconds(10));
+
+        Assert.True(result.Ok);
+        Assert.Equal(0, sink.Count("stop"));
+    }
+
+    [Fact]
+    public void Skip_and_stop_queue_are_refused_while_an_accepted_start_is_not_yet_visible()
+    {
+        var fresh = new FakeQueueSink();
+        var e = Engine(fresh, Step(), Step("2", B, "Butler", "Gold Voucher", 1));
+        e.Start(Idle(), T0);
+        e.OnScripts(Scripts, T0);
+        e.Evaluate(Idle(), T0);
+        e.OnStartResult(new QueueOutcome(true, true), T0.AddSeconds(1));
+        e.Evaluate(Idle(), T0.AddSeconds(2));   // accepted, not yet seen running
+
+        Assert.False(e.Skip(Idle(), T0.AddSeconds(3)).Ok);
+        Assert.False(e.StopQueue(Idle(), T0.AddSeconds(3)).Ok);
+        Assert.Equal(0, e.Cursor);
+        Assert.Equal(QueueState.Running, e.State);
+        Assert.Equal(0, fresh.Count("stop"));
+    }
+
+    [Fact]
+    public void A_pending_stop_queue_survives_a_problem_and_ends_stopped_not_paused()
+    {
+        var (engine, sink) = Started();
+        engine.StopQueue(Running(), T0.AddSeconds(10));
+        Assert.Equal(QueuePhase.Stopping, engine.View.Phase);
+
+        engine.Evaluate(new QueueInputs(false, null, [], null), T0.AddSeconds(12));
+
+        Assert.Equal(QueueState.Stopped, engine.State);
+        Assert.Equal(0, engine.Cursor);
+        Assert.Empty(sink.Notices);
     }
 }

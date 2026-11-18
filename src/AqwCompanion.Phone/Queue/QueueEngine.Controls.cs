@@ -40,9 +40,6 @@ public sealed partial class QueueEngine
         var status = inputs.Status;
         if (Alive(status) && !(status!.ScriptRunning && QueueText.SameName(status.Script, step.ScriptName)))
         {
-            _reason = AnotherScriptReason;
-            Mark();
-            Flush();
             return QueueResult.Refused(AnotherScriptReason);
         }
 
@@ -73,12 +70,12 @@ public sealed partial class QueueEngine
             return QueueResult.Done;
         }
 
-        if (_a.StartSent && !_a.StartAnswered)
+        if (StartInFlight(inputs.Status))
         {
             return QueueResult.Refused(StartInFlightText);
         }
 
-        if (Alive(inputs.Status) && _a.Owns)
+        if (OwnedAndRunning(inputs.Status))
         {
             _state = QueueState.Running;
             _reason = null;
@@ -108,12 +105,12 @@ public sealed partial class QueueEngine
             return QueueResult.Done;
         }
 
-        if (_a.StartSent && !_a.StartAnswered)
+        if (StartInFlight(inputs.Status))
         {
             return QueueResult.Refused(StartInFlightText);
         }
 
-        if (Alive(inputs.Status) && _a.Owns)
+        if (OwnedAndRunning(inputs.Status))
         {
             _state = QueueState.Running;
             _reason = null;
@@ -175,6 +172,14 @@ public sealed partial class QueueEngine
         return QueueResult.Done;
     }
 
+    /// <summary>True only for the script the queue started or adopted and that still runs under the step's name: never a script the owner swapped in.</summary>
+    private bool OwnedAndRunning(SkuaStatus? status) =>
+        _a.Owns && status is { ScriptRunning: true } && _cursor < _steps.Count && QueueText.SameName(status.Script, _steps[_cursor].ScriptName);
+
+    /// <summary>A start is unanswered, or accepted but its script is not visible yet: stopping or skipping now would leave it unattended.</summary>
+    private bool StartInFlight(SkuaStatus? status) =>
+        _a.StartSent && (!_a.StartAnswered || (_a.StartOkAt is not null && !_a.Owns && !Alive(status)));
+
     /// <summary>A reason to pause, or null. Judged before every decision (decision 4: nothing retries, nothing reinstates).</summary>
     private string? Problem(QueueInputs i, QueueStep step)
     {
@@ -216,7 +221,7 @@ public sealed partial class QueueEngine
 
         if (status.ScriptRunning && !QueueText.SameName(status.Script, step.ScriptName))
         {
-            return "You changed the script.";
+            return ChangedReason;
         }
 
         return null;

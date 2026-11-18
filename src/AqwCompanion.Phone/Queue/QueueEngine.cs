@@ -37,6 +37,7 @@ public sealed partial class QueueEngine
     public static readonly TimeSpan EndGrace = TimeSpan.FromSeconds(15);
     public static readonly TimeSpan SettleTimeout = TimeSpan.FromMinutes(2);
 
+    public const string ChangedReason = "You changed the script.";
     public const string NotFoundReason = "Script not found. Choose it again in the queue.";
     public const string NoAnswerReason = "Skua did not answer.";
     public const string FirstRunReason = "This script has options that were never saved. Start it once from the phone, set its options, then press Continue.";
@@ -229,6 +230,20 @@ public sealed partial class QueueEngine
     {
         if (Problem(i, step) is { } problem)
         {
+            if (_a.Exit?.Kind == ExitKind.Halt)
+            {
+                _state = QueueState.Stopped;   // the owner already asked to stop the queue: a problem must not turn that into a pause
+                _reason = null;
+                _have = null;
+                Mark();
+                return;
+            }
+
+            if (problem == ChangedReason)
+            {
+                _a.Owns = false;   // from now on the running script is not ours to stop
+            }
+
             PauseWith(problem, now);
             return;
         }
@@ -257,7 +272,8 @@ public sealed partial class QueueEngine
         {
             if (_a.StartSent && status!.ScriptRunning && !QueueText.SameName(status.Script, step.ScriptName))
             {
-                PauseWith("You changed the script.", now);   // not ours: never adopted, never stopped
+                PauseWith(ChangedReason, now);
+                _a.Owns = false;   // not ours: never adopted, never stopped
             }
             else if (_a.StartSent)
             {
