@@ -20,6 +20,9 @@ internal sealed partial class QueueFileJsonContext : JsonSerializerContext;
 public sealed class QueueFileStore(string folder) : IQueueStore
 {
     private const int CurrentVersion = 1;
+
+    /// <summary>A queue file is at most about 20 steps of a few hundred bytes; anything bigger is not ours.</summary>
+    public const long MaxFileBytes = 64 * 1024;
     private readonly object _lock = new();
 
     public IReadOnlyList<StoredQueue> LoadAll()
@@ -133,6 +136,11 @@ public sealed class QueueFileStore(string folder) : IQueueStore
     {
         try
         {
+            if (new FileInfo(path).Length > MaxFileBytes)
+            {
+                return null;
+            }
+
             var file = JsonSerializer.Deserialize(File.ReadAllText(path), QueueFileJsonContext.Default.QueueFile);
             if (file is null || file.Version != CurrentVersion)
             {

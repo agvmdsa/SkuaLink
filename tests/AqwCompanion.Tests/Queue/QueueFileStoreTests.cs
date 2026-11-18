@@ -193,4 +193,13 @@ public sealed class QueueFileStoreTests : IDisposable
         var loaded = Assert.Single(Store().LoadAll());
         Assert.Equal("First", loaded.Steps[0].GoalItem);
     }
+
+    [Fact]
+    public void A_file_over_64_kb_is_skipped_like_a_corrupt_one()
+    {
+        Store().Save(new StoredQueue("Hero", [Step()], 0, false));
+        Write("skua-queue.big.json", Json("Big", "[" + StepJson() + "]") + new string(' ', 70_000));
+
+        Assert.Equal("Hero", Assert.Single(Store().LoadAll()).Character);
+    }
 }

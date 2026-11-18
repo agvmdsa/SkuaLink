@@ -46,6 +46,8 @@ public sealed class SkuaQueueService : ISkuaQueues, IForgettable, IDisposable
     private bool _quiesced;
     private int _started;
     private int _disposed;
+    private long _stamp;     // taken before every read of the world
+    private long _applied;   // under _gate: the newest stamp an Evaluate used
 
     public SkuaQueueService(
         ISkuaFeed skua, ISkuaCommandChannel channel, CharacterBook characters, IQueueStore store, IDelay delay, Func<DateTimeOffset> now,
@@ -119,12 +121,16 @@ public sealed class SkuaQueueService : ISkuaQueues, IForgettable, IDisposable
     public QueueResult Replace(string character, IReadOnlyList<QueueStep> steps)
     {
         var result = QueueResult.Refused(TryAgain);
-        var world = WorldOrEmpty();
+        if (!TryWorld(out var world))
+        {
+            return result;   // no half-picture: the owner tries again
+        }
+
         Run(() =>
         {
             var slot = GetSlot(character);
             result = slot.Engine.Replace(steps, _now());
-            slot.Engine.Evaluate(Inputs(slot, world), _now());
+            Evaluate(slot, world);
         });
         return result;
     }
@@ -132,7 +138,12 @@ public sealed class SkuaQueueService : ISkuaQueues, IForgettable, IDisposable
     public QueueResult Command(string character, QueueCommand command)
     {
         var result = QueueResult.Refused(TryAgain);
-        var world = WorldOrEmpty();
+        var haveWorld = TryWorld(out var world);
+        if (!haveWorld && command != QueueCommand.Pause)
+        {
+            return result;   // Start, Continue, Skip and Stop need the real picture of Skua
+        }
+
         Run(() =>
         {
             var slot = GetSlot(character);
@@ -146,7 +157,10 @@ public sealed class SkuaQueueService : ISkuaQueues, IForgettable, IDisposable
                 QueueCommand.Skip => slot.Engine.Skip(inputs, now),
                 _ => slot.Engine.StopQueue(inputs, now),
             };
-            slot.Engine.Evaluate(inputs, now);
+            if (haveWorld)
+            {
+                Evaluate(slot, world);
+            }
         });
         return result;
     }
@@ -163,7 +177,7 @@ public sealed class SkuaQueueService : ISkuaQueues, IForgettable, IDisposable
         {
             foreach (var slot in _slots.Values.ToList())
             {
-                slot.Engine.Evaluate(Inputs(slot, world), _now());
+                Evaluate(slot, world);
             }
         });
     }
@@ -253,6 +267,22 @@ public sealed class SkuaQueueService : ISkuaQueues, IForgettable, IDisposable
         {
             _quiesced = false;
         }
+
+        Run(() =>
+        {
+            foreach (var slot in _slots.Values)
+            {
+                var lost = slot.Lost.ToList();
+                slot.Lost.Clear();
+                foreach (var (attempt, noAnswer) in lost)
+                {
+                    if (ReferenceEquals(slot.Engine.AttemptToken, attempt))
+                    {
+                        noAnswer(slot.Engine);
+                    }
+                }
+            }
+        });
     }
 
     public void Forget()
@@ -398,29 +428,39 @@ public sealed class SkuaQueueService : ISkuaQueues, IForgettable, IDisposable
 
     // ---- the world ----
 
-    private sealed record World(SkuaHubView View, IReadOnlyList<CharacterRecord> Characters);
+    private sealed record World(SkuaHubView View, IReadOnlyList<CharacterRecord> Characters, long Stamp);
+
+    /// <summary>
+    /// Under the gate: evaluates from <paramref name="world"/> unless a newer read was already applied (two threads can read in one
+    /// order and reach the gate in the other; an older picture must not undo what the engine did with a newer one).
+    /// </summary>
+    private void Evaluate(Slot slot, World world)
+    {
+        if (world.Stamp < _applied)
+        {
+            return;
+        }
+
+        _applied = world.Stamp;
+        slot.Engine.Evaluate(Inputs(slot, world), _now());
+    }
 
     /// <summary>Reads the feed and the book (no service lock held). False when either threw: nothing is decided from half a picture.</summary>
     private bool TryWorld(out World world)
     {
         try
         {
-            world = new World(_skua.Current, _characters.All);
+            var stamp = Interlocked.Increment(ref _stamp);   // before the read
+            world = new World(_skua.Current, _characters.All, stamp);
             return true;
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             Report(ex);
             FlushErrors();
-            world = new World(SkuaHubView.Empty, []);
+            world = new World(SkuaHubView.Empty, [], 0);
             return false;
         }
-    }
-
-    private World WorldOrEmpty()
-    {
-        TryWorld(out var world);
-        return world;
     }
 
     /// <summary>Under the gate: finds the character's instance (connected and logged in first, else any with that name) and builds what the engine reads.</summary>
@@ -442,21 +482,21 @@ public sealed class SkuaQueueService : ISkuaQueues, IForgettable, IDisposable
     {
         var (result, _) = await SendAsync(instanceId, new ListScriptsCommand(string.Empty)).ConfigureAwait(false);
         IReadOnlyList<SkuaScriptInfo>? scripts = result is { Ok: true } ? result.Scripts ?? [] : null;
-        Answer(slot, attempt, engine => engine.OnScripts(scripts, _now()));
+        Answer(slot, attempt, engine => engine.OnScripts(scripts, _now()), engine => engine.OnScripts(null, _now()));
     }
 
     private async Task StartAsync(Slot slot, object attempt, string? instanceId, string scriptId)
     {
         var (result, error) = await SendAsync(instanceId, new StartCommand(string.Empty, scriptId)).ConfigureAwait(false);
         var outcome = OutcomeOf(result, error, withFirstRun: true);
-        Answer(slot, attempt, engine => engine.OnStartResult(outcome, _now()));
+        Answer(slot, attempt, engine => engine.OnStartResult(outcome, _now()), engine => engine.OnStartResult(new QueueOutcome(false, false), _now()));
     }
 
     private async Task StopAsync(Slot slot, object attempt, string? instanceId)
     {
         var (result, error) = await SendAsync(instanceId, new StopCommand(string.Empty)).ConfigureAwait(false);
         var outcome = OutcomeOf(result, error, withFirstRun: false);
-        Answer(slot, attempt, engine => engine.OnStopResult(outcome, _now()));
+        Answer(slot, attempt, engine => engine.OnStopResult(outcome, _now()), engine => engine.OnStopResult(new QueueOutcome(false, false), _now()));
     }
 
     private static QueueOutcome OutcomeOf(ResultMessage? result, string? error, bool withFirstRun) =>
@@ -485,8 +525,19 @@ public sealed class SkuaQueueService : ISkuaQueues, IForgettable, IDisposable
     /// Reports an answer to the engine, then evaluates (the answer is always reported BEFORE the next evaluation). An answer for a
     /// forgotten queue or for an earlier attempt than the engine's current one changes nothing.
     /// </summary>
-    private void Answer(Slot slot, object attempt, Action<QueueEngine> report)
+    private void Answer(Slot slot, object attempt, Action<QueueEngine> report, Action<QueueEngine> asNoAnswer)
     {
+        lock (_gate)
+        {
+            if (_quiesced)
+            {
+                // Dropped while quiescing; if Resume follows (the removal failed) the command would stay unanswered forever, so Resume
+                // reports it as "no answer" and the queue pauses instead of hanging.
+                slot.Lost.Add((attempt, asNoAnswer));
+                return;
+            }
+        }
+
         var haveWorld = TryWorld(out var world);
         Run(() =>
         {
@@ -498,7 +549,7 @@ public sealed class SkuaQueueService : ISkuaQueues, IForgettable, IDisposable
             report(slot.Engine);
             if (haveWorld)
             {
-                slot.Engine.Evaluate(Inputs(slot, world), _now());
+                Evaluate(slot, world);
             }
         });
     }
@@ -576,6 +627,7 @@ public sealed class SkuaQueueService : ISkuaQueues, IForgettable, IDisposable
         public readonly List<Func<Task>> Effects = [];
         public readonly List<Notice> Notices = [];
         public bool Dirty;
+        public readonly List<(object Attempt, Action<QueueEngine> NoAnswer)> Lost = [];
 
         public void RequestScripts()
         {

@@ -437,9 +437,113 @@ public sealed class SkuaQueueServiceTests
         Assert.Equal(QueueEngine.BusyText, result.Error);
     }
 
-    private sealed class ThrowingFeed : ISkuaFeed
+    [Fact]
+    public async Task Pump_never_throws_when_the_feed_throws_and_decides_nothing()
     {
-        public SkuaHubView Current => throw new InvalidOperationException("feed");
+        var feed = new SwitchFeed();
+        using var rig = new Rig(feed);
+        feed.Inner = rig.Skua;
+        rig.Service.Replace(Hero, [Step()]);
+        rig.Service.Command(Hero, QueueCommand.Start);
+        await rig.Settle();
+
+        feed.Throw = true;
+        rig.Service.Pump();
+        rig.Service.Pump();
+
+        Assert.NotEmpty(rig.Errors);
+        Assert.Equal(QueueState.Running, ViewOf(rig).State);
+        Assert.Empty(rig.Notices);
+    }
+
+    [Theory]
+    [InlineData(QueueCommand.Start)]
+    [InlineData(QueueCommand.Continue)]
+    [InlineData(QueueCommand.Skip)]
+    [InlineData(QueueCommand.Stop)]
+    public async Task A_command_with_a_throwing_feed_is_refused_and_changes_nothing(QueueCommand command)
+    {
+        var feed = new SwitchFeed();
+        using var rig = new Rig(feed);
+        feed.Inner = rig.Skua;
+        rig.Service.Replace(Hero, [Step()]);
+        rig.Service.Command(Hero, QueueCommand.Start);
+        await rig.Settle();
+        var saves = rig.Store.Saved.Count;
+        var sent = rig.Skua.Sent.Count;
+
+        feed.Throw = true;
+        var result = rig.Service.Command(Hero, command);
+        Assert.False(rig.Service.Replace(Hero, [Step("9")]).Ok);
+
+        Assert.False(result.Ok);
+        Assert.Equal("Try again in a moment.", result.Error);
+        Assert.Equal(QueueState.Running, ViewOf(rig).State);
+        Assert.Empty(rig.Notices);
+        Assert.Equal(saves, rig.Store.Saved.Count);
+        Assert.Equal(sent, rig.Skua.Sent.Count);
+    }
+
+    [Fact]
+    public async Task An_older_snapshot_that_reaches_the_gate_late_is_not_evaluated()
+    {
+        var feed = new SwitchFeed();
+        using var rig = new Rig(feed);
+        feed.Inner = rig.Skua;
+        rig.Service.Replace(Hero, [Step()]);
+        rig.Service.Command(Hero, QueueCommand.Start);
+        await rig.Settle();
+        rig.Script(Status(running: true, control: "running"));
+        rig.Service.Pump();
+
+        // Thread A reads a disconnected picture, then is held before it reaches the gate.
+        rig.Instances(FakeSkua.Instance("a1", "Skua 1", disconnected: true, status: Status(running: true, control: "running")));
+        feed.HoldAfterNextRead = new ManualResetEventSlim();
+        feed.Held = new ManualResetEventSlim();
+        var older = Task.Run(rig.Service.Pump);
+        feed.Held.Wait();
+
+        // Thread B reads the newer, connected picture and is evaluated first.
+        rig.Script(Status(running: true, control: "running"));
+        rig.Service.Pump();
+        feed.HoldAfterNextRead.Set();
+        await older;
+
+        Assert.Equal(QueueState.Running, ViewOf(rig).State);
+        Assert.Empty(rig.Notices);
+    }
+
+    private sealed class SwitchFeed : ISkuaFeed
+    {
+        private int _holdNext;
+
+        public ISkuaFeed Inner { get; set; } = null!;
+
+        public bool Throw { get; set; }
+
+        public ManualResetEventSlim? HoldAfterNextRead { get; set; }
+
+        public ManualResetEventSlim? Held { get; set; }
+
+        public SkuaHubView Current
+        {
+            get
+            {
+                if (Throw)
+                {
+                    throw new InvalidOperationException("feed");
+                }
+
+                var view = Inner.Current;
+                if (HoldAfterNextRead is { } gate && Interlocked.Exchange(ref _holdNext, 1) == 0)
+                {
+                    Held!.Set();
+                    gate.Wait();
+                }
+
+                return view;
+            }
+        }
 
         public event EventHandler? Changed
         {
@@ -449,15 +553,23 @@ public sealed class SkuaQueueServiceTests
     }
 
     [Fact]
-    public void Pump_never_throws_when_the_feed_throws()
+    public async Task A_resumed_service_pauses_a_queue_whose_answer_was_dropped_while_quiesced()
     {
-        using var rig = new Rig(new ThrowingFeed());
+        using var rig = new Rig();
+        var late = new TaskCompletionSource<ResultMessage?>();
+        var inner = rig.Skua.Answer;
+        rig.Skua.Answer = (id, c) => c is StartCommand ? late.Task : inner(id, c);
         rig.Service.Replace(Hero, [Step()]);
+        rig.Service.Command(Hero, QueueCommand.Start);
+        await Wait.Until(() => rig.Skua.Sent.Any(s => s.Command is StartCommand));
 
-        rig.Service.Pump();
-        Assert.NotNull(rig.Service.Command(Hero, QueueCommand.Start));
+        rig.Service.Quiesce();
+        late.SetResult(new ResultMessage("x", true, null, null, null, null, false, false));
+        await rig.Settle();
+        rig.Service.Resume();
 
-        Assert.NotEmpty(rig.Errors);
+        Assert.Equal(QueueState.Paused, ViewOf(rig).State);
+        Assert.Equal("Skua did not answer.", ViewOf(rig).Reason);
     }
 
     [Fact]
