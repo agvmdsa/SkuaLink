@@ -20,6 +20,31 @@ public class GitHubReleasesTests
     private static GitHubReleases Client(StubHttpHandler handler, TimeSpan? timeout = null) =>
         new(new HttpClient(handler), "0.7.0", timeout);
 
+    private sealed class CorruptContent : HttpContent
+    {
+        protected override Task SerializeToStreamAsync(Stream stream, TransportContext? context) => throw new InvalidDataException("corrupt gzip");
+
+        protected override Task<Stream> CreateContentReadStreamAsync() => throw new InvalidDataException("corrupt gzip");
+
+        protected override bool TryComputeLength(out long length)
+        {
+            length = 0;
+            return false;
+        }
+    }
+
+    [Fact]
+    public async Task A_corrupt_compressed_body_is_a_failed_check_not_an_exception()
+    {
+        var handler = new StubHttpHandler(_ => new HttpResponseMessage(HttpStatusCode.OK) { Content = new CorruptContent() });
+
+        var latest = await Client(handler).GetLatestAsync(null, CancellationToken.None);
+        var byVersion = await Client(handler).GetByVersionAsync(new ReleaseVersion(0, 8, 0), CancellationToken.None);
+
+        Assert.Equal(ReleaseCheckStatus.Failed, latest.Status);
+        Assert.Equal(ReleaseCheckStatus.Failed, byVersion.Status);
+    }
+
     [Fact]
     public async Task The_latest_request_is_anonymous_https_with_the_fixed_headers_and_no_etag_at_first()
     {

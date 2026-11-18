@@ -69,6 +69,8 @@ Off until you turn them on, per phone. Open the page, then **Settings**, then **
 
 Tapping a notification opens that character's **Bot** section. A script you stopped yourself from the phone does not notify you.
 
+A phone that subscribed before the update check existed must switch the new **update** notification on once in the phone's **Settings**, **Notifications** (there is no migration of existing subscriptions).
+
 **Limits:** SkuaLink must be running and the PC must have internet access: nothing can be sent while SkuaLink is closed. If a system proxy is configured, SkuaLink uses it for push. Skua reports script and death events only while a script runs, so deaths in manual play are not counted. Delivery is up to the push service and can be delayed or dropped.
 
 **Privacy:** the notification text is encrypted end to end for your phone and goes through the push service of your phone's browser (Apple, Google, Mozilla or Microsoft). That service sees only ciphertext and metadata: the address, the size, the time and the signed request headers. The notice carries the character and script names and, for an error, the first line of the error message, so it can show that text on your phone. The PC keeps its own push key in `vapid.key` and each phone's subscription in `push.json` in `%LOCALAPPDATA%\AqwCompanion`; the page never receives either. **Forget my data** deletes both, and revoking a phone deletes its subscription.

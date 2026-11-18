@@ -22,6 +22,17 @@ public class InstallerDownloaderTests : IDisposable
     private string[] Folders() => Directory.Exists(_root) ? Directory.GetDirectories(_root) : [];
 
     [Fact]
+    public async Task An_exception_from_the_network_layer_deletes_the_work_folder_and_still_propagates()
+    {
+        var (release, _) = TestReleases.Served("0.8.0", _installer, _plugin);
+        var handler = new StubHttpHandler(_ => throw new NotSupportedException("boom"));
+
+        await Assert.ThrowsAsync<NotSupportedException>(() => Downloader(handler).DownloadAsync(release, null, default));
+
+        Assert.Empty(Folders());
+    }
+
+    [Fact]
     public async Task A_good_download_leaves_the_verified_installer_in_a_new_folder_under_the_root()
     {
         var (release, handler) = TestReleases.Served("0.8.0", _installer, _plugin);

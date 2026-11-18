@@ -11,6 +11,8 @@ public sealed class FakeInstallerLauncher : IInstallerLauncher
 {
     public LaunchStatus Result { get; set; } = LaunchStatus.Started;
 
+    public bool Throw { get; set; }
+
     public List<VerifiedInstaller> Launched { get; } = [];
 
     public bool InstallerExistedAtLaunch { get; private set; }
@@ -19,6 +21,11 @@ public sealed class FakeInstallerLauncher : IInstallerLauncher
     {
         Launched.Add(installer);
         InstallerExistedAtLaunch = File.Exists(installer.Path);
+        if (Throw)
+        {
+            throw new InvalidOperationException("boom");
+        }
+
         return Result;
     }
 }

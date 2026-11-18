@@ -31,7 +31,17 @@ public sealed class InstallerDownloader(GuardedDownloader downloader, string tem
             return new InstallerDownload(null, UpdateFailure.Disk);
         }
 
-        var failure = await VerifiedFetch.RunAsync(downloader, folder, release.Sums, release.Installer, progress, ct);
+        UpdateFailure failure;
+        try
+        {
+            failure = await VerifiedFetch.RunAsync(downloader, folder, release.Sums, release.Installer, progress, ct);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            TempWorkFolder.Delete(folder);
+            throw;
+        }
+
         if (failure != UpdateFailure.None)
         {
             TempWorkFolder.Delete(folder);

@@ -20,6 +20,7 @@ public class UpdateDocsTests
     [InlineData("Download plugin")]
     [InlineData("Close Skua and press the button again")]
     [InlineData("Release notes")]
+    [InlineData("subscribed before the update check existed must switch the new **update** notification on once")]
     public void The_readme_states_what_the_update_check_contacts_verifies_and_cannot_promise(string phrase)
     {
         Assert.Contains(phrase, Readme(), StringComparison.Ordinal);

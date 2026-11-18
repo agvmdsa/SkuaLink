@@ -197,20 +197,23 @@ public sealed partial class UpdatesViewModel : ObservableObject, IDisposable
         StatusText = string.Empty;
         using var cts = new CancellationTokenSource();
         _download = cts;
+        VerifiedInstaller? installer = null;
         try
         {
             var progress = new SyncProgress(p => _onUiThread(() => ProgressText = ProgressLine(p)));
             var result = await _installer.DownloadAsync(release, progress, cts.Token);
-            if (result.Installer is not { } installer)
+            if (result.Installer is null)
             {
                 StatusText = FailureText(result.Failure);
                 return;
             }
 
+            installer = result.Installer;
             switch (_launcher.Launch(installer))
             {
                 case LaunchStatus.Started:
                     StatusText = UpdateStartedText;
+                    installer = null; // The installer runs from this folder now: never delete it.
                     _exit.Exit();
                     break;
                 case LaunchStatus.Cancelled:
@@ -222,6 +225,17 @@ public sealed partial class UpdatesViewModel : ObservableObject, IDisposable
                     StatusText = LaunchFailedText;
                     break;
             }
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            // Only the type is logged: never a path or text that came from the network.
+            Log.Warning("Updating failed: {ExceptionType}", ex.GetType().Name);
+            if (installer is not null)
+            {
+                TempWorkFolder.Delete(installer.Folder);
+            }
+
+            StatusText = DownloadFailedText;
         }
         finally
         {
@@ -285,6 +299,11 @@ public sealed partial class UpdatesViewModel : ObservableObject, IDisposable
                 PluginInstallStatus.FolderMissing => SettingsViewModel.SkuaFolderNotFoundText,
                 _ => result.Failure is UpdateFailure.HashMismatch or UpdateFailure.HashMissing ? PluginHashText : PluginFailedText,
             };
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            Log.Warning("Installing the plugin failed: {ExceptionType}", ex.GetType().Name);
+            PluginStatusText = PluginFailedText;
         }
         finally
         {

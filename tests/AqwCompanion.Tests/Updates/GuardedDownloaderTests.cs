@@ -25,6 +25,19 @@ public class GuardedDownloaderTests : IDisposable
         public void Report(DownloadProgress value) => seen.Add(value);
     }
 
+    [Theory]
+    [InlineData("//host:99999/x")]
+    [InlineData("//:/x")]
+    public async Task A_redirect_with_a_malformed_location_is_a_failure_not_an_exception(string location)
+    {
+        var handler = new StubHttpHandler(_ => StubHttpHandler.Redirect(location));
+
+        var status = await Downloader(handler).DownloadAsync(new Uri(Asset), Target, 1_000_000, null, default);
+
+        Assert.Equal(DownloadStatus.Failed, status);
+        Assert.False(File.Exists(Target));
+    }
+
     [Fact]
     public async Task A_download_writes_the_bytes_and_reports_progress_up_to_the_total()
     {

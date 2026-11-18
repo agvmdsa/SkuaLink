@@ -209,6 +209,48 @@ public class UpdatesViewModelTests
     }
 
     [Fact]
+    public async Task An_exception_while_downloading_is_said_not_thrown_and_leaves_no_folder()
+    {
+        using var rig = new UpdatesRig(handler: _ => new StubHttpHandler((_, _) => throw new NotSupportedException("boom")));
+        await rig.CheckAsync();
+
+        await rig.Vm.UpdateNowCommand.ExecuteAsync(null);
+
+        Assert.Equal(UpdatesViewModel.DownloadFailedText, rig.Vm.StatusText);
+        Assert.False(rig.Vm.IsBusy);
+        Assert.Equal(0, rig.Exit.ExitCalls);
+        Assert.Empty(rig.TempFolders());
+    }
+
+    [Fact]
+    public async Task An_exception_from_the_launcher_is_said_not_thrown_and_deletes_the_download()
+    {
+        using var rig = new UpdatesRig();
+        rig.Launcher.Throw = true;
+        await rig.CheckAsync();
+
+        await rig.Vm.UpdateNowCommand.ExecuteAsync(null);
+
+        Assert.Equal(UpdatesViewModel.DownloadFailedText, rig.Vm.StatusText);
+        Assert.False(rig.Vm.IsBusy);
+        Assert.Equal(0, rig.Exit.ExitCalls);
+        Assert.Empty(rig.TempFolders());
+    }
+
+    [Fact]
+    public async Task An_exception_while_downloading_the_plugin_is_said_not_thrown()
+    {
+        using var rig = new UpdatesRig(handler: _ => new StubHttpHandler((_, _) => throw new NotSupportedException("boom")));
+        await rig.CheckAsync();
+
+        await rig.Vm.DownloadPluginCommand.ExecuteAsync(null);
+
+        Assert.Equal(UpdatesViewModel.PluginFailedText, rig.Vm.PluginStatusText);
+        Assert.False(rig.Vm.IsPluginBusy);
+        Assert.Empty(rig.TempFolders());
+    }
+
+    [Fact]
     public async Task Release_notes_opens_the_tag_page_of_the_offered_version()
     {
         using var rig = new UpdatesRig();

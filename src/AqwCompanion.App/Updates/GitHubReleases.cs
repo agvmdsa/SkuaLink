@@ -84,7 +84,7 @@ public sealed partial class GitHubReleases(HttpClient http, string appVersion, T
         {
             throw;
         }
-        catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or IOException or InvalidOperationException)
+        catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or IOException or InvalidOperationException or InvalidDataException)
         {
             return failed;
         }

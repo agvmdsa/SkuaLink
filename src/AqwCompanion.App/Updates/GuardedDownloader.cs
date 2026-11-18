@@ -44,7 +44,7 @@ public sealed class GuardedDownloader(HttpClient http, TimeSpan? timeout = null)
 
             return ct.IsCancellationRequested ? DownloadStatus.Cancelled : DownloadStatus.TimedOut;
         }
-        catch (Exception ex) when (ex is HttpRequestException or IOException or UnauthorizedAccessException or InvalidOperationException)
+        catch (Exception ex) when (ex is HttpRequestException or IOException or UnauthorizedAccessException or InvalidOperationException or UriFormatException or InvalidDataException)
         {
             if (created)
             {
