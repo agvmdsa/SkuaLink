@@ -10,7 +10,9 @@ namespace AqwCompanion.App.Queue;
 /// <summary>One editable step of the editor; every field is the text the owner typed, checked only on Save.</summary>
 public sealed partial class QueueEditorRow : ObservableObject
 {
+    /// <summary>What the picker shows. Only the picker and Save write it; nothing here sets another property from it.</summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(MissingText), nameof(HasMissing))]
     private SkuaScriptInfo? _script;
 
     [ObservableProperty]
@@ -28,9 +30,11 @@ public sealed partial class QueueEditorRow : ObservableObject
     [ObservableProperty]
     private string _rankText;
 
-    public QueueEditorRow(string? id, IReadOnlyList<string> suggestions, SkuaScriptInfo? script, string goalItem, string quantityText, string minutesText, string faction, string rankText)
+    public QueueEditorRow(string? id, IReadOnlyList<string> suggestions, SkuaScriptInfo? script, string goalItem, string quantityText, string minutesText, string faction, string rankText, string? storedScriptId = null, string? storedScriptName = null)
     {
         Id = id;
+        StoredScriptId = storedScriptId;
+        StoredScriptName = storedScriptName;
         Suggestions = suggestions;
         _script = script;
         _goalItem = goalItem;
@@ -44,6 +48,15 @@ public sealed partial class QueueEditorRow : ObservableObject
     public string? Id { get; }
 
     public IReadOnlyList<string> Suggestions { get; }
+
+    /// <summary>The script id and name of the stored step; kept while the picker shows nothing (the script is not listed).</summary>
+    public string? StoredScriptId { get; }
+
+    public string? StoredScriptName { get; }
+
+    public bool HasMissing => Script is null && StoredScriptId is not null;
+
+    public string MissingText => HasMissing ? QueueEditorViewModel.MissingScriptText + " " + StoredScriptName : string.Empty;
 
     /// <summary>The list the script picker offers (set by the editor once Skua answered).</summary>
     [ObservableProperty]
@@ -71,6 +84,19 @@ public sealed partial class QueueEditorViewModel : ObservableObject
     public const string NoScriptChosenText = "Choose a script for every step.";
     public const string BadQuantityText = "The quantity must be a whole number from 1 to 1000000.";
     public const string BadMinutesText = "The time limit must be a whole number from 1 to 1440, or empty.";
+    public const string MissingScriptText = "Skua does not list this script now:";
+    public const string AddAutomation = "Add a step";
+    public const string SaveAutomation = "Save the queue";
+    public const string CancelAutomation = "Close without saving";
+    public const string ScriptAutomation = "Script of this step";
+    public const string ItemAutomation = "Item this step must obtain";
+    public const string QuantityAutomation = "Quantity";
+    public const string MinutesAutomation = "Time limit in minutes";
+    public const string FactionAutomation = "Faction";
+    public const string RankAutomation = "Reputation rank";
+    public const string MoveUpAutomation = "Move this step up";
+    public const string MoveDownAutomation = "Move this step down";
+    public const string RemoveAutomation = "Remove this step";
     public const string BadRankText = "The rank must be a whole number from 1 to 10.";
 
     private readonly ISkuaQueues _queues;
@@ -99,13 +125,15 @@ public sealed partial class QueueEditorViewModel : ObservableObject
         foreach (var step in steps.Take(QueueLimits.MaxSteps))
         {
             Rows.Add(new QueueEditorRow(
-                step.Id, _suggestions, new SkuaScriptInfo(step.ScriptId, step.ScriptName, string.Empty), step.GoalItem,
+                step.Id, _suggestions, null, step.GoalItem,
                 step.GoalQuantity.ToString(CultureInfo.InvariantCulture), step.MaxMinutes?.ToString(CultureInfo.InvariantCulture) ?? string.Empty,
-                step.Reputation?.Faction ?? string.Empty, step.Reputation?.Rank.ToString(CultureInfo.InvariantCulture) ?? string.Empty));
+                step.Reputation?.Faction ?? string.Empty, step.Reputation?.Rank.ToString(CultureInfo.InvariantCulture) ?? string.Empty, step.ScriptId, step.ScriptName));
         }
     }
 
     public string Character { get; }
+
+    public string HeaderText => TitleText + ": " + Character;
 
     public ObservableCollection<QueueEditorRow> Rows { get; } = [];
 
@@ -128,10 +156,15 @@ public sealed partial class QueueEditorViewModel : ObservableObject
 
         Scripts = list ?? [];
         ScriptsLoaded = list is not null;
+        // The list first (the picker may clear its selection when the list changes), then the selections, one after the other.
         foreach (var row in Rows)
         {
             row.Scripts = Scripts;
-            if (row.Script is { } stored && Scripts.FirstOrDefault(s => s.Id == stored.Id) is { } match)
+        }
+
+        foreach (var row in Rows)
+        {
+            if (row.StoredScriptId is { } id && Scripts.FirstOrDefault(s => s.Id == id) is { } match)
             {
                 row.Script = match;
             }
@@ -189,7 +222,8 @@ public sealed partial class QueueEditorViewModel : ObservableObject
         var inputs = new List<QueueStepInput>();
         foreach (var row in Rows)
         {
-            if (row.Script is null)
+            var scriptId = row.Script?.Id ?? row.StoredScriptId;
+            if (scriptId is null)
             {
                 Fail(NoScriptChosenText);
                 return;
@@ -227,7 +261,7 @@ public sealed partial class QueueEditorViewModel : ObservableObject
                 reputation = new ReputationGoal(row.Faction, rankOk ? rank : 0);
             }
 
-            inputs.Add(new QueueStepInput(row.Id, row.Script.Id, row.GoalItem, quantity, reputation, minutes));
+            inputs.Add(new QueueStepInput(row.Id, scriptId, row.GoalItem, quantity, reputation, minutes));
         }
 
         if (inputs.Count > 0 && !ScriptsLoaded)

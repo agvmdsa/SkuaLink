@@ -22,10 +22,10 @@
   <Grid RowDefinitions="Auto,Auto,*,Auto" Background="{DynamicResource AqwSurface}">
     <Border Background="{DynamicResource AqwHeader}" Padding="20,12">
       <Grid ColumnDefinitions="*,Auto">
-        <TextBlock x:Name="QueueEditorTitle" Text="{Binding Character, StringFormat='Script queue: {0}'}" FontSize="18" FontWeight="Bold"
+        <TextBlock x:Name="QueueEditorTitle" Text="{Binding HeaderText}" FontSize="18" FontWeight="Bold"
                    Foreground="{DynamicResource AqwTextBright}" VerticalAlignment="Center" />
         <Button x:Name="QueueEditorAdd" Grid.Column="1" Content="{x:Static q:QueueEditorViewModel.AddText}" Command="{Binding AddCommand}"
-                AutomationProperties.Name="Add a step" />
+                AutomationProperties.Name="{x:Static q:QueueEditorViewModel.AddAutomation}" />
       </Grid>
     </Border>
 
@@ -46,52 +46,53 @@
                     <StackPanel Spacing="2">
                       <TextBlock Classes="label" Text="{x:Static q:QueueEditorViewModel.ScriptLabel}" />
                       <ComboBox x:Name="QueueRowScript" HorizontalAlignment="Stretch" ItemsSource="{Binding Scripts}"
-                                SelectedItem="{Binding Script, Mode=TwoWay}" AutomationProperties.Name="Script of this step">
+                                SelectedItem="{Binding Script, Mode=TwoWay}" AutomationProperties.Name="{x:Static q:QueueEditorViewModel.ScriptAutomation}">
                         <ComboBox.ItemTemplate>
                           <DataTemplate x:DataType="sk:SkuaScriptInfo">
-                            <TextBlock>
-                              <Run Text="{Binding Name}" />
-                              <Run Text="{Binding Folder, StringFormat='  ({0})'}" Foreground="{DynamicResource AqwTextMuted}" />
-                            </TextBlock>
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                              <TextBlock Text="{Binding Name}" />
+                              <TextBlock Text="{Binding Folder}" Foreground="{DynamicResource AqwTextMuted}" />
+                            </StackPanel>
                           </DataTemplate>
                         </ComboBox.ItemTemplate>
                       </ComboBox>
+                      <TextBlock x:Name="QueueRowMissing" Classes="label" TextWrapping="Wrap" Text="{Binding MissingText}" IsVisible="{Binding HasMissing}" />
                     </StackPanel>
                     <StackPanel Grid.Column="1" Spacing="2">
                       <TextBlock Classes="label" Text="{x:Static q:QueueEditorViewModel.ItemLabel}" />
                       <AutoCompleteBox x:Name="QueueRowItem" ItemsSource="{Binding Suggestions}" Text="{Binding GoalItem, Mode=TwoWay}"
-                                       FilterMode="Contains" MinimumPrefixLength="1" MaxLength="200" AutomationProperties.Name="Item this step must obtain" />
+                                       FilterMode="Contains" MinimumPrefixLength="1" MaxLength="200" AutomationProperties.Name="{x:Static q:QueueEditorViewModel.ItemAutomation}" />
                     </StackPanel>
                   </Grid>
-                  <Grid ColumnDefinitions="*,*,*,*" ColumnSpacing="12">
-                    <StackPanel Spacing="2">
+                  <WrapPanel>
+                    <StackPanel Spacing="2" Width="170" Margin="0,0,12,6">
                       <TextBlock Classes="label" Text="{x:Static q:QueueEditorViewModel.QuantityLabel}" />
-                      <TextBox x:Name="QueueRowQuantity" Text="{Binding QuantityText, Mode=TwoWay}" AutomationProperties.Name="Quantity" />
+                      <TextBox x:Name="QueueRowQuantity" Text="{Binding QuantityText, Mode=TwoWay}" AutomationProperties.Name="{x:Static q:QueueEditorViewModel.QuantityAutomation}" />
                     </StackPanel>
-                    <StackPanel Grid.Column="1" Spacing="2">
+                    <StackPanel Spacing="2" Width="170" Margin="0,0,12,6">
                       <TextBlock Classes="label" Text="{x:Static q:QueueEditorViewModel.MinutesLabel}" />
-                      <TextBox x:Name="QueueRowMinutes" Text="{Binding MinutesText, Mode=TwoWay}" AutomationProperties.Name="Time limit in minutes" />
+                      <TextBox x:Name="QueueRowMinutes" Text="{Binding MinutesText, Mode=TwoWay}" AutomationProperties.Name="{x:Static q:QueueEditorViewModel.MinutesAutomation}" />
                     </StackPanel>
-                    <StackPanel Grid.Column="2" Spacing="2">
+                    <StackPanel Spacing="2" Width="170" Margin="0,0,12,6">
                       <TextBlock Classes="label" Text="{x:Static q:QueueEditorViewModel.FactionLabel}" />
-                      <TextBox x:Name="QueueRowFaction" Text="{Binding Faction, Mode=TwoWay}" MaxLength="80" AutomationProperties.Name="Faction" />
+                      <TextBox x:Name="QueueRowFaction" Text="{Binding Faction, Mode=TwoWay}" MaxLength="80" AutomationProperties.Name="{x:Static q:QueueEditorViewModel.FactionAutomation}" />
                     </StackPanel>
-                    <StackPanel Grid.Column="3" Spacing="2">
+                    <StackPanel Spacing="2" Width="170" Margin="0,0,12,6">
                       <TextBlock Classes="label" Text="{x:Static q:QueueEditorViewModel.RankLabel}" />
-                      <TextBox x:Name="QueueRowRank" Text="{Binding RankText, Mode=TwoWay}" AutomationProperties.Name="Reputation rank" />
+                      <TextBox x:Name="QueueRowRank" Text="{Binding RankText, Mode=TwoWay}" AutomationProperties.Name="{x:Static q:QueueEditorViewModel.RankAutomation}" />
                     </StackPanel>
-                  </Grid>
+                  </WrapPanel>
                 </StackPanel>
                 <StackPanel Grid.Column="1" Spacing="4" VerticalAlignment="Top">
                   <Button x:Name="QueueRowUp" Content="{x:Static q:QueueEditorViewModel.MoveUpText}" HorizontalAlignment="Stretch"
                           Command="{Binding $parent[ItemsControl].((q:QueueEditorViewModel)DataContext).MoveUpCommand}" CommandParameter="{Binding}"
-                          AutomationProperties.Name="Move this step up" />
+                          AutomationProperties.Name="{x:Static q:QueueEditorViewModel.MoveUpAutomation}" />
                   <Button x:Name="QueueRowDown" Content="{x:Static q:QueueEditorViewModel.MoveDownText}" HorizontalAlignment="Stretch"
                           Command="{Binding $parent[ItemsControl].((q:QueueEditorViewModel)DataContext).MoveDownCommand}" CommandParameter="{Binding}"
-                          AutomationProperties.Name="Move this step down" />
+                          AutomationProperties.Name="{x:Static q:QueueEditorViewModel.MoveDownAutomation}" />
                   <Button x:Name="QueueRowRemove" Content="{x:Static q:QueueEditorViewModel.RemoveText}" HorizontalAlignment="Stretch"
                           Command="{Binding $parent[ItemsControl].((q:QueueEditorViewModel)DataContext).RemoveCommand}" CommandParameter="{Binding}"
-                          AutomationProperties.Name="Remove this step" />
+                          AutomationProperties.Name="{x:Static q:QueueEditorViewModel.RemoveAutomation}" />
                 </StackPanel>
               </Grid>
             </Border>
@@ -102,9 +103,9 @@
 
     <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="20,12">
       <Button x:Name="QueueEditorSave" Content="{x:Static q:QueueEditorViewModel.SaveText}" Command="{Binding SaveCommand}"
-              AutomationProperties.Name="Save the queue" />
+              AutomationProperties.Name="{x:Static q:QueueEditorViewModel.SaveAutomation}" />
       <Button x:Name="QueueEditorCancel" Content="{x:Static q:QueueEditorViewModel.CancelText}" Command="{Binding CancelCommand}"
-              AutomationProperties.Name="Close without saving" />
+              AutomationProperties.Name="{x:Static q:QueueEditorViewModel.CancelAutomation}" />
     </StackPanel>
   </Grid>
 </Window>

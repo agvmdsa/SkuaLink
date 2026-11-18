@@ -60,7 +60,8 @@ public class QueueEditorViewModelTests
 
         Assert.False(vm.ScriptsLoaded);
         Assert.Equal(QueueEditorViewModel.NoScriptsText, vm.ErrorText);
-        Assert.Equal("Dailies", vm.Rows[0].Script!.Name);
+        Assert.Equal("Dailies", vm.Rows[0].StoredScriptName);
+        Assert.Null(vm.Rows[0].Script);
     }
 
     [Fact]
