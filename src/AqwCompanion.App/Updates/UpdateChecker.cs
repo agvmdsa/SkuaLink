@@ -100,13 +100,46 @@ public sealed class UpdateChecker : IUpdateState, IDisposable
             return;
         }
 
+        try
+        {
+            // A result dropped because the switch went off and on during the request gets one more pass, never more.
+            for (var pass = 0; pass < 2; pass++)
+            {
+                if (!await PassAsync(ct).ConfigureAwait(false) || !SafeEnabled())
+                {
+                    break;
+                }
+            }
+        }
+        finally
+        {
+            Volatile.Write(ref _busy, 0);
+        }
+    }
+
+    private bool SafeEnabled()
+    {
+        try
+        {
+            return _enabled();
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            Report(ex);
+            return false;
+        }
+    }
+
+    /// <summary>One request. Returns true when its result was dropped as stale.</summary>
+    private async Task<bool> PassAsync(CancellationToken ct)
+    {
         var generation = 0;
         try
         {
             if (!_enabled())
             {
                 SetOff();
-                return;
+                return false;
             }
 
             UpdateState before;
@@ -128,7 +161,7 @@ public sealed class UpdateChecker : IUpdateState, IDisposable
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
                 SetIfCurrent(generation, before);
-                return;
+                return false;
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {
@@ -136,16 +169,17 @@ public sealed class UpdateChecker : IUpdateState, IDisposable
                 result = new ReleaseCheck(ReleaseCheckStatus.Failed);
             }
 
-            Apply(result, generation);
+            return Apply(result, generation);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
-            Report(ex);
+            if (!(ex is OperationCanceledException && ct.IsCancellationRequested))
+            {
+                Report(ex);
+            }
+
             FailIfChecking(generation);
-        }
-        finally
-        {
-            Volatile.Write(ref _busy, 0);
+            return false;
         }
     }
 
@@ -192,12 +226,12 @@ public sealed class UpdateChecker : IUpdateState, IDisposable
         }
     }
 
-    private void Apply(ReleaseCheck result, int generation)
+    private bool Apply(ReleaseCheck result, int generation)
     {
         if (!_enabled())
         {
             SetOff();
-            return;
+            return false;
         }
 
         var now = _now();
@@ -206,7 +240,7 @@ public sealed class UpdateChecker : IUpdateState, IDisposable
         {
             if (generation != _generation)
             {
-                return; // The switch went off while the request ran.
+                return true; // The switch went off while the request ran.
             }
 
             if (result.Status == ReleaseCheckStatus.Failed)
@@ -237,6 +271,8 @@ public sealed class UpdateChecker : IUpdateState, IDisposable
         {
             Announce(newer, now);
         }
+
+        return false;
     }
 
     private void Announce(ReleaseInfo release, DateTimeOffset now)

@@ -405,4 +405,35 @@ public class UpdateCheckerTests
 
         Assert.Equal(UpdateStatus.CouldNotCheck, checker.Current.Status);
     }
+
+    [Fact]
+    public async Task Switch_off_then_on_during_a_request_ends_with_a_completed_check_without_waiting_an_interval()
+    {
+        var rig = new Rig();
+        var gate = new TaskCompletionSource();
+        var first = true;
+        rig.Releases.Gate = () =>
+        {
+            if (!first)
+            {
+                return Task.CompletedTask;
+            }
+
+            first = false;
+            return gate.Task;
+        };
+        rig.Releases.Default = FakeGitHubReleases.Found("0.8.0");
+        var checker = rig.Checker();
+
+        var running = checker.CheckNowAsync();
+        rig.Enabled = false;
+        await checker.ReconfigureAsync();
+        rig.Enabled = true;
+        await checker.ReconfigureAsync();
+        gate.SetResult();
+        await running;
+
+        Assert.Equal(UpdateStatus.Available, checker.Current.Status);
+        Assert.Equal(2, rig.Releases.Etags.Count);
+    }
 }
