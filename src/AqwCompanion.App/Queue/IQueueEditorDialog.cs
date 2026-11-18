@@ -24,8 +24,8 @@ public sealed class AvaloniaQueueEditorDialog(ISkuaQueues queues, IQueueScriptSo
             return;
         }
 
-        var steps = queues.Find(character)?.Steps ?? [];
-        var vm = new QueueEditorViewModel(character, steps, queues, scripts, QueueItemNames.From(characters.Find(character)));
+        var view = queues.Find(character) ?? QueueView.Empty(character);
+        var vm = new QueueEditorViewModel(character, view.Steps, queues, scripts, QueueItemNames.From(characters.Find(character)), view.Revision);
         var window = new QueueEditorWindow { DataContext = vm };
         void Close(object? sender, EventArgs e) => window.Close();
         vm.Closed += Close;

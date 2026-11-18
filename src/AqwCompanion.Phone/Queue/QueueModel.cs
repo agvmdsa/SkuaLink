@@ -29,12 +29,18 @@ public sealed record QueueResult(bool Ok, string? Error = null)
 /// What the PC and the phones see of one queue. <paramref name="Cursor"/> is the current step (the step count once finished);
 /// <paramref name="Phase"/> only while running; <paramref name="Have"/> is how many of the current step's item the inventory
 /// holds (null when unknown); <paramref name="CanEdit"/> is false while a step is starting, stopping or settling;
-/// <paramref name="LastNotice"/> is the text of the last notice the queue sent (in memory only, at most 300 characters), for the PC card.
+/// <paramref name="LastNotice"/> is the text of the last notice the queue sent (in memory only, at most 300 characters), for the PC card;
+/// <paramref name="Revision"/> changes whenever the step list changes (0 while the queue is empty) and is what a save must quote.
 /// </summary>
 public sealed record QueueView(
-    string Character, IReadOnlyList<QueueStep> Steps, int Cursor, QueueState State, QueuePhase? Phase, string? Reason, int? Have, bool CanEdit, string? LastNotice = null)
+    string Character, IReadOnlyList<QueueStep> Steps, int Cursor, QueueState State, QueuePhase? Phase, string? Reason, int? Have, bool CanEdit, string? LastNotice = null, long Revision = 0)
 {
     public static QueueView Empty(string character) => new(character, [], 0, QueueState.Stopped, null, null, null, true);
+}
+
+public static class QueueRevision
+{
+    public const string ChangedText = "The queue changed on the PC. Open the editor again.";
 }
 
 public static class QueueLimits

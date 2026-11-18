@@ -99,6 +99,7 @@ public sealed partial class QueueEditorViewModel : ObservableObject
     public const string RemoveAutomation = "Remove this step";
     public const string BadRankText = "The rank must be a whole number from 1 to 10.";
 
+    private readonly long _revision;
     private readonly ISkuaQueues _queues;
     private readonly IQueueScriptSource _source;
     private readonly IReadOnlyList<string> _suggestions;
@@ -116,8 +117,9 @@ public sealed partial class QueueEditorViewModel : ObservableObject
     [ObservableProperty]
     private bool _isLoading = true;
 
-    public QueueEditorViewModel(string character, IReadOnlyList<QueueStep> steps, ISkuaQueues queues, IQueueScriptSource scripts, IReadOnlyList<string> itemSuggestions)
+    public QueueEditorViewModel(string character, IReadOnlyList<QueueStep> steps, ISkuaQueues queues, IQueueScriptSource scripts, IReadOnlyList<string> itemSuggestions, long revision = 0)
     {
+        _revision = revision;
         Character = character;
         _queues = queues;
         _source = scripts;
@@ -283,7 +285,7 @@ public sealed partial class QueueEditorViewModel : ObservableObject
             return;
         }
 
-        var result = _queues.Replace(Character, checkedSteps.Steps);
+        var result = _queues.Replace(Character, checkedSteps.Steps, _revision);
         if (!result.Ok)
         {
             Fail(result.Error ?? QueueValidator.BadCount);

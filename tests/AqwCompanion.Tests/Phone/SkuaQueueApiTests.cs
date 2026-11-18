@@ -102,8 +102,8 @@ public sealed class SkuaQueueApiTests : IDisposable
     private static QueueStep Step(string id, string item = "Gold", ReputationGoal? reputation = null) =>
         new(id, IdA, "Dailies", item, 5, reputation);
 
-    private static string OneStep(string scriptId = IdA, string item = "\"Gold\"", string quantity = "5", string extra = "") =>
-        $"{{\"steps\":[{{\"scriptId\":\"{scriptId}\",\"goalItem\":{item},\"goalQuantity\":{quantity}{extra}}}]}}";
+    private static string OneStep(string scriptId = IdA, string item = "\"Gold\"", string quantity = "5", string extra = "", string revision = "0") =>
+        $"{{\"revision\":{revision},\"steps\":[{{\"scriptId\":\"{scriptId}\",\"goalItem\":{item},\"goalQuantity\":{quantity}{extra}}}]}}";
 
     private int ListCalls => _skua.Sent.Count(s => s.Command is ListScriptsCommand);
 
@@ -252,7 +252,7 @@ public sealed class SkuaQueueApiTests : IDisposable
     {
         const string clientId = "0123456789abcdef0123456789abcdef";
         _queues.Items.Add(new QueueView("Hero", [Step(clientId)], 0, QueueState.Stopped, null, null, null, true));
-        var body = $"{{\"steps\":[{{\"id\":\"{clientId}\",\"scriptId\":\"{IdB}\",\"goalItem\":\"  Gold \",\"goalQuantity\":5,\"maxMinutes\":30}},"
+        var body = $"{{\"revision\":0,\"steps\":[{{\"id\":\"{clientId}\",\"scriptId\":\"{IdB}\",\"goalItem\":\"  Gold \",\"goalQuantity\":5,\"maxMinutes\":30}},"
                    + $"{{\"scriptId\":\"{IdA}\",\"goalItem\":\"Dragon Scale\",\"goalQuantity\":100}}]}}";
 
         var response = Put(body);
@@ -278,7 +278,7 @@ public sealed class SkuaQueueApiTests : IDisposable
         const string known = "0123456789abcdef0123456789abcdef";
         var goal = new ReputationGoal("Loremaster", 6);
         _queues.Items.Add(new QueueView("Hero", [Step(known, reputation: goal)], 0, QueueState.Stopped, null, null, null, true));
-        var body = $"{{\"steps\":[{{\"id\":\"{known}\",\"scriptId\":\"{IdA}\",\"goalItem\":\"Gold\",\"goalQuantity\":5,"
+        var body = $"{{\"revision\":0,\"steps\":[{{\"id\":\"{known}\",\"scriptId\":\"{IdA}\",\"goalItem\":\"Gold\",\"goalQuantity\":5,"
                    + "\"reputation\":{\"faction\":\"Evil\",\"rank\":10}},"
                    + $"{{\"scriptId\":\"{IdA}\",\"goalItem\":\"Gold\",\"goalQuantity\":5,\"reputation\":{{\"faction\":\"Evil\",\"rank\":10}}}}]}}";
 
@@ -355,6 +355,79 @@ public sealed class SkuaQueueApiTests : IDisposable
 
         Assert.Empty(_queues.Replaced);
         Assert.Empty(_skua.Sent);
+    }
+
+    // ---- revision ----
+
+    [Fact]
+    public void GET_carries_the_revision_of_the_queue()
+    {
+        _queues.Items.Add(new QueueView("Hero", [Step("0123456789abcdef0123456789abcdef")], 0, QueueState.Stopped, null, null, null, true, Revision: 1_700_000_000_123));
+
+        using var doc = JsonDocument.Parse(Text(Get("/api/skua/a1/queue")));
+
+        Assert.Equal(1_700_000_000_123, doc.RootElement.GetProperty("queue").GetProperty("revision").GetInt64());
+    }
+
+    [Fact]
+    public void GET_of_an_empty_queue_carries_revision_zero()
+    {
+        using var doc = JsonDocument.Parse(Text(Get("/api/skua/a1/queue")));
+
+        Assert.Equal(0, doc.RootElement.GetProperty("queue").GetProperty("revision").GetInt64());
+    }
+
+    [Fact]
+    public void PUT_hands_the_revision_it_was_given_to_the_queue_and_answers_the_new_one()
+    {
+        _queues.Items.Add(new QueueView("Hero", [Step("0123456789abcdef0123456789abcdef")], 0, QueueState.Stopped, null, null, null, true, Revision: 777));
+
+        var response = Put(OneStep(revision: "1700000000123"));
+
+        Assert.Equal(200, response.Status);
+        Assert.Equal([1_700_000_000_123L], _queues.ReplacedRevisions);
+        using var doc = JsonDocument.Parse(Text(response));
+        Assert.Equal(777, doc.RootElement.GetProperty("queue").GetProperty("revision").GetInt64());
+    }
+
+    [Fact]
+    public void PUT_answers_409_with_the_revision_text_when_the_queue_changed()
+    {
+        _queues.ReplaceResult = QueueResult.Refused(QueueRevision.ChangedText);
+
+        var response = Put(OneStep(revision: "5"));
+
+        Assert.Equal(409, response.Status);
+        Assert.Equal("The queue changed on the PC. Open the editor again.", ErrorOf(response));
+        Assert.Equal([5L], _queues.ReplacedRevisions);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("\"revision\":null,")]
+    [InlineData("\"revision\":\"5\",")]
+    [InlineData("\"revision\":1.5,")]
+    [InlineData("\"revision\":1e3,")]
+    [InlineData("\"revision\":true,")]
+    [InlineData("\"revision\":[5],")]
+    [InlineData("\"revision\":99999999999999999999,")]
+    public void PUT_answers_400_when_the_revision_is_missing_or_not_a_whole_number(string revision)
+    {
+        var body = $"{{{revision}\"steps\":[{{\"scriptId\":\"{IdA}\",\"goalItem\":\"Gold\",\"goalQuantity\":5}}]}}";
+
+        var response = Put(body);
+
+        Assert.Equal(400, response.Status);
+        Assert.Equal(SkuaApi.InvalidRevision, ErrorOf(response));
+        Assert.Empty(_queues.Replaced);
+        Assert.Empty(_skua.Sent);
+    }
+
+    [Fact]
+    public void PUT_with_a_revision_still_needs_the_device_token()
+    {
+        Assert.Equal(401, Put(OneStep(revision: "5"), cookie: false).Status);
+        Assert.Empty(_queues.Replaced);
     }
 
     [Fact]

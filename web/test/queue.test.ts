@@ -3,8 +3,8 @@ import { describe, expect, it, vi } from 'vitest';
 import type { CallResult } from '../src/api';
 import { t } from '../src/i18n';
 import { queueEn } from '../src/i18n/queueEn';
-import { parseQueues, queueCardModel, queueFor, QueueUi, type QueueModel, type QueueWord } from '../src/queue';
-import { queueCard, startQueue } from '../src/queueViews';
+import { confirmWords, needsConfirm, parseQueues, queueApi, queueCardModel, queueFor, QueueUi, type QueueModel, type QueueWord } from '../src/queue';
+import { confirmView, queueCard, startQueue } from '../src/queueViews';
 import { parseSkuaInstances } from '../src/skua';
 import type { SkuaInstance } from '../src/types';
 import type { VNode } from '../src/views';
@@ -28,7 +28,7 @@ const step = (over: Record<string, unknown> = {}) => ({
   id: ID, scriptId: '0123456789abcdef', scriptName: 'Dailies', goalItem: 'Blood Orb', goalQuantity: 100, reputation: null, maxMinutes: null, ...over,
 });
 const queue = (over: Record<string, unknown> = {}) => ({
-  character: 'Hero', steps: [step()], cursor: 0, state: 'Stopped', phase: null, reason: null, have: null, canEdit: true, ...over,
+  character: 'Hero', steps: [step()], cursor: 0, state: 'Stopped', phase: null, reason: null, have: null, canEdit: true, revision: 7, ...over,
 });
 const model = (over: Record<string, unknown> = {}): QueueModel => parseQueues([queue(over)])[0]!;
 
@@ -237,22 +237,143 @@ describe('QueueUi.run', () => {
   });
 });
 
+describe('revision', () => {
+  it('is read from the entry; missing or not a whole number is 0', () => {
+    expect(model({ revision: 42 }).revision).toBe(42);
+    for (const bad of [undefined, 'x', 1.5, -1, null]) expect(model({ revision: bad }).revision).toBe(0);
+  });
+  it('the save body carries it as a JSON number, 0 included', async () => {
+    const bodies: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (_p: string, init?: RequestInit) => {
+      bodies.push(String(init?.body));
+      return new Response('{}');
+    }));
+    await queueApi.replace('i-1', [], 7);
+    await queueApi.replace('i-1', [], 0);
+    vi.unstubAllGlobals();
+    expect(bodies.map((b) => JSON.parse(b).revision)).toEqual([7, 0]);
+  });
+});
+
+describe('a clock-seeded revision', () => {
+  const BIG = 1_700_000_000_123;
+  it('is kept exactly; unsafe, negative and fractional ones are 0', () => {
+    expect(model({ revision: BIG }).revision).toBe(BIG);
+    for (const bad of [2 ** 53, -1, 1.5, Infinity, NaN]) expect(model({ revision: bad }).revision).toBe(0);
+  });
+  it('goes from the state through the editor snapshot into the PUT body unchanged', async () => {
+    const q = model({ revision: BIG });
+    const bodies: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (_p: string, init?: RequestInit) => {
+      bodies.push(String(init?.body));
+      return new Response('{}');
+    }));
+    await queueApi.replace('i-1', [], q.revision);
+    vi.unstubAllGlobals();
+    expect(JSON.parse(bodies[0]!).revision).toBe(BIG);
+    expect(bodies[0]).toContain(`"revision":${BIG}`);
+  });
+});
+
+describe('confirmation', () => {
+  it('only Skip and Stop ask', () => {
+    expect((['start', 'pause', 'continue', 'skip', 'stop'] as QueueWord[]).filter(needsConfirm)).toEqual(['skip', 'stop']);
+  });
+  it('names the character and the current step (Skip) or the queue (Stop)', () => {
+    const q = model({ state: 'Running', cursor: 1, steps: [step(), step({ id: 'b'.repeat(32), scriptName: 'Chaos' })] });
+    const skip = confirmWords('skip', q, 'Hero');
+    expect(skip.title).toContain('Chaos');
+    expect(skip.title).toContain('Hero');
+    expect(skip.confirm).toBe(t('queue.skip'));
+    const stop = confirmWords('stop', q, 'Hero');
+    expect(stop.title).toContain('Hero');
+    expect(stop.confirm).toBe(t('queue.stop'));
+  });
+  it('the sheet shows hostile names as text only, with Confirm and Cancel', () => {
+    const evil = '<img src=x onerror=alert(1)>';
+    const view = confirmView(confirmWords('skip', model({ steps: [step({ scriptName: evil })] }), evil));
+    const nodes = all(view);
+    expect(nodes.find((n) => n.tag === 'h2')!.text).toContain(evil);
+    expect(nodes.some((n) => n.tag === 'img')).toBe(false);
+    const buttons = nodes.filter((n) => n.tag === 'button');
+    expect(buttons.map((b) => b.attrs!['data-action'])).toEqual(['queue-confirm', 'queue-cancel']);
+    expect(buttons[0]!.className).toBe('btn-danger');
+    expect(buttons[1]!.text).toBe(t('control.cancel'));
+  });
+});
+
 describe('the delegated click', () => {
-  it('runs the five words and nothing else', async () => {
+  const setup = () => {
     const spy = vi.fn(async (_path: string) => new Response('{}'));
     vi.stubGlobal('fetch', spy);
     const app = fakeApp();
-    const ui = startQueue(app as unknown as HTMLElement, { instance: () => inst(), queues: () => [queue()], redraw: () => undefined, onUnpaired: () => undefined });
+    const asked: { title: string; go(): void }[] = [];
+    const ui = startQueue(app as unknown as HTMLElement, {
+      instance: () => inst(), queues: () => [queue({ state: 'Running', phase: 'Running' })], redraw: () => undefined, onUnpaired: () => undefined,
+      confirm: (words, go) => asked.push({ title: words.title, go }),
+    });
+    return { spy, app, ui, asked };
+  };
+  it('runs the three plain words at once and nothing else', async () => {
+    const { spy, app, ui, asked } = setup();
     expect(ui).toBeInstanceOf(QueueUi);
-    app.handler!(tap('queue-edit'));
-    app.handler!(tap('queue-bogus'));
-    app.handler!(tap('toString'));
+    for (const a of ['queue-edit', 'queue-bogus', 'toString']) app.handler!(tap(a));
     await settle();
     expect(spy).not.toHaveBeenCalled();
+    for (const [action, word] of [['queue-start', 'start'], ['queue-pause', 'pause'], ['queue-continue', 'continue']]) {
+      spy.mockClear();
+      app.handler!(tap(action!));
+      await settle();
+      expect(spy.mock.calls.map((c) => c[0])).toEqual([`/api/skua/i-1/queue/${word}`]);
+    }
+    expect(asked).toHaveLength(0);
+    vi.unstubAllGlobals();
+  });
+  it('Skip and Stop send nothing until Confirm', async () => {
+    const { spy, app, asked } = setup();
     app.handler!(tap('queue-skip'));
+    app.handler!(tap('queue-stop'));
+    await settle();
+    expect(spy).not.toHaveBeenCalled();
+    expect(asked).toHaveLength(2);
+    expect(asked[0]!.title).toContain('Dailies');
+    asked[0]!.go();
+    await settle();
+    expect(spy.mock.calls.map((c) => c[0])).toEqual(['/api/skua/i-1/queue/skip']);
+    asked[1]!.go();
+    await settle();
+    expect(spy.mock.calls.map((c) => c[0])).toEqual(['/api/skua/i-1/queue/skip', '/api/skua/i-1/queue/stop']);
+    vi.unstubAllGlobals();
+  });
+  it('Skip sends nothing when the queue moved on while the sheet was open', async () => {
+    const spy = vi.fn(async (_path: string) => new Response('{}'));
+    vi.stubGlobal('fetch', spy);
+    const app = fakeApp();
+    let cursor = 0;
+    const asked: (() => void)[] = [];
+    const two = [step(), step({ id: 'b'.repeat(32), scriptName: 'Chaos' })];
+    startQueue(app as unknown as HTMLElement, {
+      instance: () => inst(), queues: () => [queue({ state: 'Running', phase: 'Running', steps: two, cursor })], redraw: () => undefined, onUnpaired: () => undefined,
+      confirm: (_w, go) => asked.push(go),
+    });
+    app.handler!(tap('queue-skip'));
+    app.handler!(tap('queue-stop'));
+    cursor = 1;
+    asked[0]!();
+    await settle();
+    expect(spy).not.toHaveBeenCalled();
+    asked[1]!(); // Stop still names the queue, not a step
+    await settle();
+    expect(spy.mock.calls.map((c) => c[0])).toEqual(['/api/skua/i-1/queue/stop']);
+    vi.unstubAllGlobals();
+  });
+  it('a double Confirm while the first is pending sends one command', async () => {
+    const { spy, app, asked } = setup();
+    app.handler!(tap('queue-stop'));
+    asked[0]!.go();
+    asked[0]!.go();
     await settle();
     expect(spy).toHaveBeenCalledTimes(1);
-    expect(spy.mock.calls[0]![0]).toBe('/api/skua/i-1/queue/skip');
     vi.unstubAllGlobals();
   });
 });

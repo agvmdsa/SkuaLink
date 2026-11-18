@@ -173,6 +173,15 @@ describe('QueueEditor save', () => {
       expect(editor.busy).toBe(false);
     }
   });
+  it('409 with the PC\'s revision text shows that text as it is and keeps the rows and the editor', async () => {
+    const text = 'The queue changed on the PC. Open the editor again.';
+    const { editor, calls, saved } = await refused({ status: 409, data: { error: text } })();
+    expect(saved).toBe(false);
+    expect(editor.error).toBe(text);
+    expect(editor.rows).toHaveLength(1);
+    expect(calls.saved).toBe(0);
+    expect(editor.busy).toBe(false);
+  });
   it.each([
     [{ status: 409, data: { error: 'busy' } }, 'control.error.busy'],
     [{ status: 409, data: { error: 'Skua is disconnected' } }, 'control.error.disconnected'],
@@ -279,6 +288,7 @@ describe('the module', () => {
     const used = new Set([...src.matchAll(/'(queueEdit\.[A-Za-z.]+)'/g)].map((m) => m[1]!));
     for (const key of used) expect(Object.keys(queueEditEn), key).toContain(key);
   });
+  it('quotes the revision seen when it opened', () => expect(src).toMatch(/const revision = deps\.queue\?\.revision \?\? 0;[\s\S]*queueApi\.replace\(deps\.instanceId, steps, revision\)/));
   it('keeps innerHTML out', () => expect(src).not.toMatch(/innerHTML|insertAdjacentHTML/));
 });
 

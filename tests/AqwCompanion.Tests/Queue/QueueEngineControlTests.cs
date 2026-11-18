@@ -20,6 +20,34 @@ public class QueueEngineControlTests
         engine.Evaluate(Idle(), at.AddSeconds(13));
     }
 
+    // ---- revision ----
+
+    [Fact]
+    public void Repairing_the_script_id_of_the_current_step_changes_the_revision_and_a_state_change_does_not()
+    {
+        var sink = new FakeQueueSink();
+        var engine = new QueueEngine(Hero, sink, [Step("1", "ffffffffffffffff", "Dailies")], revision: 5);
+        Assert.Equal(5, engine.View.Revision);
+
+        engine.Start(Idle(), T0);
+        Assert.Equal(5, engine.View.Revision);   // starting is a state change
+        engine.OnScripts(Scripts, T0);
+        engine.Evaluate(Idle(), T0);
+
+        Assert.Equal(A, engine.Steps[0].ScriptId);
+        Assert.NotEqual(5, engine.View.Revision);
+    }
+
+    [Fact]
+    public void An_empty_queue_has_revision_zero_whatever_it_held()
+    {
+        var engine = new QueueEngine(Hero, new FakeQueueSink(), [Step()], revision: 5);
+
+        Assert.True(engine.Replace([], T0, 5).Ok);
+
+        Assert.Equal(0, engine.View.Revision);
+    }
+
     // ---- pause and continue ----
 
     [Fact]

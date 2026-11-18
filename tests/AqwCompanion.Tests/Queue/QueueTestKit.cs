@@ -32,6 +32,10 @@ internal static class Kit
     public const string B = "fedcba9876543210";
     public const string Hero = "Hero";
 
+    /// <summary>Replaces with the revision the queue has right now (what an editor that just opened would quote).</summary>
+    public static QueueResult Replace(this ISkuaQueues queues, string character, IReadOnlyList<QueueStep> steps) =>
+        queues.Replace(character, steps, (queues.Find(character) ?? QueueView.Empty(character)).Revision);
+
     public static IReadOnlyList<SkuaScriptInfo> Scripts { get; } =
         [new SkuaScriptInfo(A, "Dailies", "Farm"), new SkuaScriptInfo(B, "Butler", "Misc")];
 

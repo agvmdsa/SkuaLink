@@ -1,9 +1,9 @@
 import { addMessages, t, type MessageKey } from './i18n';
 import { queueEn } from './i18n/queueEn';
-import { parseQueues, queueApi, queueCardModel, queueFor, QueueUi, type QueueWord } from './queue';
+import { confirmWords, needsConfirm, parseQueues, queueApi, queueCardModel, queueFor, QueueUi, type QueueModel, type QueueWord } from './queue';
 import { isLive } from './skua';
 import type { SkuaInstance } from './types';
-import { h, type VNode } from './views';
+import { h, mount, type VNode } from './views';
 import { addRules, pageSheet } from './cssom';
 import queueCss from './styles/queue.css?inline';
 
@@ -51,13 +51,60 @@ const WORDS: Record<string, QueueWord> = {
   'queue-stop': 'stop',
 };
 
+/** The confirmation sheet, in the style of the Stop sheet of the Control card (the same classes); names go in as text only. */
+export function confirmView(words: { title: string; body: string; confirm: string }): VNode {
+  return h(
+    'div',
+    { className: 'sheet-body' },
+    h('h2', { text: words.title, attrs: { id: 'queue-confirm-title', tabindex: '-1' } }),
+    h('p', { className: 'muted', text: words.body }),
+    h('button', { className: 'btn-danger', text: words.confirm, attrs: { type: 'button', 'data-action': 'queue-confirm' } }),
+    h('button', { className: 'btn-quiet', text: t('control.cancel'), attrs: { type: 'button', 'data-action': 'queue-cancel', autofocus: '' } }),
+  );
+}
+
+/** Opens the sheet in a dialog of its own; Confirm runs `go` once, Cancel, Esc and a tap outside only close it. */
+let confirmOpen = false; // two quick taps must not stack two sheets
+
+function openConfirm(words: { title: string; body: string; confirm: string }, go: () => void): void {
+  if (confirmOpen) return;
+  confirmOpen = true;
+  const dialog = document.createElement('dialog');
+  dialog.className = 'sheet';
+  dialog.setAttribute('aria-labelledby', 'queue-confirm-title');
+  dialog.replaceChildren(mount(confirmView(words)));
+  document.body.append(dialog);
+  const close = (): void => {
+    confirmOpen = false;
+    if (dialog.open) dialog.close();
+    dialog.remove();
+  };
+  dialog.addEventListener('click', (event) => {
+    if (event.target === dialog) return close();
+    const action = (event.target as HTMLElement).closest<HTMLElement>('[data-action]')?.getAttribute('data-action');
+    if (action === 'queue-confirm') {
+      close();
+      go();
+    } else if (action === 'queue-cancel') close();
+  });
+  dialog.addEventListener('cancel', (event) => {
+    event.preventDefault();
+    close();
+  });
+  try {
+    dialog.showModal();
+  } catch {
+    dialog.setAttribute('open', '');
+  }
+}
+
 /** Adds the card's rules to the page; called once, when this chunk has loaded. */
 export const addQueueRules = (): void => addRules(pageSheet(), queueCss);
 
 /** Registers the card's texts and the one delegated click listener; returns the object that runs the commands. */
 export function startQueue(
   app: HTMLElement,
-  deps: { instance(): SkuaInstance | null; queues(): unknown; redraw(): void; onUnpaired(): void },
+  deps: { instance(): SkuaInstance | null; queues(): unknown; redraw(): void; onUnpaired(): void; confirm?: (words: { title: string; body: string; confirm: string }, go: () => void) => void },
 ): QueueUi {
   addMessages(queueEn);
   const ui = new QueueUi(queueApi, deps.redraw, deps.onUnpaired);
@@ -66,8 +113,18 @@ export function startQueue(
     const action = button?.getAttribute('data-action') ?? '';
     const i = deps.instance();
     if (!button || !i) return;
-    if (Object.hasOwn(WORDS, action)) void ui.run(i.instanceId, WORDS[action]!);
-    else if (action === 'queue-edit') {
+    if (Object.hasOwn(WORDS, action)) {
+      const word = WORDS[action]!;
+      const instanceId = i.instanceId;
+      if (!needsConfirm(word)) return void ui.run(instanceId, word);
+      const character = i.status?.character ?? '';
+      const current = (): QueueModel | null => queueFor(parseQueues(deps.queues()), character);
+      const stepOf = (q: QueueModel | null): string | undefined => q?.steps[q.cursor]?.id;
+      const seen = stepOf(current());
+      // Skip names the step shown now: if the queue moved on while the sheet was open, it sends nothing.
+      const go = (): void => (word === 'skip' && stepOf(current()) !== seen ? undefined : void ui.run(instanceId, word));
+      (deps.confirm ?? openConfirm)(confirmWords(word, current(), character), go);
+    } else if (action === 'queue-edit') {
       const instanceId = i.instanceId;
       const queue = queueFor(parseQueues(deps.queues()), i.status?.character ?? null);
       import('./queueEdit')

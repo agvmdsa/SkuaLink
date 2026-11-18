@@ -102,6 +102,41 @@ public class QueueEditorViewModelTests
     }
 
     [Fact]
+    public async Task Save_quotes_the_revision_the_editor_opened_with()
+    {
+        var queues = new FakeQueues();
+        var vm = new QueueEditorViewModel(Hero, [Step("1", A, "Dailies", "Blood Orb", 10)], queues, new Source(Scripts), ["Blood Orb"], revision: 1234);
+        await vm.LoadAsync();
+
+        vm.SaveCommand.Execute(null);
+
+        Assert.Equal([1234L], queues.ReplacedRevisions);
+    }
+
+    [Fact]
+    public async Task A_refused_revision_shows_the_text_keeps_the_window_open_and_the_rows_intact()
+    {
+        var queues = new FakeQueues { ReplaceResult = QueueResult.Refused(QueueRevision.ChangedText) };
+        var vm = new QueueEditorViewModel(Hero, [Step("1", A, "Dailies", "Blood Orb", 10)], queues, new Source(Scripts), ["Blood Orb"], revision: 1234);
+        await vm.LoadAsync();
+        vm.AddCommand.Execute(null);
+        Fill(vm.Rows[1], 1, "Gold", "2", "15", vm: vm);
+        var closed = 0;
+        vm.Closed += (_, _) => closed++;
+
+        vm.SaveCommand.Execute(null);
+
+        Assert.Equal("The queue changed on the PC. Open the editor again.", vm.ErrorText);
+        Assert.Equal(0, closed);
+        Assert.Equal(2, vm.Rows.Count);
+        Assert.Equal("Blood Orb", vm.Rows[0].GoalItem);
+        Assert.Equal("10", vm.Rows[0].QuantityText);
+        Assert.Equal("Gold", vm.Rows[1].GoalItem);
+        Assert.Equal("2", vm.Rows[1].QuantityText);
+        Assert.Equal("15", vm.Rows[1].MinutesText);
+    }
+
+    [Fact]
     public async Task Save_replaces_with_the_validated_steps_and_closes()
     {
         var stored = Step("1", A, "Dailies", "Blood Orb", 10);

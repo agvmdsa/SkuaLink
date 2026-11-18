@@ -172,6 +172,7 @@ export class QueueEditor {
     const error = isObject(r.data) && typeof r.data.error === 'string' ? cut(r.data.error) : '';
     if (r.status === 409) {
       if (error === 'busy') return t('control.error.busy');
+      if (error === t('queueEdit.error.changed')) return error; // the PC's own words (QueueModel.ChangedText), shown as they are
       return error && error !== 'Skua is disconnected' ? t('queueEdit.error.refused', { reason: error }) : t('control.error.disconnected');
     }
     if (r.status === 400 && error) return t('queueEdit.error.refused', { reason: error });
@@ -325,11 +326,12 @@ export function openQueueEditor(deps: { instanceId: string; queue: QueueModel | 
     }
   };
 
+  const revision = deps.queue?.revision ?? 0; // the one seen now: a save quotes it, so a change made on the PC meanwhile is refused
   const editor = new QueueEditor({
     instanceId: deps.instanceId,
     steps: deps.queue?.steps ?? [],
     listScripts: () => skuaApi.listScripts(deps.instanceId),
-    replace: (steps) => queueApi.replace(deps.instanceId, steps),
+    replace: (steps) => queueApi.replace(deps.instanceId, steps, revision),
     onSaved: () => {
       close();
       deps.onSaved();
