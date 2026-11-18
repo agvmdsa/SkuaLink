@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { CallResult } from '../src/api';
 import { addMessages, t } from '../src/i18n';
 import { queueEditEn } from '../src/i18n/queueEditEn';
-import { editorView, QueueEditor, scriptSelect, type QueueDraft } from '../src/queueEdit';
+import { editTarget, editorSlot, editorView, focusKeyOf, focusPlan, QueueEditor, scriptSelect, type QueueDraft } from '../src/queueEdit';
 import { parseQueues, type QueueStep } from '../src/queue';
 import type { VNode } from '../src/views';
 
@@ -90,12 +90,13 @@ describe('QueueEditor load', () => {
     expect(editor.error).toBe(t('queueEdit.loadFailed'));
     expect(calls.sent).toEqual([]);
   });
-  it('a throw is the same, and with no rows a save is allowed', async () => {
+  it('a throw is the same, and with no rows a save is refused locally', async () => {
     const { editor, calls } = make([], { listScripts: async () => { throw new Error('x'); } });
     await editor.load();
     expect(editor.scripts).toBeNull();
-    expect(await editor.save()).toBe(true);
-    expect(calls.sent).toEqual([[]]);
+    expect(await editor.save()).toBe(false);
+    expect(editor.error).toBe(t('queueEdit.error.empty'));
+    expect(calls.sent).toEqual([]);
   });
   it('a reload while open keeps what the owner picked', async () => {
     const { editor } = make();
@@ -279,4 +280,36 @@ describe('the module', () => {
     for (const key of used) expect(Object.keys(queueEditEn), key).toContain(key);
   });
   it('keeps innerHTML out', () => expect(src).not.toMatch(/innerHTML|insertAdjacentHTML/));
+});
+
+describe('the DOM wiring decisions', () => {
+  it('the search box edits on input only, so its blur change cannot rebuild the choosers', () => {
+    expect(editTarget('input', 'queue-search')).toBe('search');
+    expect(editTarget('change', 'queue-search')).toBeNull();
+  });
+  it('the other fields edit on both events and unknown ones on none', () => {
+    for (const type of ['input', 'change']) {
+      expect(editTarget(type, 'queue-script')).toBe('script');
+      expect(editTarget(type, 'queue-item')).toBe('item');
+      expect(editTarget(type, 'queue-quantity')).toBe('quantity');
+      expect(editTarget(type, 'queue-minutes')).toBe('minutes');
+      expect(editTarget(type, 'queue-save')).toBeNull();
+      expect(editTarget(type, null)).toBeNull();
+      expect(editTarget(type, 'constructor')).toBeNull();
+    }
+  });
+  it('focus returns to the control with the same key, with its caret, else nowhere', () => {
+    const keys = [focusKeyOf('queue-item', '0'), focusKeyOf('queue-item', '1'), focusKeyOf('queue-save', null)];
+    expect(focusPlan({ key: keys[1]!, start: 2, end: 4 }, keys)).toEqual({ index: 1, start: 2, end: 4 });
+    expect(focusPlan({ key: 'gone#', start: 1, end: 1 }, keys)).toBeNull();
+    expect(focusPlan(null, keys)).toBeNull();
+  });
+  it('only one editor can be open: a second tap before the first closes is refused', () => {
+    editorSlot.release();
+    expect(editorSlot.take()).toBe(true);
+    expect(editorSlot.take()).toBe(false);
+    editorSlot.release();
+    expect(editorSlot.take()).toBe(true);
+    editorSlot.release();
+  });
 });

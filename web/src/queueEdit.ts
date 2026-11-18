@@ -128,7 +128,8 @@ export class QueueEditor {
 
   async save(): Promise<boolean> {
     if (this.busy) return false;
-    if (this.rows.length > 0 && !this.scripts) return this.refuse(t('queueEdit.loadFailed'));
+    if (this.rows.length === 0) return this.refuse(t('queueEdit.error.empty'));
+    if (!this.scripts) return this.refuse(t('queueEdit.loadFailed'));
     if (this.rows.length > MAX_ROWS) return this.refuse(t('queueEdit.error.tooMany'));
     const drafts: QueueDraft[] = [];
     for (const [i, row] of this.rows.entries()) {
@@ -250,21 +251,53 @@ export function editorView(editor: QueueEditor): VNode {
   );
 }
 
-const keyOf = (el: Element): string => `${el.getAttribute('data-action') ?? ''}#${el.getAttribute('data-value') ?? ''}`;
+/** The identity of a control across a redraw. */
+export const focusKeyOf = (action: string | null, value: string | null): string => `${action ?? ''}#${value ?? ''}`;
+const keyOf = (el: Element): string => focusKeyOf(el.getAttribute('data-action'), el.getAttribute('data-value'));
+
+export type EditTarget = 'script' | 'item' | 'quantity' | 'minutes' | 'search';
+const TARGETS: Record<string, EditTarget> = { 'queue-script': 'script', 'queue-item': 'item', 'queue-quantity': 'quantity', 'queue-minutes': 'minutes', 'queue-search': 'search' };
+
+/** Which field an input or change event edits. The search box counts only on `input`: its `change` (on blur) must not rebuild the choosers under a tap. */
+export function editTarget(eventType: string, action: string | null): EditTarget | null {
+  const target = action !== null && Object.hasOwn(TARGETS, action) ? TARGETS[action]! : null;
+  return target === 'search' && eventType !== 'input' ? null : target;
+}
+
+/** Where to put focus and the caret again after a redraw: the index of the control with the saved key, and the caret kept only for it. */
+export function focusPlan(saved: { key: string; start: number | null; end: number | null } | null, keys: readonly string[]): { index: number; start: number | null; end: number | null } | null {
+  if (!saved) return null;
+  const index = keys.indexOf(saved.key);
+  return index < 0 ? null : { index, start: saved.start, end: saved.end };
+}
+
+/** Only one editor dialog at a time: two quick taps on Edit queue must not stack two. */
+export const editorSlot = {
+  taken: false,
+  take(): boolean {
+    if (this.taken) return false;
+    this.taken = true;
+    return true;
+  },
+  release(): void {
+    this.taken = false;
+  },
+};
 
 /** Builds the editor's own dialog, loads the scripts, and removes the dialog again when it closes. */
 export function openQueueEditor(deps: { instanceId: string; queue: QueueModel | null; onSaved(): void; onUnpaired(): void }): void {
+  if (!editorSlot.take()) return;
   addMessages(queueEditEn);
   const dialog = document.createElement('dialog');
   dialog.className = 'sheet';
   dialog.setAttribute('aria-labelledby', 'queue-edit-title');
   document.body.append(dialog);
-  let searching = false;
   let closed = false;
 
   const close = (): void => {
     if (closed) return;
     closed = true;
+    editorSlot.release();
     if (dialog.open) dialog.close();
     dialog.remove();
     document.querySelector<HTMLElement>('[data-action="queue-edit"]')?.focus({ preventScroll: true });
@@ -272,18 +305,24 @@ export function openQueueEditor(deps: { instanceId: string; queue: QueueModel | 
 
   const draw = (): void => {
     if (closed) return;
-    if (searching) {
-      // The search box keeps its caret: only the choosers are drawn again, from the picks the rows already hold.
-      searching = false;
-      for (const select of dialog.querySelectorAll<HTMLElement>('select[data-action="queue-script"]')) {
-        select.replaceWith(mount(scriptSelect(editor, Number(select.getAttribute('data-value')))));
-      }
-      return;
-    }
     const active = document.activeElement;
-    const key = active instanceof HTMLElement && dialog.contains(active) ? keyOf(active) : null;
+    const focused = active instanceof HTMLElement && dialog.contains(active) ? active : null;
+    const saved = focused
+      ? { key: keyOf(focused), start: focused instanceof HTMLInputElement ? focused.selectionStart : null, end: focused instanceof HTMLInputElement ? focused.selectionEnd : null }
+      : null;
     dialog.replaceChildren(mount(editorView(editor)));
-    if (key) for (const el of dialog.querySelectorAll<HTMLElement>('button, input, select')) if (keyOf(el) === key) el.focus({ preventScroll: true });
+    const els = [...dialog.querySelectorAll<HTMLElement>('button, input, select')];
+    const plan = focusPlan(saved, els.map(keyOf));
+    if (!plan) return;
+    const el = els[plan.index]!;
+    el.focus({ preventScroll: true });
+    if (el instanceof HTMLInputElement && plan.start !== null && plan.end !== null) {
+      try {
+        el.setSelectionRange(plan.start, plan.end);
+      } catch {
+        // An input type without a caret keeps its own.
+      }
+    }
   };
 
   const editor = new QueueEditor({
@@ -318,14 +357,17 @@ export function openQueueEditor(deps: { instanceId: string; queue: QueueModel | 
   const edited = (event: Event): void => {
     const el = event.target as HTMLInputElement;
     const i = indexOf(el);
-    switch (el.getAttribute('data-action')) {
-      case 'queue-script': return editor.setScript(i, el.value);
-      case 'queue-item': return editor.setField(i, 'goalItem', el.value);
-      case 'queue-quantity': return editor.setField(i, 'quantity', el.value);
-      case 'queue-minutes': return editor.setField(i, 'minutes', el.value);
-      case 'queue-search':
-        searching = true;
-        return editor.setQuery(el.value);
+    switch (editTarget(event.type, el.getAttribute('data-action'))) {
+      case 'script': return editor.setScript(i, el.value);
+      case 'item': return editor.setField(i, 'goalItem', el.value);
+      case 'quantity': return editor.setField(i, 'quantity', el.value);
+      case 'minutes': return editor.setField(i, 'minutes', el.value);
+      case 'search':
+        // Only the choosers are drawn again, from the picks the rows hold, so the search box keeps its caret.
+        editor.query = el.value;
+        for (const select of dialog.querySelectorAll<HTMLElement>('select[data-action="queue-script"]')) {
+          select.replaceWith(mount(scriptSelect(editor, Number(select.getAttribute('data-value')))));
+        }
     }
   };
   dialog.addEventListener('input', edited);

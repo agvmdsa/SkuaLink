@@ -22,6 +22,7 @@ export const queueEditEn = {
   'queueEdit.error.item': 'Step {n}: write the item to get.',
   'queueEdit.error.quantity': 'Step {n}: the number must be a whole number from 1 to 1,000,000.',
   'queueEdit.error.minutes': 'Step {n}: the time limit must be a whole number from 1 to 1440, or empty.',
+  'queueEdit.error.empty': 'A queue needs at least one step. Use Stop queue to stop it.',
   'queueEdit.error.tooMany': 'A queue can have at most 20 steps.',
   'queueEdit.error.tooBig': 'The queue is too big to send.',
   'queueEdit.error.refused': 'The queue was not saved: {reason}',
