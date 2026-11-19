@@ -1,7 +1,7 @@
 import { send } from './api';
 
 /** The kinds the PC can push, in the order of the PC's PushKinds.All. */
-export const PUSH_KINDS = ['ScriptStopped', 'ScriptError', 'SkuaDisconnected', 'CharacterKicked', 'SkuaOptionsWaiting', 'RankUp', 'HardFarmDrop', 'NoProgress', 'DyingOften', 'UpdateAvailable', 'QueueAttention', 'QueueFinished'] as const;
+export const PUSH_KINDS = ['ScriptStopped', 'ScriptError', 'SkuaDisconnected', 'CharacterKicked', 'SkuaOptionsWaiting', 'RankUp', 'HardFarmDrop', 'NoProgress', 'DyingOften', 'UpdateAvailable', 'QueueAttention', 'QueueFinished', 'BoostEnded'] as const;
 export type PushKind = (typeof PUSH_KINDS)[number];
 
 export interface PushState {

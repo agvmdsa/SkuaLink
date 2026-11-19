@@ -201,14 +201,19 @@ export class QueueUi {
     return this.errors.get(instanceId) ?? null;
   }
 
-  async run(instanceId: string, word: QueueWord): Promise<void> {
+  run(instanceId: string, word: QueueWord): Promise<void> {
+    return this.call(instanceId, () => this.api.command(instanceId, word));
+  }
+
+  /** Runs one command for a Skua (one at a time), keeping the words of a failure; `refused` is the text for a refusal. */
+  async call(instanceId: string, send: () => Promise<CallResult>, refused: MessageKey = 'queue.error.refused'): Promise<void> {
     if (this.pending.has(instanceId)) return;
     this.pending.add(instanceId);
     this.errors.delete(instanceId);
     this.changed();
     try {
-      const r = await this.api.command(instanceId, word);
-      const words = r.status === 200 ? null : this.failure(r);
+      const r = await send();
+      const words = r.status === 200 ? null : this.failure(r, refused);
       if (words) this.errors.set(instanceId, words);
     } catch {
       this.errors.set(instanceId, t('control.error.generic'));
@@ -218,7 +223,7 @@ export class QueueUi {
     }
   }
 
-  private failure(r: CallResult): string | null {
+  private failure(r: CallResult, refused: MessageKey): string | null {
     if (r.status === 401) {
       this.unpaired();
       return null;
@@ -229,9 +234,9 @@ export class QueueUi {
     const error = isObject(r.data) && typeof r.data.error === 'string' ? cut(r.data.error) : '';
     if (r.status === 409) {
       if (error === 'busy') return t('control.error.busy');
-      return error && error !== 'Skua is disconnected' ? t('queue.error.refused', { reason: error }) : t('control.error.disconnected');
+      return error && error !== 'Skua is disconnected' ? t(refused, { reason: error }) : t('control.error.disconnected');
     }
-    if (r.status === 400 && error) return t('queue.error.refused', { reason: error });
+    if (r.status === 400 && error) return t(refused, { reason: error });
     return t('control.error.generic');
   }
 }

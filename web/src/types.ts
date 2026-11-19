@@ -47,7 +47,7 @@ export interface Snapshot {
   hardFarms: HardFarms | null;
 }
 
-export type NoticeKind = 'RankUp' | 'HardFarmDrop' | 'ActivityStopped' | 'NewLogin' | 'SkuaDisconnected' | 'SkuaReconnected' | 'SkuaOptionsWaiting' | 'ScriptStopped' | 'ScriptError' | 'CharacterKicked' | 'NoProgress' | 'DyingOften' | 'UpdateAvailable' | 'QueueAttention' | 'QueueFinished';
+export type NoticeKind = 'RankUp' | 'HardFarmDrop' | 'ActivityStopped' | 'NewLogin' | 'SkuaDisconnected' | 'SkuaReconnected' | 'SkuaOptionsWaiting' | 'ScriptStopped' | 'ScriptError' | 'CharacterKicked' | 'NoProgress' | 'DyingOften' | 'UpdateAvailable' | 'QueueAttention' | 'QueueFinished' | 'BoostEnded';
 
 export interface Notice {
   id: string;
@@ -132,6 +132,8 @@ export interface RemoteState {
   characters?: PhoneCharacter[];
   /** Every queue the PC knows, raw: the lazy queue chunk validates it. */
   queues?: unknown[];
+  /** Every Skua's boosts, raw: the lazy queue chunk validates it. */
+  boosts?: unknown[];
 }
 
 /** A character's numbers as the Skua plugin reads them; the nullable ones may be unknown (not read yet, or an older plugin). */
