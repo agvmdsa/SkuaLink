@@ -60,9 +60,11 @@ public sealed partial class BoostsViewModel : ObservableObject, IDisposable
         _relogin = new RelayCommand(Relogin, () => CanRelogin && !_busy);
         _confirm = new RelayCommand(Confirm, () => Confirming && !_busy);
         _cancel = new RelayCommand(Cancel);
-        Refresh();
         boosts.Changed += OnChanged;
         selection.Changed += OnChanged;
+
+        // The first refresh goes through the UI thread too: it may create the ticker, which must be made there.
+        OnChanged(this, EventArgs.Empty);
     }
 
     public bool HasView { get; private set; }
@@ -126,7 +128,7 @@ public sealed partial class BoostsViewModel : ObservableObject, IDisposable
 
     private void Cancel()
     {
-        if (_pending is null)
+        if (_pending is null || _disposed)
         {
             return;
         }
@@ -143,9 +145,14 @@ public sealed partial class BoostsViewModel : ObservableObject, IDisposable
         }
 
         // The view is checked again: the item may be gone or its type active since the question was opened.
-        if (BoostGuards.CheckUse(CurrentView(), pending.ItemId) is not null || CurrentView()?.InstanceId != pending.InstanceId)
+        var current = CurrentView();
+        var refusal = BoostGuards.CheckUse(current, pending.ItemId)
+            ?? (current?.InstanceId == pending.InstanceId ? null : BoostTexts.UnknownSkua);
+        if (refusal is not null)
         {
             _pending = null;
+            _owner = OwnerOf(current);
+            StatusText = refusal;
             Refresh();
             return;
         }
@@ -255,10 +262,12 @@ public sealed partial class BoostsViewModel : ObservableObject, IDisposable
         }
     }
 
+    private static string OwnerOf(BoostView? view) => view is null ? string.Empty : view.InstanceId + "|" + view.Character;
+
     private void Refresh()
     {
         var view = CurrentView();
-        var owner = view is null ? string.Empty : view.InstanceId + "|" + view.Character;
+        var owner = OwnerOf(view);
         if (!string.Equals(owner, _owner, StringComparison.Ordinal))
         {
             _owner = owner;
@@ -333,7 +342,7 @@ public sealed partial class BoostsViewModel : ObservableObject, IDisposable
 
         var text = value < 0
             ? string.Format(CultureInfo.InvariantCulture, ActiveFormat, heading)
-            : string.Format(CultureInfo.InvariantCulture, LeftFormat, heading, (value + 59) / 60);
+            : string.Format(CultureInfo.InvariantCulture, LeftFormat, heading, (value + 59L) / 60);
         return view.Online ? text : text + PausedSuffix;
     }
 

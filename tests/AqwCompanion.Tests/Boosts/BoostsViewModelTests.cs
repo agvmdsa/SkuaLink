@@ -299,6 +299,124 @@ public class BoostsViewModelTests
         Assert.Empty(rig.Boosts.Used);
     }
 
+    [Theory]
+    [InlineData("gone")]
+    [InlineData("zero")]
+    [InlineData("active")]
+    [InlineData("logout")]
+    public void Confirm_rechecks_the_view_even_when_the_refresh_has_not_run_yet(string change)
+    {
+        var rig = new Rig();
+        rig.Boosts.Items.Add(View(items: [Gold()]));
+        var vm = rig.Build();
+        vm.Items[0].UseCommand.Execute(null);
+        Assert.True(vm.Confirming);
+
+        // No Raise: the queued refresh has not run, only the guard at Confirm can stop the send.
+        rig.Boosts.Items[0] = change switch
+        {
+            "gone" => View(items: []),
+            "zero" => View(items: [Gold(qty: 0)]),
+            "active" => View(gold: 100, items: [Gold()]),
+            _ => View(online: false, items: [Gold()]),
+        };
+        vm.ConfirmCommand.Execute(null);
+
+        Assert.Empty(rig.Boosts.Used);
+        Assert.False(vm.Confirming);
+        Assert.True(vm.HasStatus);
+        Assert.NotEqual(string.Empty, vm.StatusText);
+    }
+
+    [Fact]
+    public void Confirm_refuses_when_the_skua_instance_changed_without_a_refresh()
+    {
+        var rig = new Rig();
+        rig.Boosts.Items.Add(View(items: [Gold()]));
+        var vm = rig.Build();
+        vm.Items[0].UseCommand.Execute(null);
+        rig.Boosts.Items[0] = View(id: "i2", items: [Gold()]);
+        vm.ConfirmCommand.Execute(null);
+
+        Assert.Empty(rig.Boosts.Used);
+        Assert.Equal(BoostTexts.UnknownSkua, vm.StatusText);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task A_result_for_a_deselected_character_is_dropped_and_the_commands_work_again(bool relogin)
+    {
+        var rig = new Rig();
+        rig.Know("Zed");
+        rig.Selection.Choose(Hero);
+        rig.Boosts.Items.Add(View(online: !relogin, canRelogin: relogin, items: [Gold()]));
+        rig.Boosts.Items.Add(View("Zed", "i2", items: [Gold()]));
+        var vm = rig.Build();
+        var gate = new TaskCompletionSource();
+        rig.Boosts.UseHold = gate.Task;
+        rig.Boosts.ReloginHold = gate.Task;
+        rig.Boosts.UseResult = BoostResult.Refused("Late.");
+        rig.Boosts.ReloginResult = BoostResult.Refused("Late.");
+        if (relogin)
+        {
+            vm.ReloginCommand.Execute(null);
+        }
+        else
+        {
+            vm.Items[0].UseCommand.Execute(null);
+            vm.ConfirmCommand.Execute(null);
+        }
+
+        rig.Selection.Choose("Zed");
+        rig.Boosts.Raise();
+        gate.SetResult();
+        await vm.Idle;
+
+        Assert.Equal(string.Empty, vm.StatusText);
+        Assert.True(vm.Items[0].UseCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public void A_huge_remaining_time_never_shows_a_negative_or_wrapped_number()
+    {
+        var rig = new Rig();
+        rig.Boosts.Items.Add(View(gold: int.MaxValue));
+        var vm = rig.Build();
+        Assert.Equal("Gold: 35791395 min left", vm.Rows[0].Text);
+    }
+
+    [Fact]
+    public void Cancel_after_Dispose_does_not_bring_the_ticker_back()
+    {
+        var rig = new Rig();
+        rig.Boosts.Items.Add(View(cls: 600, items: [Gold()]));
+        var vm = rig.Build();
+        vm.Items[0].UseCommand.Execute(null);
+        Assert.True(vm.Confirming);
+        vm.Dispose();
+        Assert.False(rig.Ticker.Active);
+        vm.CancelCommand.Execute(null);
+        Assert.False(rig.Ticker.Active);
+        Assert.Equal(1, rig.Ticker.Created);
+    }
+
+    [Fact]
+    public void An_event_raised_right_after_construction_is_not_lost_and_the_first_refresh_is_marshalled()
+    {
+        var rig = new Rig();
+        rig.Boosts.Items.Add(View(gold: 600));
+        var vm = rig.Build(inline: false);
+
+        Assert.Equal(1, rig.Boosts.SubscriberCount);
+        Assert.Equal(0, rig.Ticker.Created);
+        rig.Boosts.Raise();
+        Assert.Single(rig.Posted);
+        rig.Posted[0]();
+        Assert.Equal("Gold: 10 min left", vm.Rows[0].Text);
+        Assert.Equal(1, rig.Ticker.Created);
+    }
+
     [Fact]
     public async Task The_error_line_clears_when_the_character_changes()
     {
@@ -355,6 +473,11 @@ public class BoostsViewModelTests
         rig.Boosts.Items.Add(View());
         var vm = rig.Build(inline: false);
         Assert.Equal(1, rig.Boosts.SubscriberCount);
+        Assert.Single(rig.Posted);
+        Assert.False(vm.HasView);
+        rig.Posted[0]();
+        rig.Posted.Clear();
+        Assert.True(vm.HasView);
 
         rig.Boosts.Items[0] = View(gold: -1);
         await Task.Run(() =>
