@@ -125,3 +125,9 @@ internal static class SkuaLists
         }
     }
 }
+
+/// <summary>Use a boost item of the bag: the plugin checks everything itself; the app sends only the item id.</summary>
+public sealed record UseBoostCommand(string ReqId, int ItemId) : SkuaCommand(ReqId);
+
+/// <summary>Log in again: no arguments, the plugin logs in with the credentials Skua already holds.</summary>
+public sealed record ReloginCommand(string ReqId) : SkuaCommand(ReqId);

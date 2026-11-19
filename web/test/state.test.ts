@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   characterHref, deviceName, expFraction, formatCompact, formatNumber,
-  hardFarmsView, iosInstallHint, isIos, KEPT_KEY, linkAfterFreshData, linkBanner, noticeLine, parseOpenMessage, parseRoute, parseState, relativeTime,
+  hardFarmsView, iosInstallHint, isIos, keepState, KEPT_KEY, recallKept, linkAfterFreshData, linkBanner, noticeLine, parseOpenMessage, parseRoute, parseState, relativeTime,
 } from '../src/state';
 
 const NOW = Date.parse('2026-11-09T12:00:00Z');
@@ -191,6 +191,23 @@ describe('parseOpenMessage and isIos', () => {
     expect(isIos('Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)')).toBe(true);
     expect(isIos('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)', 5)).toBe(true);
     expect(isIos('Mozilla/5.0 (Windows NT 10.0; Win64; x64)')).toBe(false);
+  });
+});
+
+describe('boosts field', () => {
+  const base = { snapshot: null, notices: [] };
+  it('keeps boosts as a bounded raw array', () => {
+    const many = Array.from({ length: 9 }, (_, i) => ({ instanceId: 'i' + i }));
+    expect(parseState(JSON.stringify({ ...base, boosts: many }))!.boosts).toHaveLength(8);
+  });
+  it('absent stays undefined and a non-array is undefined', () => {
+    expect(parseState(JSON.stringify(base))!.boosts).toBeUndefined();
+    expect(parseState(JSON.stringify({ ...base, boosts: 'x' }))!.boosts).toBeUndefined();
+  });
+  it('round trips through the stored state', () => {
+    const boosts = [{ instanceId: 'a1', readAt: 1_763_481_234_567, gold: 840 }];
+    const state = parseState(JSON.stringify({ ...base, boosts }))!;
+    expect(recallKept(keepState(state, 1_000), 2_000)!.state.boosts).toEqual(boosts);
   });
 });
 

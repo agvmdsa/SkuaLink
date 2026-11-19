@@ -313,7 +313,7 @@ describe('PushController other actions', () => {
     await r.controller.refresh();
     expect(r.controller.model.state!.subscribed).toBe(shownOn);
     const view = pushBlockView(r.controller.model);
-    expect(all(view).filter((n) => n.tag === 'input')).toHaveLength(shownOn ? 12 : 0);
+    expect(all(view).filter((n) => n.tag === 'input')).toHaveLength(shownOn ? 13 : 0);
     expect(all(view).some((n) => n.attrs?.['data-action'] === 'push-enable')).toBe(!shownOn);
   });
   it('refresh trusts the PC when the browser cannot be asked', async () => {
@@ -372,13 +372,13 @@ describe('pushBlockView', () => {
     const idle = pushBlockView(model({ state: { subscribed: false, kinds: [], lastError: null } }));
     expect(all(idle).find((n) => n.tag === 'button')!.attrs).not.toHaveProperty('disabled');
   });
-  it('subscribed shows twelve switches, checked only for the enabled kinds', () => {
+  it('subscribed shows thirteen switches, checked only for the enabled kinds', () => {
     const v = pushBlockView(model({ state: on(['RankUp', 'ScriptError']), note: { key: 'push.testSent' } }));
     expect(all(v).find((n) => n.attrs?.role === 'group')!.attrs!['aria-label']).toBe(t('push.kinds'));
-    expect(all(v).filter((n) => n.attrs?.role === 'group')[0]!.children).toHaveLength(12);
+    expect(all(v).filter((n) => n.attrs?.role === 'group')[0]!.children).toHaveLength(13);
     expect(all(v).find((n) => n.tag === 'h3')!.text).toBe(t('push.title'));
     const inputs = all(v).filter((n) => n.tag === 'input');
-    expect(inputs).toHaveLength(12);
+    expect(inputs).toHaveLength(13);
     expect(inputs.map((i) => i.attrs!['data-value'])).toEqual([...PUSH_KINDS]);
     for (const i of inputs) {
       expect(i.attrs).toMatchObject({ type: 'checkbox', role: 'switch', 'data-action': 'push-kind' });
@@ -414,12 +414,13 @@ describe('stylesheet and catalog', () => {
     expect(css).toMatch(/#dock-settings\s*\{[^}]*overflow-y:\s*auto/);
   });
   it('declares no colour in the new rules', () => expect(css).not.toMatch(/\.push[^{]*\{[^}]*(color|background)/));
-  it('has a label for every kind and the kinds are the twelve of the PC', () => {
-    expect([...PUSH_KINDS]).toEqual(['ScriptStopped', 'ScriptError', 'SkuaDisconnected', 'CharacterKicked', 'SkuaOptionsWaiting', 'RankUp', 'HardFarmDrop', 'NoProgress', 'DyingOften', 'UpdateAvailable', 'QueueAttention', 'QueueFinished']);
+  it('has a label for every kind and the kinds are the thirteen of the PC', () => {
+    expect([...PUSH_KINDS]).toEqual(['ScriptStopped', 'ScriptError', 'SkuaDisconnected', 'CharacterKicked', 'SkuaOptionsWaiting', 'RankUp', 'HardFarmDrop', 'NoProgress', 'DyingOften', 'UpdateAvailable', 'QueueAttention', 'QueueFinished', 'BoostEnded']);
     for (const k of PUSH_KINDS) expect(en).toHaveProperty(`push.kind.${k}`);
     expect(en['push.kind.UpdateAvailable']).toBe('A SkuaLink update is available');
     expect(en['push.kind.QueueAttention']).toBe('The queue needs you');
     expect(en['push.kind.QueueFinished']).toBe('The queue finished');
+    expect(en['push.kind.BoostEnded']).toBe('A boost ended');
   });
 });
 

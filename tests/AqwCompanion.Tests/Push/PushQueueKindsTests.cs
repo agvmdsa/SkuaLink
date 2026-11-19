@@ -27,9 +27,9 @@ public class PushQueueKindsTests
     [Fact]
     public void The_two_queue_kinds_follow_the_existing_ten_in_order()
     {
-        Assert.Equal(12, PushKinds.All.Count);
+        Assert.Equal(13, PushKinds.All.Count);
         Assert.Equal("UpdateAvailable", PushKinds.All[9]);
-        Assert.Equal(["QueueAttention", "QueueFinished"], PushKinds.All.Skip(10).ToArray());
+        Assert.Equal(["QueueAttention", "QueueFinished"], PushKinds.All.Skip(10).Take(2).ToArray());
     }
 
     [Fact]

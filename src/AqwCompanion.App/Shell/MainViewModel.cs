@@ -1,3 +1,4 @@
+using AqwCompanion.App.Boosts;
 using AqwCompanion.App.Characters;
 using AqwCompanion.App.Debug;
 using AqwCompanion.App.Diagnostics;
@@ -15,7 +16,8 @@ public sealed partial class MainViewModel(
     SettingsViewModel settings,
     ISettingsDialog settingsDialog,
     DebugModeController debug,
-    QueueViewModel? queue = null)
+    QueueViewModel? queue = null,
+    BoostsViewModel? boosts = null)
 {
     public string Title { get; } = AppInfo.ProductName;
     public DiagnosticsViewModel Diagnostics { get; } = diagnostics;
@@ -26,6 +28,9 @@ public sealed partial class MainViewModel(
 
     /// <summary>The script queue card; null when the app was built without it (the card is then hidden).</summary>
     public QueueViewModel? Queue { get; } = queue;
+
+    /// <summary>The boosts card; null when the app was built without it (the card is then hidden).</summary>
+    public BoostsViewModel? Boosts { get; } = boosts;
 
     /// <summary>Opens the Settings dialog over the window.</summary>
     [RelayCommand]

@@ -56,17 +56,17 @@ public class QueueDocsTests
     }
 
     [Fact]
-    public void The_plugin_protocol_messages_and_commands_are_exactly_the_ones_that_existed_before_the_queue()
+    public void The_plugin_protocol_messages_and_commands_are_exactly_the_known_ones()
     {
         var assembly = typeof(AqwCompanion.Skua.SkuaMessage).Assembly;
         var messages = assembly.GetTypes().Where(t => t.IsSubclassOf(typeof(AqwCompanion.Skua.SkuaMessage))).Select(t => t.Name).Order(StringComparer.Ordinal).ToArray();
         var commands = assembly.GetTypes().Where(t => t.IsSubclassOf(typeof(AqwCompanion.Skua.SkuaCommand))).Select(t => t.Name).Order(StringComparer.Ordinal).ToArray();
 
         Assert.Equal(
-            ["GetOptionsCommand", "HelloMessage", "InventoryMessage", "ListScriptsCommand", "LogMessage", "ResultMessage", "SetOptionsCommand",
-             "SkuaCommand", "StartCommand", "StatusMessage", "StopCommand", "UnsupportedVersionMessage"],
+            ["GetOptionsCommand", "HelloMessage", "InventoryMessage", "ListScriptsCommand", "LogMessage", "ReloginCommand", "ResultMessage",
+             "SetOptionsCommand", "SkuaCommand", "StartCommand", "StatusMessage", "StopCommand", "UnsupportedVersionMessage", "UseBoostCommand"],
             messages);
-        Assert.Equal(["GetOptionsCommand", "ListScriptsCommand", "SetOptionsCommand", "StartCommand", "StopCommand"], commands);
+        Assert.Equal(["GetOptionsCommand", "ListScriptsCommand", "ReloginCommand", "SetOptionsCommand", "StartCommand", "StopCommand", "UseBoostCommand"], commands);
     }
 
     [Fact]

@@ -24,14 +24,14 @@ public class UpdatesCompositionTests
     }
 
     [Fact]
-    public void The_privacy_text_names_github_and_the_unchanged_forget_text_is_kept()
+    public void The_privacy_text_names_github_and_the_forget_text_names_the_boost_readings()
     {
         Assert.Contains("GitHub", SettingsViewModel.PrivacyText, StringComparison.Ordinal);
         Assert.Contains("Check for updates", SettingsViewModel.PrivacyText, StringComparison.Ordinal);
         Assert.DoesNotContain("Only three things", SettingsViewModel.PrivacyText, StringComparison.Ordinal);
         Assert.Contains("the push service of your phone's browser (Apple, Google, Mozilla or Microsoft)", SettingsViewModel.PrivacyText, StringComparison.Ordinal);
         Assert.Equal(
-            "Remove everything the app saved on this computer? Your saved characters, Skua logs, script queues and the Hard Farms list are cleared, and so is the game data saved by versions before 0.6.",
+            "Remove everything the app saved on this computer? Your saved characters, Skua logs, script queues and the Hard Farms list are cleared, the boost readings held in memory are dropped, and so is the game data saved by versions before 0.6.",
             SettingsViewModel.ForgetPromptText);
     }
 }

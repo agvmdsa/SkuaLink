@@ -1,11 +1,14 @@
 import { addMessages, t, type MessageKey } from './i18n';
 import { queueEn } from './i18n/queueEn';
 import { confirmWords, needsConfirm, parseQueues, queueApi, queueCardModel, queueFor, QueueUi, type QueueModel, type QueueWord } from './queue';
+import { boostCard, boostTap, startBoostTick } from './boostViews';
 import { isLive } from './skua';
 import type { SkuaInstance } from './types';
 import { h, mount, type VNode } from './views';
 import { addRules, pageSheet } from './cssom';
 import queueCss from './styles/queue.css?inline';
+
+export { boostCard };
 
 // The queue card of the Bot section, loaded with it as a chunk of its own: its texts, its rules and its click handling.
 
@@ -104,15 +107,17 @@ export const addQueueRules = (): void => addRules(pageSheet(), queueCss);
 /** Registers the card's texts and the one delegated click listener; returns the object that runs the commands. */
 export function startQueue(
   app: HTMLElement,
-  deps: { instance(): SkuaInstance | null; queues(): unknown; redraw(): void; onUnpaired(): void; confirm?: (words: { title: string; body: string; confirm: string }, go: () => void) => void },
+  deps: { instance(): SkuaInstance | null; queues(): unknown; boosts?(): unknown; redraw(): void; onUnpaired(): void; confirm?: (words: { title: string; body: string; confirm: string }, go: () => void) => void },
 ): QueueUi {
   addMessages(queueEn);
+  startBoostTick(deps.redraw);
   const ui = new QueueUi(queueApi, deps.redraw, deps.onUnpaired);
   app.addEventListener('click', (event) => {
-    const button = (event.target as HTMLElement).closest<HTMLElement>('[data-action^="queue-"]');
+    const button = (event.target as HTMLElement).closest<HTMLElement>('[data-action^="queue-"], [data-action^="boost-"]');
     const action = button?.getAttribute('data-action') ?? '';
     const i = deps.instance();
     if (!button || !i) return;
+    if (action.startsWith('boost-')) return boostTap(action, button.getAttribute('data-item'), i, ui, deps.boosts, deps.confirm ?? openConfirm);
     if (Object.hasOwn(WORDS, action)) {
       const word = WORDS[action]!;
       const instanceId = i.instanceId;

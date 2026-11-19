@@ -2,6 +2,7 @@ using System.Threading.Channels;
 using AqwCompanion.Core.Feed;
 using AqwCompanion.Phone.Characters;
 using AqwCompanion.Phone.Notices;
+using AqwCompanion.Phone.Boosts;
 using AqwCompanion.Phone.Queue;
 using AqwCompanion.Phone.Skua;
 
@@ -41,6 +42,7 @@ public sealed class PhoneHub : IDisposable
     private readonly IHardFarmsCheck? _hardFarms;
     private readonly INoticeSink? _notices;
     private readonly ISkuaQueues? _queues;
+    private readonly ISkuaBoosts? _boosts;
     private readonly object _lock = new();
     private readonly List<HubSubscription> _subscribers = [];
     private FeedSnapshot _snapshot;
@@ -49,9 +51,10 @@ public sealed class PhoneHub : IDisposable
     public PhoneHub(
         IFeedSource source, NoticeEngine engine, NoticeLog log, Func<DateTimeOffset> now, Action<Exception>? onError = null, ISkuaFeed? skua = null,
         CharacterBook? characters = null, IHardFarmsCheck? hardFarms = null, INoticeSink? notices = null,
-        ISkuaQueues? queues = null)
+        ISkuaQueues? queues = null, ISkuaBoosts? boosts = null)
     {
         _queues = queues;
+        _boosts = boosts;
         _notices = notices;
         _source = source;
         _engine = engine;
@@ -79,6 +82,11 @@ public sealed class PhoneHub : IDisposable
         if (queues is not null)
         {
             queues.Changed += OnCharactersChanged;
+        }
+
+        if (boosts is not null)
+        {
+            boosts.Changed += OnCharactersChanged;
         }
 
         source.Changed += OnSourceChanged;   // before the read: a change in between is not lost, an equal one is skipped
@@ -207,6 +215,11 @@ public sealed class PhoneHub : IDisposable
             _queues.Changed -= OnCharactersChanged;
         }
 
+        if (_boosts is not null)
+        {
+            _boosts.Changed -= OnCharactersChanged;
+        }
+
         lock (_lock)
         {
             foreach (var subscriber in _subscribers.ToList())
@@ -329,7 +342,27 @@ public sealed class PhoneHub : IDisposable
         new(
             _snapshot, _log.Recent, skua?.Primary, skua is null ? null : SkuaInstanceState.From(skua),
             _characters is null ? null : PhoneCharacters.Build(_characters.All, skua ?? SkuaHubView.Empty, _hardFarms),
-            _queues?.Views);
+            _queues?.Views,
+            SupportedBoosts());
+
+    /// <summary>Under the lock: the supported boost views; a failing feed is reported and leaves the field out, never the whole state.</summary>
+    private IReadOnlyList<BoostView>? SupportedBoosts()
+    {
+        if (_boosts is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            return [.. _boosts.Views.Where(v => v.Supported)];
+        }
+        catch (Exception ex)
+        {
+            Report(ex);
+            return null;
+        }
+    }
 
     /// <summary>Under the lock: the Skua instances as they are now raise no notice (a Skua already disconnected is not announced).</summary>
     private void SkuaBaseline()

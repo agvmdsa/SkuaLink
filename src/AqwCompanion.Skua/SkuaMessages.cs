@@ -58,6 +58,34 @@ public sealed record SkuaInventory(string? Character, IReadOnlyList<string> Read
     }
 }
 
+/// <summary>A boost item of the bag: <paramref name="Type"/> is one of <see cref="SkuaProtocol.BoostTypes"/>.</summary>
+public sealed record SkuaBoostItem(int ItemId, string Name, string Type, int Quantity);
+
+/// <summary>
+/// The boosts as the plugin reads them (the status' <c>boosts</c>; absent from an older plugin). Each of the four numbers is the seconds
+/// left as of <paramref name="ReadAt"/> (unix ms): 0 inactive, <see cref="SkuaProtocol.BoostTimeUnknown"/> active with the elapsed
+/// time unknown, otherwise the seconds. <paramref name="Items"/> are the boost items of the bag (at most
+/// <see cref="SkuaProtocol.MaxBoostItems"/>); null when not reported. Equal by content.
+/// </summary>
+public sealed record SkuaBoosts(int Gold, int Class, int Rep, int Xp, long ReadAt, IReadOnlyList<SkuaBoostItem>? Items = null)
+{
+    public bool Equals(SkuaBoosts? other) =>
+        other is not null && Gold == other.Gold && Class == other.Class && Rep == other.Rep && Xp == other.Xp && ReadAt == other.ReadAt
+        && SkuaLists.Same(Items, other.Items);
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(Gold);
+        hash.Add(Class);
+        hash.Add(Rep);
+        hash.Add(Xp);
+        hash.Add(ReadAt);
+        SkuaLists.Add(ref hash, Items);
+        return hash.ToHashCode();
+    }
+}
+
 /// <summary>
 /// What Skua is doing. <paramref name="Quests"/> null means "this plugin does not report quests" (an older plugin);
 /// an empty list means "no active quests". <paramref name="Factions"/> follows the same rule for the reputation. Two
@@ -65,12 +93,12 @@ public sealed record SkuaInventory(string? Character, IReadOnlyList<string> Read
 /// <paramref name="Control"/> is one of <see cref="SkuaProtocol.ControlStates"/>, or null when not reported (an older
 /// plugin); <paramref name="SettleSecondsLeft"/> is the settle countdown, only while settling; <paramref name="OptionsStuck"/>
 /// says the plugin could not close a script's options window on the PC. <paramref name="Profile"/> is the character's
-/// numbers, null when not reported.
+/// numbers, null when not reported. <paramref name="Boosts"/> is null when not reported.
 /// </summary>
 public sealed record SkuaStatus(
     bool LoggedIn, string? Character, string? Server, string? Map, string? Script, bool ScriptRunning, DateTimeOffset? RunningSince,
     IReadOnlyList<SkuaQuest>? Quests = null, IReadOnlyList<SkuaFaction>? Factions = null,
-    string? Control = null, int? SettleSecondsLeft = null, bool OptionsStuck = false, SkuaProfile? Profile = null)
+    string? Control = null, int? SettleSecondsLeft = null, bool OptionsStuck = false, SkuaProfile? Profile = null, SkuaBoosts? Boosts = null)
 {
     public bool Equals(SkuaStatus? other) =>
         other is not null
@@ -86,7 +114,8 @@ public sealed record SkuaStatus(
         && Control == other.Control
         && SettleSecondsLeft == other.SettleSecondsLeft
         && OptionsStuck == other.OptionsStuck
-        && Profile == other.Profile;
+        && Profile == other.Profile
+        && Boosts == other.Boosts;
 
     public override int GetHashCode()
     {
@@ -104,6 +133,7 @@ public sealed record SkuaStatus(
         hash.Add(SettleSecondsLeft);
         hash.Add(OptionsStuck);
         hash.Add(Profile);
+        hash.Add(Boosts);
         return hash.ToHashCode();
     }
 }

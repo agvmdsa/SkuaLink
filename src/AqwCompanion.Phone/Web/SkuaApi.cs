@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using AqwCompanion.Phone.Boosts;
 using AqwCompanion.Phone.Queue;
 using AqwCompanion.Phone.Skua;
 using AqwCompanion.Skua;
@@ -15,6 +16,9 @@ namespace AqwCompanion.Phone.Web;
 /// <see cref="MaxOptionsBody"/>) and the body (400), the script id (400, only <c>[0-9a-f]{16}</c>), the instance (404 unknown,
 /// 409 disconnected), one state-changing command per instance at a time (409 <c>busy</c>), then the command: no answer in time is 504 <c>Skua did not answer</c>, a refusal by the plugin is 400
 /// with the plugin's text. Every error body is <c>{"error":"..."}</c>.
+/// The boost routes (<c>POST .../boosts/use</c> with <c>{"itemId":N}</c>, <c>POST .../relogin</c>; 404 without a boost service)
+/// pass through the same checks and the same gate, but every refusal, the plugin's too, is 409 with the PC's text. The item id
+/// comes from the plugin's own list only: the boost service refuses an id that is not in the instance's current boost list.
 /// </summary>
 /// <remarks>
 /// Option values: the phone sees and sends them as the plugin's definitions describe them (doubles invariant, enum members as
@@ -24,7 +28,7 @@ namespace AqwCompanion.Phone.Web;
 /// plugin then writes the text as it is). Types are checked here from the definitions (the plugin's, else the cached ones);
 /// a plugin without definitions checks only that the names are in the file.
 /// </remarks>
-public sealed class SkuaApi(ISkuaFeed feed, ISkuaCommandChannel channel, SkuaScriptPrefs prefs, SkuaOptionCache cache, CultureInfo? fileCulture = null, ISkuaQueues? queues = null)
+public sealed class SkuaApi(ISkuaFeed feed, ISkuaCommandChannel channel, SkuaScriptPrefs prefs, SkuaOptionCache cache, CultureInfo? fileCulture = null, ISkuaQueues? queues = null, ISkuaBoosts? boosts = null)
 {
     public const string Prefix = "/api/skua";
 
@@ -82,6 +86,8 @@ public sealed class SkuaApi(ISkuaFeed feed, ISkuaCommandChannel channel, SkuaScr
             [_, "stop"] => Route.Stop,
             [_, "queue"] => Route.Queue,
             [_, "queue", var word] when QueueWords.Contains(word) => Route.QueueCommand,
+            [_, "boosts", "use"] => Route.BoostUse,
+            [_, "relogin"] => Route.Relogin,
             _ => Route.None,
         };
         if (route == Route.None)
@@ -106,11 +112,16 @@ public sealed class SkuaApi(ISkuaFeed feed, ISkuaCommandChannel channel, SkuaScr
             return PhoneHandler.Error(404, "not found");
         }
 
+        if (route is Route.BoostUse or Route.Relogin && boosts is null)
+        {
+            return PhoneHandler.Error(404, "not found");
+        }
+
         JsonElement? body = null;
         if (method is "POST" or "PUT")
         {
             var cap = route switch { Route.Options => MaxOptionsBody, Route.Queue => MaxQueueBody, _ => MaxBody };
-            if (Body(request, cap, optional: route is Route.Stop or Route.QueueCommand, out body) is { } refused)
+            if (Body(request, cap, optional: route is Route.Stop or Route.QueueCommand or Route.Relogin, out body) is { } refused)
             {
                 return refused;
             }
@@ -132,6 +143,8 @@ public sealed class SkuaApi(ISkuaFeed feed, ISkuaCommandChannel channel, SkuaScr
             (Route.Queue, "GET") => QueueGet(instanceId),
             (Route.Queue, _) => await GatedAsync(instanceId, () => QueuePutAsync(instanceId, body!.Value, ct)).ConfigureAwait(false),
             (Route.QueueCommand, _) => QueueCommand(instanceId, parts[2]),
+            (Route.BoostUse, _) => await GatedAsync(instanceId, () => BoostUseAsync(instanceId, body!.Value, ct)).ConfigureAwait(false),
+            (Route.Relogin, _) => await GatedAsync(instanceId, () => ReloginAsync(instanceId, ct)).ConfigureAwait(false),
             (Route.Start, _) => await GatedAsync(instanceId, () => StartAsync(instanceId, body!.Value, ct)).ConfigureAwait(false),
             _ => await GatedAsync(instanceId, () => StopAsync(instanceId, ct)).ConfigureAwait(false),
         };
@@ -369,6 +382,35 @@ public sealed class SkuaApi(ISkuaFeed feed, ISkuaCommandChannel channel, SkuaScr
         return Answer(character!, queues.Replace(character!, steps, revision));
     }
 
+    /// <summary>
+    /// <c>POST .../boosts/use</c>: the id is a whole JSON number 1..2,147,483,647 and nothing else of the body is read. The id is
+    /// only a request: the boost service refuses one that is not in the instance's current boost list, so an id the client
+    /// invents never reaches the plugin.
+    /// </summary>
+    private async Task<PhoneResponse> BoostUseAsync(string instanceId, JsonElement body, CancellationToken ct)
+    {
+        if (Lookup(instanceId) is { } missing)
+        {
+            return missing;
+        }
+
+        if (!body.TryGetProperty("itemId", out var element) || element.ValueKind != JsonValueKind.Number || !element.TryGetInt32(out var itemId) || itemId <= 0)
+        {
+            return PhoneHandler.Error(400, InvalidBody);
+        }
+
+        return BoostAnswer(await boosts!.UseAsync(instanceId, itemId, ct).ConfigureAwait(false));
+    }
+
+    /// <summary><c>POST .../relogin</c>: the body (empty or an object) is never read.</summary>
+    private async Task<PhoneResponse> ReloginAsync(string instanceId, CancellationToken ct) =>
+        Lookup(instanceId) is { } missing ? missing : BoostAnswer(await boosts!.ReloginAsync(instanceId, ct).ConfigureAwait(false));
+
+    private static PhoneResponse BoostAnswer(BoostResult result) =>
+        result.Ok ? Json(JsonSerializer.Serialize(new SkuaOkBody(true), SkuaApiJson.Default.SkuaOkBody))
+        : result.NoAnswer ? PhoneHandler.Error(504, NoAnswer)
+        : PhoneHandler.Error(409, string.IsNullOrWhiteSpace(result.Error) ? Refused : result.Error);
+
     private PhoneResponse Answer(string character, QueueResult result) =>
         result.Ok ? QueueJson(queues!.Find(character) ?? QueueView.Empty(character)) : PhoneHandler.Error(409, result.Error ?? Refused);
 
@@ -599,7 +641,7 @@ public sealed class SkuaApi(ISkuaFeed feed, ISkuaCommandChannel channel, SkuaScr
 
     private static PhoneResponse Json(string json) => PhoneHandler.Json(200, json);
 
-    private enum Route { None, Scripts, Options, Prefs, Start, Stop, Queue, QueueCommand }
+    private enum Route { None, Scripts, Options, Prefs, Start, Stop, Queue, QueueCommand, BoostUse, Relogin }
 }
 
 /// <summary>Answer of <c>GET /api/skua</c>.</summary>

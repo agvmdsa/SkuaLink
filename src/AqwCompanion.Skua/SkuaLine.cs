@@ -36,6 +36,11 @@ public static class SkuaLine
                     line = Shrink(message, ref limits, max, Math.Min(status.Quests?.Count ?? 0, SkuaProtocol.MaxQuests), (l, n) => l with { Quests = n });
                 }
 
+                if (!Fits(line, max))
+                {
+                    line = Shrink(message, ref limits, max, Math.Min(status.Boosts?.Items?.Count ?? 0, SkuaProtocol.MaxBoostItems), (l, n) => l with { BoostItems = n });
+                }
+
                 break;
             case ResultMessage result:
                 line = Shrink(message, ref limits, max, Math.Min(result.Scripts?.Count ?? 0, SkuaProtocol.MaxScripts), (l, n) => l with { Scripts = n });
@@ -64,9 +69,9 @@ public static class SkuaLine
     }
 
     /// <summary>How many entries of each list are written at most (on top of the protocol caps).</summary>
-    private readonly record struct Limits(int Quests, int Factions, int Scripts, int Defs, int Values, int Items)
+    private readonly record struct Limits(int Quests, int Factions, int Scripts, int Defs, int Values, int Items, int BoostItems)
     {
-        public static readonly Limits All = new(int.MaxValue, int.MaxValue, int.MaxValue, int.MaxValue, int.MaxValue, int.MaxValue);
+        public static readonly Limits All = new(int.MaxValue, int.MaxValue, int.MaxValue, int.MaxValue, int.MaxValue, int.MaxValue, int.MaxValue);
     }
 
     private static bool Fits(string line, int max) => Encoding.UTF8.GetByteCount(line) <= max;
@@ -185,6 +190,11 @@ public static class SkuaLine
                         WriteProfile(w, p);
                     }
 
+                    if (s.Status.Boosts is { } boosts)
+                    {
+                        WriteBoosts(w, boosts, limits);
+                    }
+
                     break;
                 case InventoryMessage i:
                     WriteInventory(w, i.Inventory, limits);
@@ -224,6 +234,15 @@ public static class SkuaLine
                     w.WriteString("type", "stop");
                     w.WriteString("reqId", Cut(c.ReqId));
                     break;
+                case UseBoostCommand c:
+                    w.WriteString("type", "useBoost");
+                    w.WriteString("reqId", Cut(c.ReqId));
+                    w.WriteNumber("itemId", c.ItemId);
+                    break;
+                case ReloginCommand c:
+                    w.WriteString("type", "relogin");
+                    w.WriteString("reqId", Cut(c.ReqId));
+                    break;
                 case ResultMessage r:
                     WriteResult(w, r, limits);
                     break;
@@ -236,6 +255,48 @@ public static class SkuaLine
 
         return Encoding.UTF8.GetString(stream.ToArray());
     }
+
+    private static void WriteBoosts(Utf8JsonWriter w, SkuaBoosts boosts, Limits limits)
+    {
+        w.WriteStartObject("boosts");
+        w.WriteNumber("gold", BoostLevel(boosts.Gold));
+        w.WriteNumber("class", BoostLevel(boosts.Class));
+        w.WriteNumber("rep", BoostLevel(boosts.Rep));
+        w.WriteNumber("xp", BoostLevel(boosts.Xp));
+        w.WriteNumber("readAt", Math.Max(0, boosts.ReadAt));
+        if (boosts.Items is { } items)
+        {
+            w.WriteStartArray("items");
+            var written = 0;
+            foreach (var item in items)
+            {
+                var name = Cut(item.Name, SkuaProtocol.MaxBoostNameLength);
+                if (item.ItemId <= 0 || string.IsNullOrWhiteSpace(name))
+                {
+                    continue;
+                }
+
+                if (written >= Math.Min(limits.BoostItems, SkuaProtocol.MaxBoostItems))
+                {
+                    break;
+                }
+
+                written++;
+                w.WriteStartObject();
+                w.WriteNumber("itemId", item.ItemId);
+                w.WriteString("name", name);
+                w.WriteString("type", SkuaProtocol.BoostTypes.Contains(item.Type) ? item.Type : "unknown");
+                w.WriteNumber("quantity", Math.Max(0, item.Quantity));
+                w.WriteEndObject();
+            }
+
+            w.WriteEndArray();
+        }
+
+        w.WriteEndObject();
+    }
+
+    private static int BoostLevel(int value) => Math.Max(SkuaProtocol.BoostTimeUnknown, value);
 
     private static void WriteProfile(Utf8JsonWriter w, SkuaProfile p)
     {
@@ -449,7 +510,7 @@ public static class SkuaLine
             var type = Str(root, "type");
             if ((type is not ("result" or "inventory") && bytes > SkuaProtocol.MaxLineBytes)
                 || (type == "inventory" && bytes > SkuaProtocol.MaxInventoryLineBytes)
-                || (type is "listScripts" or "getOptions" or "setOptions" or "start" or "stop" && bytes > SkuaProtocol.MaxCommandLineBytes))
+                || (type is "listScripts" or "getOptions" or "setOptions" or "start" or "stop" or "useBoost" or "relogin" && bytes > SkuaProtocol.MaxCommandLineBytes))
             {
                 return null;
             }
@@ -468,6 +529,8 @@ public static class SkuaLine
                     : null,
                 "start" => NonEmpty(root, "reqId") is { } reqId && NonEmpty(root, "id") is { } id ? new StartCommand(reqId, id) : null,
                 "stop" => NonEmpty(root, "reqId") is { } reqId ? new StopCommand(reqId) : null,
+                "useBoost" => NonEmpty(root, "reqId") is { } reqId && Count(root, "itemId") is { } itemId && itemId > 0 ? new UseBoostCommand(reqId, itemId) : null,
+                "relogin" => NonEmpty(root, "reqId") is { } reqId ? new ReloginCommand(reqId) : null,
                 "result" => ParseResult(root),
                 "inventory" => ParseInventory(root),
                 _ => null,
@@ -522,7 +585,8 @@ public static class SkuaLine
             control is not null && SkuaProtocol.ControlStates.Contains(control) ? control : null,
             Count(root, "settleSecondsLeft"),
             IsTrue(root, "optionsStuck"),
-            Optional(() => ParseProfile(root))));
+            Optional(() => ParseProfile(root)),
+            Optional(() => ParseBoosts(root))));
     }
 
     /// <summary>
@@ -543,6 +607,34 @@ public static class SkuaLine
             level, xp, toLevel, gold, coins, rank, member.GetBoolean(),
             OptionalText(p, "className", SkuaProtocol.MaxTextLength), Count(p, "classId"), Count(p, "classPoints"),
             OptionalText(p, "guild", SkuaProtocol.MaxTextLength), Count(p, "bagSlots"), Count(p, "bankSlots"), Count(p, "houseSlots"));
+    }
+
+    /// <summary>The boosts, or null when absent or damaged (a value below -1 or not a whole number, or no readAt): only the boosts are lost, never the status.</summary>
+    private static SkuaBoosts? ParseBoosts(JsonElement root)
+    {
+        if (!root.TryGetProperty("boosts", out var b) || b.ValueKind != JsonValueKind.Object
+            || BoostValue(b, "gold") is not { } gold || BoostValue(b, "class") is not { } cls
+            || BoostValue(b, "rep") is not { } rep || BoostValue(b, "xp") is not { } xp || Whole(b, "readAt") is not { } readAt)
+        {
+            return null;
+        }
+
+        return new SkuaBoosts(gold, cls, rep, xp, readAt, ParseList(b, "items", SkuaProtocol.MaxBoostItems, ParseBoostItem));
+    }
+
+    /// <summary>A whole number from -1 (<see cref="SkuaProtocol.BoostTimeUnknown"/>) to the int32 maximum, or null.</summary>
+    private static int? BoostValue(JsonElement entry, string name) =>
+        entry.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.Number && p.TryGetInt32(out var value) && value >= SkuaProtocol.BoostTimeUnknown ? value : null;
+
+    private static SkuaBoostItem? ParseBoostItem(JsonElement entry)
+    {
+        if (entry.ValueKind != JsonValueKind.Object || Count(entry, "itemId") is not { } id || id <= 0 || NonEmpty(entry, "name") is not { } name || Count(entry, "quantity") is not { } quantity)
+        {
+            return null;
+        }
+
+        var type = Str(entry, "type");
+        return new SkuaBoostItem(id, Cut(name, SkuaProtocol.MaxBoostNameLength), type is not null && SkuaProtocol.BoostTypes.Contains(type) ? type : "unknown", quantity);
     }
 
     /// <summary>A whole number from 0 to <see cref="long.MaxValue"/>, or null.</summary>

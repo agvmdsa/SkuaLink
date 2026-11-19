@@ -15,6 +15,7 @@
     <None Update="Phone\tailscale-status-*.json" CopyToOutputDirectory="PreserveNewest" />
     <None Update="Skua\fixtures\*.json" CopyToOutputDirectory="PreserveNewest" />
     <None Update="Push\fixtures\*.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="Phone\fixtures\*.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup>
     <Using Include="Xunit" />

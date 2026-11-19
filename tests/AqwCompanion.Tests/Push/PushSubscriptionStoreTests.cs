@@ -271,10 +271,10 @@ public class PushSubscriptionStoreTests
     }
 
     [Fact]
-    public void All_is_the_twelve_kinds_in_order()
+    public void All_is_the_thirteen_kinds_in_order()
     {
         Assert.Equal(
-            ["ScriptStopped", "ScriptError", "SkuaDisconnected", "CharacterKicked", "SkuaOptionsWaiting", "RankUp", "HardFarmDrop", "NoProgress", "DyingOften", "UpdateAvailable", "QueueAttention", "QueueFinished"],
+            ["ScriptStopped", "ScriptError", "SkuaDisconnected", "CharacterKicked", "SkuaOptionsWaiting", "RankUp", "HardFarmDrop", "NoProgress", "DyingOften", "UpdateAvailable", "QueueAttention", "QueueFinished", "BoostEnded"],
             PushKinds.All);
     }
 

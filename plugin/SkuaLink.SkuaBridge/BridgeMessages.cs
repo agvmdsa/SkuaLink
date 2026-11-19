@@ -18,7 +18,7 @@ internal static class BridgeMessages
     public static SkuaStatus Status(
         bool loggedIn, string? username, string? server, string? map, string? loadedScriptPath, bool running, DateTimeOffset? runningSince,
         IReadOnlyList<SkuaQuest>? quests, IReadOnlyList<SkuaFaction>? factions,
-        string? control = null, int? settleSecondsLeft = null, bool optionsStuck = false, SkuaProfile? profile = null) =>
+        string? control = null, int? settleSecondsLeft = null, bool optionsStuck = false, SkuaProfile? profile = null, SkuaBoosts? boosts = null) =>
         new(
             loggedIn,
             loggedIn ? Blank(username) : null,
@@ -32,7 +32,8 @@ internal static class BridgeMessages
             control,
             control == "settling" ? settleSecondsLeft : null,
             optionsStuck,
-            loggedIn ? profile : null);
+            loggedIn ? profile : null,
+            loggedIn ? boosts : null);
 
     /// <summary>
     /// How many were bought: the quantity now minus the quantity in the snapshot taken before, when positive; otherwise
