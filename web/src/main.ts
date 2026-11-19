@@ -97,7 +97,7 @@ function loadQueue(): void {
   import('./queueViews')
     .then((loaded) => {
       loaded.addQueueRules();
-      queueControl = loaded.startQueue(app, { instance: routeInstance, queues: () => state?.queues, redraw: draw, onUnpaired: () => becomeUnpaired() });
+      queueControl = loaded.startQueue(app, { instance: routeInstance, queues: () => state?.queues, boosts: () => state?.boosts, redraw: draw, onUnpaired: () => becomeUnpaired() });
       queueModule = loaded;
       draw();
     })
@@ -232,12 +232,13 @@ function tree(): VNode {
   const shown = ui && control ? { draw: ui.controlCard, control } : null;
   const controlCard = shown ? (i: SkuaInstance) => shown.draw(i, shown.control, nowMs) : undefined;
   const loaded = bot;
-  const queued = queueModule && queueControl ? { draw: queueModule.queueCard, queue: queueControl } : null;
+  const queued = queueModule && queueControl ? { draw: queueModule.queueCard, boost: queueModule.boostCard, queue: queueControl } : null;
   const queueCard = queued ? (i: SkuaInstance) => queued.draw(i, queued.queue, state?.queues, nowMs) : undefined;
+  const boostCard = queued ? (i: SkuaInstance) => queued.boost(i, queued.queue, state?.boosts, nowMs) : undefined;
   const model: Model = {
     state: state && { ...state, notices }, nowMs, showAll, hfOpen, installHint, theme,
     sectionOf: (n) => sections.get(n) ?? 'overview', botFailed,
-    botSection: loaded ? (_c, i) => loaded.botSection(i, { nowMs, skuaFilter, controlCard, queueCard }) : undefined,
+    botSection: loaded ? (_c, i) => loaded.botSection(i, { nowMs, skuaFilter, controlCard, queueCard, boostCard }) : undefined,
   };
   // The Appearance choice lives in the dock's Settings panel; the Not paired screen has no dock, so it keeps it as a footer.
   if (unpaired) return withFooter(pairNeededView(pairReason, installHint), model);

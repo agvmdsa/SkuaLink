@@ -8,14 +8,14 @@ import { gzipSync } from 'node:zlib';
 // strict on three counts:
 // - the first load (index.html, the scripts and modulepreloads it names, stylesheets, the manifest and sw.js) stays within 60 KB;
 // - each script loaded later (any other script in assets/) stays within 20 KB;
-// - everything built together stays within 120 KB (the owner raised the total from 80 KB on 2026-11-14, approved raising it from 96 to 100 KB on 2026-11-16 for the push notifications, and approved raising it from 100 to 120 KB on 2026-11-18 for the script queue (its card and its editor are chunks loaded later)).
+// - everything built together stays within 121 KB (the owner raised the total from 80 KB on 2026-11-14, approved raising it from 96 to 100 KB on 2026-11-16 for the push notifications, and approved raising it from 100 to 120 KB on 2026-11-18 for the script queue (its card and its editor are chunks loaded later), and approved raising it from 120 to 121 KB on 2026-11-18 for the boosts card).
 // Icons are left out of all three: images are cached by the service worker and are not on the critical path.
 // Usage: node scripts/check-budget.mjs [dist folder]; the default is ../dist next to this script.
 
 const dist = process.argv[2] ? resolve(process.argv[2]) : fileURLToPath(new URL('../dist/', import.meta.url));
 const BUDGET = 60 * 1024;
 const LAZY_BUDGET = 20 * 1024;
-const TOTAL_BUDGET = 120 * 1024;
+const TOTAL_BUDGET = 121 * 1024;
 
 function walk(dir) {
   return readdirSync(dir).flatMap((name) => {
