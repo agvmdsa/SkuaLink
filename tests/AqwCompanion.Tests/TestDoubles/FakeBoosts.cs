@@ -21,6 +21,9 @@ public sealed class FakeBoosts : ISkuaBoosts
     /// <summary>When set, <see cref="UseAsync"/> waits for it (the call is recorded first).</summary>
     public Task? UseHold { get; set; }
 
+    /// <summary>When set, <see cref="ReloginAsync"/> waits for it (the call is recorded first).</summary>
+    public Task? ReloginHold { get; set; }
+
     public bool ThrowOnUse { get; set; }
 
     public int SubscriberCount => _changed?.GetInvocationList().Length ?? 0;
@@ -46,10 +49,15 @@ public sealed class FakeBoosts : ISkuaBoosts
         return ThrowOnUse ? throw new InvalidOperationException("use") : UseResult;
     }
 
-    public Task<BoostResult> ReloginAsync(string instanceId, CancellationToken ct = default)
+    public async Task<BoostResult> ReloginAsync(string instanceId, CancellationToken ct = default)
     {
         Relogged.Add(instanceId);
-        return Task.FromResult(ReloginResult);
+        if (ReloginHold is { } hold)
+        {
+            await hold;
+        }
+
+        return ReloginResult;
     }
 
     public void Raise() => _changed?.Invoke(this, EventArgs.Empty);
