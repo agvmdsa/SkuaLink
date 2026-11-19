@@ -18,6 +18,11 @@ public sealed class FakeBoosts : ISkuaBoosts
 
     public bool ThrowOnViews { get; set; }
 
+    /// <summary>When set, <see cref="UseAsync"/> waits for it (the call is recorded first).</summary>
+    public Task? UseHold { get; set; }
+
+    public bool ThrowOnUse { get; set; }
+
     public int SubscriberCount => _changed?.GetInvocationList().Length ?? 0;
 
     public IReadOnlyList<BoostView> Views => ThrowOnViews ? throw new InvalidOperationException("views") : [.. Items];
@@ -30,10 +35,15 @@ public sealed class FakeBoosts : ISkuaBoosts
 
     public BoostView? Find(string instanceId) => Items.FirstOrDefault(v => v.InstanceId == instanceId);
 
-    public Task<BoostResult> UseAsync(string instanceId, int itemId, CancellationToken ct = default)
+    public async Task<BoostResult> UseAsync(string instanceId, int itemId, CancellationToken ct = default)
     {
         Used.Add((instanceId, itemId));
-        return Task.FromResult(UseResult);
+        if (UseHold is { } hold)
+        {
+            await hold;
+        }
+
+        return ThrowOnUse ? throw new InvalidOperationException("use") : UseResult;
     }
 
     public Task<BoostResult> ReloginAsync(string instanceId, CancellationToken ct = default)
