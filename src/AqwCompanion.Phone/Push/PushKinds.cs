@@ -7,7 +7,7 @@ public static class PushKinds
     [
         "ScriptStopped", "ScriptError", "SkuaDisconnected", "CharacterKicked", "SkuaOptionsWaiting",
         "RankUp", "HardFarmDrop", "NoProgress", "DyingOften", "UpdateAvailable",
-        "QueueAttention", "QueueFinished",
+        "QueueAttention", "QueueFinished", "BoostEnded",
     ];
 
     private static readonly HashSet<string> Known = new(Names, StringComparer.Ordinal);
