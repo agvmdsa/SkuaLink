@@ -4,6 +4,7 @@
              xmlns:ch="using:AqwCompanion.App.Characters"
              xmlns:hf="using:AqwCompanion.App.HardFarms"
              xmlns:q="using:AqwCompanion.App.Queue"
+             xmlns:boost="using:AqwCompanion.App.Boosts"
              x:Class="AqwCompanion.App.Dashboard.DashboardView"
              x:DataType="shell:MainViewModel">
   <UserControl.Styles>
@@ -119,54 +120,108 @@
       </Grid>
     </Border>
 
-    <!-- The script queue of the selected character: state, progress, steps and the five controls, plus the editor. -->
-    <Border x:Name="DashboardQueueCard" Grid.Row="2" Grid.ColumnSpan="2" Classes="card" Margin="0,12,0,0"
-            IsVisible="{Binding Queue, Converter={x:Static ObjectConverters.IsNotNull}}">
-      <StackPanel DataContext="{Binding Queue}" x:DataType="q:QueueViewModel">
-        <Border Classes="cardHeader">
-          <TextBlock Text="{x:Static q:QueueViewModel.TitleText}" Classes="cardTitle" />
-        </Border>
-        <StackPanel Margin="14,8,14,10" Spacing="6">
-          <TextBlock x:Name="QueueStateText" Text="{Binding StateText}" FontWeight="SemiBold" Foreground="{DynamicResource AqwTextBright}"
-                     AutomationProperties.Name="{Binding StateText}" />
-          <TextBlock x:Name="QueueProgressText" Text="{Binding ProgressText}" Classes="muted" IsVisible="{Binding HasProgress}"
-                     AutomationProperties.Name="{Binding ProgressText}" />
-          <TextBlock x:Name="QueueReasonText" Text="{Binding ReasonText}" TextWrapping="Wrap" IsVisible="{Binding HasReason}"
-                     AutomationProperties.Name="{Binding ReasonText}" />
-          <TextBlock x:Name="QueueNoticeText" Text="{Binding NoticeText}" TextWrapping="Wrap" Classes="muted"
-                     IsVisible="{Binding HasNotice}" AutomationProperties.Name="{Binding NoticeText}" />
-          <TextBlock x:Name="QueueErrorText" Text="{Binding ErrorText}" TextWrapping="Wrap" Foreground="{DynamicResource AqwDangerText}"
-                     IsVisible="{Binding HasError}" AutomationProperties.Name="{Binding ErrorText}" />
-          <TextBlock x:Name="QueueEmptyText" Text="{Binding EmptyStateText}" TextWrapping="Wrap" Classes="muted"
-                     IsVisible="{Binding HasEmptyState}" AutomationProperties.Name="{Binding EmptyStateText}" />
-          <ScrollViewer x:Name="QueueStepsScroll" MaxHeight="140" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
-            <ItemsControl x:Name="QueueSteps" ItemsSource="{Binding Steps}" AutomationProperties.Name="{x:Static q:QueueViewModel.StepsAutomation}">
-              <ItemsControl.ItemTemplate>
-                <DataTemplate x:DataType="q:QueueStepRow">
-                  <Grid ColumnDefinitions="18,*" Margin="0,2">
-                    <TextBlock Text="{Binding Marker}" FontWeight="Bold" Foreground="{DynamicResource AqwTextBright}" />
-                    <TextBlock Grid.Column="1" Text="{Binding Text}" TextWrapping="Wrap" AutomationProperties.Name="{Binding Text}" />
-                  </Grid>
-                </DataTemplate>
-              </ItemsControl.ItemTemplate>
-            </ItemsControl>
-          </ScrollViewer>
-          <WrapPanel Margin="0,4,0,0">
-            <Button x:Name="QueueStartButton" Content="{x:Static q:QueueViewModel.StartText}" Command="{Binding StartCommand}" Margin="0,0,8,0"
-                    AutomationProperties.Name="{x:Static q:QueueViewModel.StartText}" />
-            <Button x:Name="QueuePauseButton" Content="{x:Static q:QueueViewModel.PauseText}" Command="{Binding PauseCommand}" Margin="0,0,8,0"
-                    AutomationProperties.Name="{x:Static q:QueueViewModel.PauseText}" />
-            <Button x:Name="QueueContinueButton" Content="{x:Static q:QueueViewModel.ContinueText}" Command="{Binding ContinueCommand}" Margin="0,0,8,0"
-                    AutomationProperties.Name="{x:Static q:QueueViewModel.ContinueText}" />
-            <Button x:Name="QueueSkipButton" Content="{x:Static q:QueueViewModel.SkipText}" Command="{Binding SkipCommand}" Margin="0,0,8,0"
-                    AutomationProperties.Name="{x:Static q:QueueViewModel.SkipText}" />
-            <Button x:Name="QueueStopButton" Content="{x:Static q:QueueViewModel.StopText}" Command="{Binding StopCommand}" Margin="0,0,8,0"
-                    AutomationProperties.Name="{x:Static q:QueueViewModel.StopText}" />
-            <Button x:Name="QueueEditButton" Content="{x:Static q:QueueViewModel.EditText}" Command="{Binding EditCommand}"
-                    AutomationProperties.Name="{x:Static q:QueueViewModel.EditText}" />
-          </WrapPanel>
+    <!-- The queue card and the boosts card of the selected character, side by side. -->
+    <Grid x:Name="DashboardActionRow" Grid.Row="2" Grid.ColumnSpan="2" ColumnDefinitions="*,*" Margin="0,12,0,0">
+      <!-- The script queue of the selected character: state, progress, steps and the five controls, plus the editor. -->
+      <Border x:Name="DashboardQueueCard" Classes="card" Margin="0,0,6,0"
+              IsVisible="{Binding Queue, Converter={x:Static ObjectConverters.IsNotNull}}">
+        <StackPanel DataContext="{Binding Queue}" x:DataType="q:QueueViewModel">
+          <Border Classes="cardHeader">
+            <TextBlock Text="{x:Static q:QueueViewModel.TitleText}" Classes="cardTitle" />
+          </Border>
+          <StackPanel Margin="14,8,14,10" Spacing="6">
+            <TextBlock x:Name="QueueStateText" Text="{Binding StateText}" FontWeight="SemiBold" Foreground="{DynamicResource AqwTextBright}"
+                       AutomationProperties.Name="{Binding StateText}" />
+            <TextBlock x:Name="QueueProgressText" Text="{Binding ProgressText}" Classes="muted" IsVisible="{Binding HasProgress}"
+                       AutomationProperties.Name="{Binding ProgressText}" />
+            <TextBlock x:Name="QueueReasonText" Text="{Binding ReasonText}" TextWrapping="Wrap" IsVisible="{Binding HasReason}"
+                       AutomationProperties.Name="{Binding ReasonText}" />
+            <TextBlock x:Name="QueueNoticeText" Text="{Binding NoticeText}" TextWrapping="Wrap" Classes="muted"
+                       IsVisible="{Binding HasNotice}" AutomationProperties.Name="{Binding NoticeText}" />
+            <TextBlock x:Name="QueueErrorText" Text="{Binding ErrorText}" TextWrapping="Wrap" Foreground="{DynamicResource AqwDangerText}"
+                       IsVisible="{Binding HasError}" AutomationProperties.Name="{Binding ErrorText}" />
+            <TextBlock x:Name="QueueEmptyText" Text="{Binding EmptyStateText}" TextWrapping="Wrap" Classes="muted"
+                       IsVisible="{Binding HasEmptyState}" AutomationProperties.Name="{Binding EmptyStateText}" />
+            <ScrollViewer x:Name="QueueStepsScroll" MaxHeight="140" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+              <ItemsControl x:Name="QueueSteps" ItemsSource="{Binding Steps}" AutomationProperties.Name="{x:Static q:QueueViewModel.StepsAutomation}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="q:QueueStepRow">
+                    <Grid ColumnDefinitions="18,*" Margin="0,2">
+                      <TextBlock Text="{Binding Marker}" FontWeight="Bold" Foreground="{DynamicResource AqwTextBright}" />
+                      <TextBlock Grid.Column="1" Text="{Binding Text}" TextWrapping="Wrap" AutomationProperties.Name="{Binding Text}" />
+                    </Grid>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </ScrollViewer>
+            <WrapPanel Margin="0,4,0,0">
+              <Button x:Name="QueueStartButton" Content="{x:Static q:QueueViewModel.StartText}" Command="{Binding StartCommand}" Margin="0,0,8,0"
+                      AutomationProperties.Name="{x:Static q:QueueViewModel.StartText}" />
+              <Button x:Name="QueuePauseButton" Content="{x:Static q:QueueViewModel.PauseText}" Command="{Binding PauseCommand}" Margin="0,0,8,0"
+                      AutomationProperties.Name="{x:Static q:QueueViewModel.PauseText}" />
+              <Button x:Name="QueueContinueButton" Content="{x:Static q:QueueViewModel.ContinueText}" Command="{Binding ContinueCommand}" Margin="0,0,8,0"
+                      AutomationProperties.Name="{x:Static q:QueueViewModel.ContinueText}" />
+              <Button x:Name="QueueSkipButton" Content="{x:Static q:QueueViewModel.SkipText}" Command="{Binding SkipCommand}" Margin="0,0,8,0"
+                      AutomationProperties.Name="{x:Static q:QueueViewModel.SkipText}" />
+              <Button x:Name="QueueStopButton" Content="{x:Static q:QueueViewModel.StopText}" Command="{Binding StopCommand}" Margin="0,0,8,0"
+                      AutomationProperties.Name="{x:Static q:QueueViewModel.StopText}" />
+              <Button x:Name="QueueEditButton" Content="{x:Static q:QueueViewModel.EditText}" Command="{Binding EditCommand}"
+                      AutomationProperties.Name="{x:Static q:QueueViewModel.EditText}" />
+            </WrapPanel>
+          </StackPanel>
         </StackPanel>
-      </StackPanel>
-    </Border>
+      </Border>
+
+      <Border x:Name="DashboardBoostsCard" Grid.Column="1" Classes="card" Margin="6,0,0,0"
+              IsVisible="{Binding Boosts, Converter={x:Static ObjectConverters.IsNotNull}}">
+        <StackPanel DataContext="{Binding Boosts}" x:DataType="boost:BoostsViewModel" IsVisible="{Binding HasView}">
+          <Border Classes="cardHeader">
+            <TextBlock Text="{x:Static boost:BoostsViewModel.TitleText}" Classes="cardTitle" />
+          </Border>
+          <StackPanel Margin="14,8,14,10" Spacing="6">
+            <TextBlock x:Name="BoostsUpdateText" Text="{x:Static boost:BoostsViewModel.UpdateText}" TextWrapping="Wrap" Classes="muted"
+                       IsVisible="{Binding ShowUpdate}" AutomationProperties.Name="{x:Static boost:BoostsViewModel.UpdateText}" />
+            <StackPanel IsVisible="{Binding ShowBody}" Spacing="6">
+              <ItemsControl x:Name="BoostRows" ItemsSource="{Binding Rows}" AutomationProperties.Name="{x:Static boost:BoostsViewModel.RowsAutomation}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="boost:BoostRow">
+                    <TextBlock Text="{Binding Text}" Margin="0,1" AutomationProperties.Name="{Binding Text}" />
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+              <ScrollViewer x:Name="BoostItemsScroll" MaxHeight="120" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                <ItemsControl x:Name="BoostItems" ItemsSource="{Binding Items}" AutomationProperties.Name="{x:Static boost:BoostsViewModel.ItemsAutomation}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="boost:BoostItemRow">
+                      <Grid ColumnDefinitions="*,Auto" Margin="0,2">
+                        <TextBlock Text="{Binding Text}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" AutomationProperties.Name="{Binding Text}" />
+                        <Button Grid.Column="1" Content="{x:Static boost:BoostsViewModel.UseText}" Command="{Binding UseCommand}" Margin="8,0,0,0"
+                                AutomationProperties.Name="{x:Static boost:BoostsViewModel.UseText}" />
+                      </Grid>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </ScrollViewer>
+              <TextBlock x:Name="BoostNoItemsText" Text="{x:Static boost:BoostsViewModel.NoItemsText}" Classes="muted" IsVisible="{Binding ShowNoItems}" />
+              <Button x:Name="BoostReloginButton" Content="{x:Static boost:BoostsViewModel.ReloginText}" Command="{Binding ReloginCommand}"
+                      IsVisible="{Binding CanRelogin}" AutomationProperties.Name="{x:Static boost:BoostsViewModel.ReloginText}" />
+              <Border x:Name="BoostConfirmPanel" IsVisible="{Binding Confirming}" Padding="8" CornerRadius="6" Background="{DynamicResource AqwSurfaceRaised}">
+                <StackPanel Spacing="6">
+                  <TextBlock x:Name="BoostConfirmText" Text="{Binding ConfirmQuestion}" TextWrapping="Wrap" AutomationProperties.Name="{Binding ConfirmQuestion}" />
+                  <WrapPanel>
+                    <Button x:Name="BoostConfirmButton" Content="{x:Static boost:BoostsViewModel.ConfirmText}" Command="{Binding ConfirmCommand}" Margin="0,0,8,0"
+                            AutomationProperties.Name="{x:Static boost:BoostsViewModel.ConfirmText}" />
+                    <Button x:Name="BoostCancelButton" Content="{x:Static boost:BoostsViewModel.CancelText}" Command="{Binding CancelCommand}"
+                            AutomationProperties.Name="{x:Static boost:BoostsViewModel.CancelText}" />
+                  </WrapPanel>
+                </StackPanel>
+              </Border>
+              <TextBlock x:Name="BoostStatusText" Text="{Binding StatusText}" TextWrapping="Wrap" IsVisible="{Binding HasStatus}"
+                         AutomationProperties.Name="{Binding StatusText}" />
+            </StackPanel>
+          </StackPanel>
+        </StackPanel>
+      </Border>
+    </Grid>
   </Grid>
 </UserControl>

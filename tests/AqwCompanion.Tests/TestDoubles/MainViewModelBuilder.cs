@@ -1,4 +1,5 @@
 using AqwCompanion.App;
+using AqwCompanion.App.Boosts;
 using AqwCompanion.App.Characters;
 using AqwCompanion.App.Debug;
 using AqwCompanion.App.Diagnostics;
@@ -19,7 +20,8 @@ public static class MainViewModelBuilder
         MainViewModel Main, CharacterBook Book, FakeSkua Skua, FakeActiveInventory Inventory, FakeSettingsDialog Dialog,
         FakeDebugWindowHost DebugHost, FakeAppSettingsStore Settings, FakeHardFarmSync Sync, HardFarmStore Store);
 
-    public static Built Create(Action<Action>? onUiThread = null, CharacterBook? book = null, FakeSkua? skua = null, Func<CharacterBook, FakeSkua, QueueViewModel>? queue = null)
+    public static Built Create(Action<Action>? onUiThread = null, CharacterBook? book = null, FakeSkua? skua = null, Func<CharacterBook, FakeSkua, QueueViewModel>? queue = null,
+        Func<CharacterBook, FakeSkua, BoostsViewModel>? boosts = null)
     {
         book ??= new CharacterBook(new MemoryCharacterBookStore(), () => DateTimeOffset.UtcNow);
         skua ??= new FakeSkua();
@@ -38,7 +40,8 @@ public static class MainViewModelBuilder
             settings,
             dialog,
             new DebugModeController(settings, debugHost),
-            queue?.Invoke(book, skua));
+            queue?.Invoke(book, skua),
+            boosts?.Invoke(book, skua));
         return new Built(main, book, skua, inventory, dialog, debugHost, settingsStore, sync, store);
     }
 }

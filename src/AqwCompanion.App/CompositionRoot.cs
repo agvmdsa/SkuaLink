@@ -177,6 +177,8 @@ public static class CompositionRoot
         services.AddSingleton<IQueueScriptSource>(sp => new SkuaQueueScripts(sp.GetRequiredService<ISkuaFeed>(), sp.GetRequiredService<ISkuaCommandChannel>()));
         services.AddSingleton<IQueueEditorDialog>(sp => new AvaloniaQueueEditorDialog(
             sp.GetRequiredService<ISkuaQueues>(), sp.GetRequiredService<IQueueScriptSource>(), sp.GetRequiredService<CharacterBook>()));
+        services.AddSingleton(sp => new BoostsViewModel(
+            sp.GetRequiredService<ISkuaBoosts>(), sp.GetRequiredService<CharacterSelection>(), OnUiThread, AvaloniaTicker.EverySecond));
         services.AddSingleton(sp => new QueueViewModel(
             sp.GetRequiredService<ISkuaQueues>(), sp.GetRequiredService<CharacterSelection>(), sp.GetRequiredService<IQueueEditorDialog>(), OnUiThread));
         services.AddSingleton<IAssetSource, EmbeddedAssetSource>();
