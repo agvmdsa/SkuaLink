@@ -75,7 +75,7 @@ describe('parseBoosts', () => {
     expect(kept[1]!.canUse).toBe(false);
   });
   it('anything but an array is none', () => {
-    for (const v of [null, {}, 'x', 5, undefined]) expect(parseBoosts(v)).toEqual([]);
+    for (const v of [null, {}, 'x', 5, undefined, []]) expect(parseBoosts(v)).toEqual([]);
   });
   it('is bounded', () => {
     expect(parseBoosts(Array.from({ length: 9 }, (_, i) => entry({ instanceId: 'i' + i })))).toHaveLength(8);
@@ -103,6 +103,19 @@ describe('rowText', () => {
     expect(rowText(b, 'rep', READ_AT)).toBe('Reputation: inactive');
     expect(rowText(b, 'xp', READ_AT)).toBe('XP: inactive');
     expect(rowText(one({ xp: 120 }), 'xp', READ_AT)).toBe('XP: 2 min left');
+  });
+  it('an unknown readAt shows an active boost without a time, never a wrong one', () => {
+    for (const bad of [undefined, 0, -5, 'x', null, 1.5]) {
+      const m = one({ gold: 840, readAt: bad });
+      for (const now of [0, READ_AT, READ_AT + 900_000]) expect(rowText(m, 'gold', now)).toBe('Gold: active');
+    }
+    expect(rowText(one({ gold: 0, readAt: 0 }), 'gold', READ_AT)).toBe('Gold: inactive');
+  });
+  it('a readAt in the future (phone clock behind) never shows more than the PC read', () => {
+    expect(rowText(b, 'gold', READ_AT - 300_000)).toBe('Gold: 14 min left');
+    expect(rowText(b, 'gold', READ_AT - 1)).toBe('Gold: 14 min left');
+    expect(rowText(one({ class: -1 }), 'class', READ_AT - 300_000)).toBe('Class: active');
+    expect(rowText(b, 'gold', READ_AT + 900_000)).toBe('Gold: 0 min left');
   });
   it('never NaN and never negative', () => {
     for (const now of [0, NaN, Infinity, -Infinity, READ_AT * 2]) {

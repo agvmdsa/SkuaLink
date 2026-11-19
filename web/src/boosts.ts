@@ -51,8 +51,10 @@ export const boostFor = (all: readonly BoostModel[], instanceId: string): BoostM
 export function rowText(b: BoostModel, type: BoostType, nowMs: number): string {
   const name = t(NAMES[type]);
   const v = b.left[type];
-  const seconds = b.online && Number.isFinite(nowMs) ? v - (nowMs - b.readAt) / 1000 : v;
-  return v === 0 ? t('boost.off', { name }) : v < 0 ? t('boost.on', { name }) : t('boost.left', { name, n: Math.max(0, Math.ceil(seconds / 60)) });
+  // Without a known readAt (0) the elapsed time cannot be told: show "active" rather than a wrong time.
+  // The elapsed time is clamped at 0 so a phone clock behind the PC never shows more than the PC read; a clock offset can still shift the minutes (as for the script timer), so the phone clock should be automatic.
+  const seconds = b.online && Number.isFinite(nowMs) ? v - Math.max(0, nowMs - b.readAt) / 1000 : v;
+  return v === 0 ? t('boost.off', { name }) : v < 0 || b.readAt <= 0 ? t('boost.on', { name }) : t('boost.left', { name, n: Math.max(0, Math.ceil(seconds / 60)) });
 }
 
 export const boostApi = {
