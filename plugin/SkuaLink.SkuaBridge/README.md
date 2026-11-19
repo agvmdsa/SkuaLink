@@ -136,7 +136,7 @@ throwaway project and read in the tag source.
   at most 12). Four plain reads per poll (about every 3 s), one Flash call each: `world.myAvatar.objData.iBoostG`,
   `iBoostCP`, `iBoostRep`, `iBoostXP`, through `Flash.GetGameObject<int>`. A read that throws gives no reading (the last
   values stay); Skua's getter answers 0 for a value it cannot read and offers no way to tell that from a real 0, so a drop
-  to 0 is believed only on the second read in a row (about 3 s later). The sampler is reset when another character logs in
+  to 0 is believed only on a second zero at least 5 s after the first (the second poll after it, so the end is noticed about 6 to 9 s after expiry). The sampler is reset when another character logs in
   or after three polls in a row see the character logged out, not on a single logged-out poll (a map change). Sent only
   when a value or the item list changed (and after a reconnect).
 - `status.profile` (AQW-0110): the character's numbers, read on every status (eight plain getters of `IScriptPlayer`, one

@@ -58,6 +58,9 @@ public class BoostDocsTests
     [InlineData("seconds left as of the last sync")]
     [InlineData("stay the same within a session")]
     [InlineData("the only boost notification")]
+    [InlineData("about 6 to 9 seconds after a boost expires")]
+    [InlineData("up to 3 seconds too long")]
+    [InlineData("at least 5 seconds after the first")]
     public void The_readme_describes_the_boosts_their_limits_and_their_privacy(string phrase)
     {
         Assert.Contains(phrase, BoostSection(), StringComparison.Ordinal);

@@ -150,9 +150,9 @@ public class CompositionRootBoostTests
     }
 
     [Fact]
-    public void A_boost_ended_notice_reaches_the_notice_sink_exactly_once_through_the_root_wiring()
+    public void A_boost_ended_notice_reaches_the_notice_sink_exactly_once_through_the_same_wiring_shape_as_the_root()
     {
-        // The same wiring as CompositionRoot: the boost service announces through PhoneHub.Announce, which logs the notice and
+        // The same wiring shape as CompositionRoot (not the real PushNotifier, which the container does not let a test swap): the boost service announces through PhoneHub.Announce, which logs the notice and
         // offers it to the notice sink (in the app, the push notifier).
         var skua = new FakeSkua();
         var sink = new RecordingSink();
