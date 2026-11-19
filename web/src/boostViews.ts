@@ -23,7 +23,7 @@ const item = (i: BoostItem): VNode =>
 export function boostCard(i: SkuaInstance, ui: QueueUi, boosts: unknown, nowMs: number): VNode | null {
   const b = boostFor(parseBoosts(boosts), i.instanceId);
   if (!b || !isLive(i)) return null;
-  if (b.online && BOOST_TYPES.some((type) => b.left[type] > 0)) {
+  if (b.online && b.readAt > 0 && BOOST_TYPES.some((type) => b.left[type] > 0)) {
     seen = Date.now();
     start();
   }

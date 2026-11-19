@@ -221,7 +221,7 @@ describe('the tick', () => {
     expect(redraw).toHaveBeenCalledTimes(10);
   });
   it('does not start when nothing counts, when offline or for an unknown time', async () => {
-    for (const over of [{ gold: 0, class: 0 }, { online: false }, { gold: -1, class: -1 }]) {
+    for (const over of [{ gold: 0, class: 0 }, { online: false }, { gold: -1, class: -1 }, { readAt: 0 }, { readAt: -1 }]) {
       const { boostCard: draw, startBoostTick, ui } = await load();
       const redraw = vi.fn();
       draw(inst(), ui, [entry(over)], READ_AT);
