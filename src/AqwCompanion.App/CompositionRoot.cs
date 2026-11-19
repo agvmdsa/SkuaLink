@@ -10,6 +10,7 @@ using AqwCompanion.App.Infrastructure.AutoStart;
 using AqwCompanion.App.Infrastructure.Persistence;
 using AqwCompanion.App.Phone;
 using AqwCompanion.App.Push;
+using AqwCompanion.App.Boosts;
 using AqwCompanion.App.Queue;
 using AqwCompanion.App.Inventory;
 using AqwCompanion.App.Settings;
@@ -20,6 +21,7 @@ using AqwCompanion.Core.Diagnostics;
 using AqwCompanion.Core.Feed;
 using AqwCompanion.Core.Forgetting;
 using AqwCompanion.Core.Persistence;
+using AqwCompanion.Phone.Boosts;
 using AqwCompanion.Phone.Characters;
 using AqwCompanion.Phone.Devices;
 using AqwCompanion.Phone.Hub;
@@ -137,14 +139,16 @@ public static class CompositionRoot
             characters: sp.GetRequiredService<CharacterBook>(),
             hardFarms: sp.GetRequiredService<IHardFarmsCheck>(),
             notices: sp.GetRequiredService<PushNotifier>(),
-            queues: sp.GetRequiredService<ISkuaQueues>()));
+            queues: sp.GetRequiredService<ISkuaQueues>(),
+            boosts: sp.GetRequiredService<ISkuaBoosts>()));
         services.AddSingleton(sp => new SkuaScriptPrefs(
             new SkuaScriptFile(sp.GetRequiredService<AppPaths>().SkuaScriptPrefsPath), () => DateTimeOffset.UtcNow));
         services.AddSingleton(sp => new SkuaOptionCache(
             new SkuaScriptFile(sp.GetRequiredService<AppPaths>().SkuaScriptOptionsPath), () => DateTimeOffset.UtcNow));
         services.AddSingleton(sp => new SkuaApi(
             sp.GetRequiredService<ISkuaFeed>(), sp.GetRequiredService<ISkuaCommandChannel>(), sp.GetRequiredService<SkuaScriptPrefs>(),
-            sp.GetRequiredService<SkuaOptionCache>(), CultureInfo.CurrentCulture, sp.GetRequiredService<ISkuaQueues>()));
+            sp.GetRequiredService<SkuaOptionCache>(), CultureInfo.CurrentCulture, sp.GetRequiredService<ISkuaQueues>(),
+            sp.GetRequiredService<ISkuaBoosts>()));
         services.AddSingleton<ISkuaLogStores>(sp => new SkuaLogStores(sp.GetRequiredService<AppPaths>().Root));
         services.AddSingleton<ICharacterBookStore>(sp => new StoredCharacterBookStore(sp.GetRequiredService<StoredData>()));
         services.AddSingleton(sp => new CharacterBook(sp.GetRequiredService<ICharacterBookStore>(), () => DateTimeOffset.UtcNow));
@@ -164,6 +168,12 @@ public static class CompositionRoot
             notice => sp.GetRequiredService<PhoneHub>().Announce(notice),   // resolved on the first notice: PhoneHub itself takes the service
             ex => Log.Warning("Queue failed: {ExceptionType}", ex.GetType().Name)));
         services.AddSingleton<ISkuaQueues>(sp => sp.GetRequiredService<SkuaQueueService>());
+        services.AddSingleton(sp => new SkuaBoostService(
+            sp.GetRequiredService<ISkuaFeed>(), sp.GetRequiredService<ISkuaCommandChannel>(), () => DateTimeOffset.UtcNow,
+            notice => sp.GetRequiredService<PhoneHub>().Announce(notice),   // resolved on the first notice: PhoneHub itself takes the service
+            AppInfo.Version,
+            ex => Log.Warning("Boosts failed: {ExceptionType}", ex.GetType().Name)));
+        services.AddSingleton<ISkuaBoosts>(sp => sp.GetRequiredService<SkuaBoostService>());
         services.AddSingleton<IQueueScriptSource>(sp => new SkuaQueueScripts(sp.GetRequiredService<ISkuaFeed>(), sp.GetRequiredService<ISkuaCommandChannel>()));
         services.AddSingleton<IQueueEditorDialog>(sp => new AvaloniaQueueEditorDialog(
             sp.GetRequiredService<ISkuaQueues>(), sp.GetRequiredService<IQueueScriptSource>(), sp.GetRequiredService<CharacterBook>()));
