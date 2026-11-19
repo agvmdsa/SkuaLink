@@ -5,15 +5,16 @@ namespace AqwCompanion.Skua;
 /// status' <see cref="SkuaBoosts"/>: each number is the seconds left as of <c>ReadAt</c> (0 inactive, -1 active with the elapsed time
 /// unknown). The elapsed time is known only for a value the sampler saw change (or saw at an observed login); a plugin that started
 /// after the login, or that was cut off from SkuaLink while a value changed, reports -1 until the next login. Skua's getter answers 0
-/// when a read fails, so a drop to 0 is believed on the second read in a row. Pure; thread-safe.
+/// when a read fails, so a drop to 0 is believed only on a second zero at least <see cref="ZeroConfirm"/> after the first. Pure; thread-safe.
 /// </summary>
 public sealed class SkuaBoostSampler(Func<DateTimeOffset> now)
 {
-    public const int ZeroReads = 2;
+    /// <summary>A drop to 0 is believed only when a second zero read comes at least this long after the first (a failed read also answers 0).</summary>
+    public static readonly TimeSpan ZeroConfirm = TimeSpan.FromSeconds(5);
 
     private readonly object _lock = new();
     private readonly int[] _value = new int[4];
-    private readonly int[] _zeros = new int[4];
+    private readonly DateTimeOffset?[] _zeroSince = new DateTimeOffset?[4];
     private readonly DateTimeOffset?[] _sync = new DateTimeOffset?[4];
     private bool _seenLoggedOut;
     private bool _loggedIn;
@@ -61,20 +62,26 @@ public sealed class SkuaBoostSampler(Func<DateTimeOffset> now)
                 _initialised = false;
             }
 
+            if (!_initialised && raw is not { Count: 4 })
+            {
+                return null;   // nothing was read yet: do not make zeros out of a failed read
+            }
+
             var changed = !_initialised || _last is null;
             for (var i = 0; i < 4; i++)
             {
                 var read = raw is { Count: 4 } ? Math.Max(0, raw[i]) : _value[i];
                 if (_initialised && _value[i] > 0 && read == 0)
                 {
-                    if (++_zeros[i] < ZeroReads)
+                    var first = _zeroSince[i] ??= t;
+                    if (t - first < ZeroConfirm)
                     {
                         read = _value[i];
                     }
                 }
                 else
                 {
-                    _zeros[i] = 0;
+                    _zeroSince[i] = null;
                 }
 
                 if (read != _value[i] || !_initialised)
@@ -110,7 +117,7 @@ public sealed class SkuaBoostSampler(Func<DateTimeOffset> now)
     private void ResetCore()
     {
         Array.Clear(_value);
-        Array.Clear(_zeros);
+        Array.Clear(_zeroSince);
         Array.Clear(_sync);
         _loggedIn = false;
         _initialised = false;

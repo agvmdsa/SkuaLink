@@ -4,7 +4,10 @@ using AqwCompanion.App.Infrastructure.Persistence;
 using AqwCompanion.App.Phone;
 using AqwCompanion.Core.Forgetting;
 using AqwCompanion.Phone.Boosts;
+using AqwCompanion.Core.Feed;
 using AqwCompanion.Phone.Hub;
+using AqwCompanion.Phone.Notices;
+using AqwCompanion.Tests.TestDoubles;
 using AqwCompanion.Phone.Skua;
 using AqwCompanion.Phone.Web;
 using AqwCompanion.Skua;
@@ -102,7 +105,6 @@ public class CompositionRootBoostTests
 
             var coordinator = services.GetRequiredService<ForgetCoordinator>();
             coordinator.Forget();
-            service.Pump();
 
             Assert.Empty(service.Views);
             Assert.Contains("\"boosts\":[]", phone.CurrentJson, StringComparison.Ordinal);
@@ -132,10 +134,49 @@ public class CompositionRootBoostTests
             service.Pump();
 
             Assert.Contains("BoostEnded", phone.CurrentJson, StringComparison.Ordinal);
+            Assert.Equal(1, phone.Current.Notices.Count(n => n.Kind == NoticeKind.BoostEnded));
         }
         finally
         {
             Cleanup(paths);
         }
+    }
+
+    private sealed class RecordingSink : INoticeSink
+    {
+        public List<Notice> Seen { get; } = [];
+
+        public void Publish(Notice notice) => Seen.Add(notice);
+    }
+
+    [Fact]
+    public void A_boost_ended_notice_reaches_the_notice_sink_exactly_once_through_the_root_wiring()
+    {
+        // The same wiring as CompositionRoot: the boost service announces through PhoneHub.Announce, which logs the notice and
+        // offers it to the notice sink (in the app, the push notifier).
+        var skua = new FakeSkua();
+        var sink = new RecordingSink();
+        var now = new DateTimeOffset(2026, 11, 18, 12, 0, 0, TimeSpan.Zero);
+        PhoneHub? hub = null;
+        using var service = new SkuaBoostService(skua, skua, () => now, n => hub!.Announce(n), "0.9.0");
+        hub = new PhoneHub(new FakeFeedSource(new FeedSnapshot(1, new FeedCapture("Listening.", true), null, [], [], null)), new NoticeEngine(), new NoticeLog(50), () => now, skua: skua, notices: sink, boosts: service);
+        using var hubScope = hub;
+        service.Start();
+
+        SkuaHubView World(int gold) =>
+            new([new SkuaInstanceView(
+                "a1", "Hero", SkuaConnection.Connected, new SkuaHello("0.9.0", "1.4.5.0", "a1"),
+                new SkuaStatus(true, "Hero", "Artix", "map", null, false, null, [], [], "idle", Boosts: new SkuaBoosts(gold, 0, 0, 0, now.ToUnixTimeMilliseconds())), [], false)]);
+
+        skua.Current = World(840);
+        skua.Raise();
+        service.Pump();
+        skua.Current = World(0);
+        skua.Raise();
+        service.Pump();
+        skua.Raise();
+        service.Pump();
+
+        Assert.Equal(NoticeKind.BoostEnded, Assert.Single(sink.Seen).Kind);
     }
 }

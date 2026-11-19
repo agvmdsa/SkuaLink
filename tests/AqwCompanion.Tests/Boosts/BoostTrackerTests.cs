@@ -72,7 +72,7 @@ public sealed class BoostTrackerTests
     }
 
     [Fact]
-    public void Disconnect_pauses_the_time_and_the_same_reading_resent_changes_nothing()
+    public void Disconnect_pauses_the_online_time_and_the_same_reading_resent_is_anchored_again_from_its_read_time()
     {
         var t = new BoostTracker();
         var reading = R(1000);
@@ -81,8 +81,8 @@ public sealed class BoostTrackerTests
         Assert.Equal(990, t.Read(T0.AddSeconds(500)).Gold);
         var back = T0.AddSeconds(500);
         t.Observe(new BoostInput("Hero", true, true, R(1000)), back);
-        Assert.Equal(990, t.Read(back).Gold);
-        Assert.Equal(980, t.Read(back.AddSeconds(10)).Gold);
+        Assert.Equal(500, t.Read(back).Gold);
+        Assert.Equal(490, t.Read(back.AddSeconds(10)).Gold);
     }
 
     [Fact]
@@ -222,5 +222,35 @@ public sealed class BoostTrackerTests
         Assert.Equal(0, read.Gold);
         Assert.Empty(read.Items);
         Assert.Empty(In(t, R(0, at: T0.AddSeconds(3)), T0.AddSeconds(3)));
+    }
+
+    [Fact]
+    public void A_reconnect_with_an_identical_reading_then_a_real_expiry_ends_exactly_once()
+    {
+        var t = new BoostTracker();
+        var reading = R(840);
+        In(t, reading, T0);
+        t.Observe(new BoostInput("Hero", true, false, null), T0.AddSeconds(10));
+        var back = T0.AddSeconds(20);
+        Assert.Empty(t.Observe(new BoostInput("Hero", true, true, reading), back));
+
+        var at = T0.AddSeconds(900);
+        Assert.Equal(["gold"], In(t, R(0, at: at), at));
+        Assert.Empty(In(t, R(0, at: at.AddSeconds(6)), at.AddSeconds(6)));
+    }
+
+    [Fact]
+    public void The_countdown_is_re_anchored_when_the_same_reading_comes_back_after_an_outage()
+    {
+        var t = new BoostTracker();
+        var reading = R(1000);
+        In(t, reading, T0);
+        t.Observe(new BoostInput("Hero", true, false, null), T0.AddSeconds(10));
+        var back = T0.AddSeconds(500);
+        t.Observe(new BoostInput("Hero", true, true, reading), back);
+
+        // The game timer ran the whole 500 s while the pipe was away; online time paused, so the reading is re-anchored.
+        Assert.Equal(500, t.Read(back).Gold);
+        Assert.Equal(490, t.Read(back.AddSeconds(10)).Gold);
     }
 }

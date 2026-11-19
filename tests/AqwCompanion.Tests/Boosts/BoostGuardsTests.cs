@@ -55,4 +55,12 @@ public class BoostGuardsTests
 
     [Fact]
     public void Relogin_when_possible_is_allowed() => Assert.Null(BoostGuards.CheckRelogin(View(online: false, canRelogin: true)));
+
+    [Fact]
+    public void Use_while_logged_out_with_the_item_missing_says_not_logged_in() =>
+        Assert.Equal(BoostTexts.NotLoggedIn, BoostGuards.CheckUse(View(online: false, items: GoldItem), 99));
+
+    [Fact]
+    public void Relogin_on_an_unsupported_view_that_is_online_says_not_supported() =>
+        Assert.Equal(BoostTexts.NotSupported, BoostGuards.CheckRelogin(View(supported: false, online: true, canRelogin: true)));
 }

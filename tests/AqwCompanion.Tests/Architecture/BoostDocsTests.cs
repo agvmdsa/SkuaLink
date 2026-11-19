@@ -55,6 +55,9 @@ public class BoostDocsTests
     [InlineData("does not use or equip anything else")]
     [InlineData("the phone's clock")]
     [InlineData("without a Use button")]
+    [InlineData("seconds left as of the last sync")]
+    [InlineData("stay the same within a session")]
+    [InlineData("the only boost notification")]
     public void The_readme_describes_the_boosts_their_limits_and_their_privacy(string phrase)
     {
         Assert.Contains(phrase, BoostSection(), StringComparison.Ordinal);

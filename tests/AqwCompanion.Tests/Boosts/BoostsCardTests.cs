@@ -95,6 +95,27 @@ public class BoostsCardTests
     }
 
     [AvaloniaFact]
+    public void Without_a_view_for_the_selected_character_the_card_is_hidden_and_takes_no_space_and_appears_with_one()
+    {
+        var c = Open(queueSteps: 2, width: 900, height: 600);
+        var card = c.Named<Border>("DashboardBoostsCard");
+
+        Assert.False(c.Vm.HasView);
+        Assert.False(card.IsVisible);
+        Assert.False(card.IsEffectivelyVisible);
+        Assert.Equal(0, card.Bounds.Width);
+        Assert.Equal(0, card.Bounds.Height);
+        Assert.True(c.Named<Border>("DashboardQueueCard").IsEffectivelyVisible);
+
+        c.Boosts.Items.Add(View(gold: 840));
+        Refresh(c);
+
+        Assert.True(c.Vm.HasView);
+        Assert.True(card.IsEffectivelyVisible);
+        Assert.True(card.Bounds.Height > 0);
+    }
+
+    [AvaloniaFact]
     public void The_card_shows_the_rows_the_items_and_no_log_in_button_while_logged_in()
     {
         var c = Open(views: View(gold: 840, cls: -1, items: [Gold(), new BoostItemView(8, "XP Boost! (1 hr)", "xp", 2, true)]));

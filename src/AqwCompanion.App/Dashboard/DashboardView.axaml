@@ -173,7 +173,7 @@
       </Border>
 
       <Border x:Name="DashboardBoostsCard" Grid.Column="1" Classes="card" Margin="6,0,0,0"
-              IsVisible="{Binding Boosts, Converter={x:Static ObjectConverters.IsNotNull}}">
+              IsVisible="{Binding Boosts.HasView, FallbackValue=False}">
         <StackPanel DataContext="{Binding Boosts}" x:DataType="boost:BoostsViewModel" IsVisible="{Binding HasView}">
           <Border Classes="cardHeader">
             <TextBlock Text="{x:Static boost:BoostsViewModel.TitleText}" Classes="cardTitle" />

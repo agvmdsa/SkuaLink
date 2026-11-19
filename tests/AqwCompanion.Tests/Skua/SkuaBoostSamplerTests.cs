@@ -90,7 +90,7 @@ public class SkuaBoostSamplerTests
     }
 
     [Fact]
-    public void A_drop_to_zero_is_believed_on_the_second_read()
+    public void A_drop_to_zero_is_believed_on_a_second_zero_far_enough_after_the_first()
     {
         var s = Sampler();
         s.Sample(Zero, false, []);
@@ -101,7 +101,7 @@ public class SkuaBoostSamplerTests
         Assert.Same(active, held);
         Assert.True(held!.Gold > 0);
 
-        _t += TimeSpan.FromSeconds(3);
+        _t += SkuaBoostSampler.ZeroConfirm;
         var ended = s.Sample(Zero, true, []);
         Assert.Equal(0, ended!.Gold);
         Assert.NotEqual(active!.ReadAt, ended.ReadAt);
@@ -242,5 +242,71 @@ public class SkuaBoostSamplerTests
         });
 
         await Task.WhenAll(gaps, samples);
+    }
+
+    [Fact]
+    public void Two_zeros_three_seconds_apart_do_not_end_the_boost()
+    {
+        var s = Sampler();
+        s.Sample(Zero, false, []);
+        var active = s.Sample(Read(gold: 840), true, []);
+
+        _t += TimeSpan.FromSeconds(3);
+        Assert.Same(active, s.Sample(Zero, true, []));
+        _t += TimeSpan.FromSeconds(3);
+        Assert.Same(active, s.Sample(Zero, true, []));
+        Assert.True(active!.Gold > 0);
+    }
+
+    [Fact]
+    public void Two_zeros_six_seconds_apart_end_the_boost()
+    {
+        var s = Sampler();
+        s.Sample(Zero, false, []);
+        s.Sample(Read(gold: 840), true, []);
+
+        _t += TimeSpan.FromSeconds(3);
+        s.Sample(Zero, true, []);
+        _t += TimeSpan.FromSeconds(6);
+        Assert.Equal(0, s.Sample(Zero, true, [])!.Gold);
+    }
+
+    [Fact]
+    public void A_real_value_between_two_zeros_restarts_the_confirmation()
+    {
+        var s = Sampler();
+        s.Sample(Zero, false, []);
+        var active = s.Sample(Read(gold: 840), true, []);
+
+        _t += TimeSpan.FromSeconds(3);
+        s.Sample(Zero, true, []);
+        _t += TimeSpan.FromSeconds(3);
+        s.Sample(Read(gold: 840), true, []);
+        _t += TimeSpan.FromSeconds(3);
+        Assert.Same(active, s.Sample(Zero, true, []));
+        _t += TimeSpan.FromSeconds(3);
+        Assert.Same(active, s.Sample(Zero, true, []));
+        Assert.True(active!.Gold > 0);
+    }
+
+    [Fact]
+    public void A_failed_first_read_reports_nothing_and_does_not_initialise()
+    {
+        var s = Sampler();
+        s.Sample(Zero, false, []);
+        Assert.Null(s.Sample(null, true, []));
+
+        _t += TimeSpan.FromSeconds(3);
+        Assert.Equal(851, s.Sample(Read(gold: 851), true, [])!.Gold);
+    }
+
+    [Fact]
+    public void A_failed_first_read_on_a_sampler_that_never_saw_a_logout_then_a_value_stays_unknown()
+    {
+        var s = Sampler();
+        Assert.Null(s.Sample(null, true, []));
+
+        _t += TimeSpan.FromSeconds(3);
+        Assert.Equal(-1, s.Sample(Read(gold: 851), true, [])!.Gold);
     }
 }

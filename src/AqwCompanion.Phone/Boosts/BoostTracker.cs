@@ -16,7 +16,8 @@ public sealed record BoostReading(bool Known, bool Online, int Gold, int Class, 
 /// The arithmetic and the end detection of one Skua's boosts, with the clock passed in. Online time (a counter) advances only while
 /// the plugin is connected AND the character is logged in. A NEW reading anchors each type at <c>onlineNow - age</c>, where age is
 /// the time since its <c>readAt</c> (so an app started later still counts the time since the reading); a reading equal to the last
-/// one (the plugin resends its last status on every reconnect) changes nothing. The first reading after a login, a reconnect, a
+/// one changes nothing, unless the time was broken (the plugin resends its last status on every reconnect: it is then anchored again
+/// and ends nothing). The first reading after a login, a reconnect, a
 /// logout or a character change only sets the baseline, so it ends nothing. Not thread-safe.
 /// </summary>
 public sealed class BoostTracker
@@ -63,7 +64,7 @@ public sealed class BoostTracker
         }
 
         _online = true;
-        if (input.Boosts is not { } boosts || (_hasReading && boosts == _lastReading))
+        if (input.Boosts is not { } boosts || (_hasReading && !_break && boosts == _lastReading))
         {
             return [];
         }

@@ -83,12 +83,12 @@ public sealed class SkuaBoostCommands(
             await _delay(ActivationPoll).ConfigureAwait(false);
             if (host.ReadBoostValues() is { Count: 4 } after && after[type] > 0)
             {
-                onChanged?.Invoke();
+                Changed();
                 return Ok(command.ReqId);
             }
         }
 
-        onChanged?.Invoke();
+        Changed();
         return Fail(command.ReqId, NotActivated);
     }
 
@@ -129,11 +129,24 @@ public sealed class SkuaBoostCommands(
                     // The status shows whether the login worked; there is nothing else to do with the failure here.
                 }
 
-                onChanged?.Invoke();
+                Changed();
             });
         }
 
         return Ok(command.ReqId);
+    }
+
+    /// <summary>A failing callback never changes what the command answers.</summary>
+    private void Changed()
+    {
+        try
+        {
+            onChanged?.Invoke();
+        }
+        catch (Exception)
+        {
+            // The answer is already decided; the next status shows the boosts.
+        }
     }
 
     private static ResultMessage Ok(string reqId) => new(reqId, true, null, null, null, null, false, false);

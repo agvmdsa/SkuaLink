@@ -48,6 +48,15 @@ public class SkuaBoostCommandsTests
     }
 
     [Fact]
+    public async Task UseBoost_still_answers_ok_when_the_changed_callback_throws()
+    {
+        _host.ActivateAfterReads = 1;
+        var commands = new SkuaBoostCommands(_host, () => _published, () => _now, _ => Task.CompletedTask, null, () => throw new InvalidOperationException("boom"));
+
+        Assert.Equal(Ok("r1"), await commands.UseAsync(new UseBoostCommand("r1", 17439)));
+    }
+
+    [Fact]
     public async Task UseBoost_that_does_not_activate_answers_the_game_text_and_never_retries()
     {
         var result = await New().UseAsync(new UseBoostCommand("r1", 17439));
